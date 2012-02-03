@@ -72,6 +72,36 @@ vmware://*)
     exec_and_log "chmod 0770 $DST"
     ;;
 
+vmdk://*)
+    SRC=`echo $SRC|sed  's/vmdk:\/\///g'`
+
+    if [ `check_restricted $SRC` -eq 1 ]; then
+        log_error "Not allowed to copy images from $RESTRICTED_DIRS"
+        error_message "Not allowed to copy image file $SRC"
+        exit -1
+    fi
+
+    if [ -z `which vmware-vdiskmanager` ]; then
+    	log_error "vmware-vdiskmanager not found! vmdk scheme requires VMWare Virtual Disk Development Kit installed."
+        error_message "vmware-vdiskmanager not found!"
+        exit -1
+	fi
+    	
+    log "Copying Virtual Disk $SRC to the image repository"
+    
+    exec_and_log "mkdir -p $DST" \
+        "Error creating image directory $DST"
+        
+    exec_and_log "vmware-vdiskmanager -r $SRC -t 5 -q $DST/disk.vmdk" \
+        "vmware-vdiskmanager -r $SRC -t 5 -q $DST/disk.vmdk"
+
+    if [ ! -f $DST/disk.vmdk ]; then
+        error_message "Copy error!"
+    fi
+
+    exec_and_log "chmod 0770 $DST"
+    ;;
+
 *)
     if [ `check_restricted $SRC` -eq 1 ]; then
         log_error "Not allowed to copy images from $RESTRICTED_DIRS"
