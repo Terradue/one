@@ -72,6 +72,7 @@ vmware://*)
     exec_and_log "chmod 0770 $DST"
     ;;
 
+# Added by manu for managing mvdk files properly
 vmdk://*)
     SRC=`echo $SRC|sed  's/vmdk:\/\///g'`
 
