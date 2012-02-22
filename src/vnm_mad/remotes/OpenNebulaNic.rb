@@ -25,6 +25,9 @@ class Nics < Array
         when "vmware"
             @nicClass = NicVMware
         end
+        when "vmware2"
+            @nicClass = NicVMware2
+        end
     end
 
     def new_nic
@@ -123,6 +126,21 @@ end
 # A NIC using VMware. This class implements functions to get the physical interface
 # that the NIC is using
 class NicVMware < Hash
+    def initialize
+        super(nil)
+    end
+
+    def get_info(vm)
+    end
+
+    def get_tap(vm)
+        self
+    end
+end
+
+# A NIC using VMware2. This class implements functions to get the physical interface
+# that the NIC is using
+class NicVMware2 < Hash
     def initialize
         super(nil)
     end

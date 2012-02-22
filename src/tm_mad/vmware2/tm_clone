@@ -1,0 +1,55 @@
+#!/usr/bin/env ruby
+
+# -------------------------------------------------------------------------- #
+# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+#                                                                            #
+# Licensed under the Apache License, Version 2.0 (the "License"); you may    #
+# not use this file except in compliance with the License. You may obtain    #
+# a copy of the License at                                                   #
+#                                                                            #
+# http://www.apache.org/licenses/LICENSE-2.0                                 #
+#                                                                            #
+# Unless required by applicable law or agreed to in writing, software        #
+# distributed under the License is distributed on an "AS IS" BASIS,          #
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   #
+# See the License for the specific language governing permissions and        #
+# limitations under the License.                                             #
+#--------------------------------------------------------------------------- #
+# $stdout = $stderr
+
+ONE_LOCATION=ENV["ONE_LOCATION"]
+
+if !ONE_LOCATION
+  VMDIR="/var/lib/one"
+else
+  VMDIR=ONE_LOCATION+"/var"
+end
+
+$: << File.dirname(__FILE__)
+$: << File.join(File.dirname(__FILE__), "..")
+
+
+require 'VMKFSDriver'
+
+src      = ARGV[0]
+dst      = ARGV[1]
+
+src_host = src.split(":")[0]
+src_path = src.split(":")[1].squeeze("/")
+
+dst_host = dst.split(":")[0]
+dst_path = dst.split(":")[1].squeeze("/")
+
+vm_id = dst_path.gsub(VMDIR.squeeze("/"),"").split("/")[1]
+disk_id = dst_path.gsub(VMDIR.squeeze("/"),"").split("/")[3]
+
+src_ext = File.extname(src_path)
+
+case src_ext
+when ".vmdk" then
+  vmkfs = VMKSFSDriver.new(dst_host)
+  vmkfs.clone(src_path,"one-"+vm_id+"/"+disk_id+".vmdk")
+else
+  command = File.dirname(__FILE__)+"/tm_clone.sh"
+  puts `#{command} #{src} #{dst}`
+end

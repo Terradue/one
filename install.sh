@@ -188,6 +188,7 @@ ETC_DIRS="$ETC_LOCATION/image \
           $ETC_LOCATION/tm_ssh \
           $ETC_LOCATION/tm_dummy \
           $ETC_LOCATION/tm_vmware \
+          $ETC_LOCATION/tm_vmware2 \
           $ETC_LOCATION/tm_lvm \
           $ETC_LOCATION/hm \
           $ETC_LOCATION/auth \
@@ -211,6 +212,7 @@ LIB_DIRS="$LIB_LOCATION/ruby \
           $LIB_LOCATION/tm_commands/dummy \
           $LIB_LOCATION/tm_commands/lvm \
           $LIB_LOCATION/tm_commands/vmware \
+          $LIB_LOCATION/tm_commands/vmware2 \
           $LIB_LOCATION/mads \
           $LIB_LOCATION/sh \
           $LIB_LOCATION/ruby/cli \
@@ -222,6 +224,7 @@ VAR_DIRS="$VAR_LOCATION/remotes \
           $VAR_LOCATION/remotes/im/kvm.d \
           $VAR_LOCATION/remotes/im/xen.d \
           $VAR_LOCATION/remotes/im/vmware.d \
+          $VAR_LOCATION/remotes/im/vmware2.d \
           $VAR_LOCATION/remotes/im/ganglia.d \
           $VAR_LOCATION/remotes/vmm/kvm \
           $VAR_LOCATION/remotes/vnm \
@@ -231,8 +234,10 @@ VAR_DIRS="$VAR_LOCATION/remotes \
           $VAR_LOCATION/remotes/vnm/fw \
           $VAR_LOCATION/remotes/vnm/ovswitch \
           $VAR_LOCATION/remotes/vnm/vmware \
+          $VAR_LOCATION/remotes/vnm/vmware2 \
           $VAR_LOCATION/remotes/vmm/xen \
           $VAR_LOCATION/remotes/vmm/vmware \
+          $VAR_LOCATION/remotes/vmm/vmware2 \
           $VAR_LOCATION/remotes/hooks \
           $VAR_LOCATION/remotes/hooks/ft \
           $VAR_LOCATION/remotes/image \
@@ -368,6 +373,7 @@ INSTALL_FILES=(
     IM_PROBES_KVM_FILES:$VAR_LOCATION/remotes/im/kvm.d
     IM_PROBES_XEN_FILES:$VAR_LOCATION/remotes/im/xen.d
     IM_PROBES_VMWARE_FILES:$VAR_LOCATION/remotes/im/vmware.d
+    IM_PROBES_VMWARE2_FILES:$VAR_LOCATION/remotes/im/vmware2.d
     IM_PROBES_GANGLIA_FILES:$VAR_LOCATION/remotes/im/ganglia.d
     AUTH_SSH_FILES:$VAR_LOCATION/remotes/auth/ssh
     AUTH_X509_FILES:$VAR_LOCATION/remotes/auth/x509
@@ -380,9 +386,11 @@ INSTALL_FILES=(
     VMM_EXEC_KVM_SCRIPTS:$VAR_LOCATION/remotes/vmm/kvm
     VMM_EXEC_XEN_SCRIPTS:$VAR_LOCATION/remotes/vmm/xen
     VMM_EXEC_VMWARE_SCRIPTS:$VAR_LOCATION/remotes/vmm/vmware
+    VMM_EXEC_VMWARE2_SCRIPTS:$VAR_LOCATION/remotes/vmm/vmware2
     SHARED_TM_COMMANDS_LIB_FILES:$LIB_LOCATION/tm_commands/shared
     SSH_TM_COMMANDS_LIB_FILES:$LIB_LOCATION/tm_commands/ssh
     VMWARE_TM_COMMANDS_LIB_FILES:$LIB_LOCATION/tm_commands/vmware
+    VMWARE2_TM_COMMANDS_LIB_FILES:$LIB_LOCATION/tm_commands/vmware2
     DUMMY_TM_COMMANDS_LIB_FILES:$LIB_LOCATION/tm_commands/dummy
     LVM_TM_COMMANDS_LIB_FILES:$LIB_LOCATION/tm_commands/lvm
     IMAGE_DRIVER_FS_SCRIPTS:$VAR_LOCATION/remotes/image/fs
@@ -393,6 +401,7 @@ INSTALL_FILES=(
     NETWORK_FW_FILES:$VAR_LOCATION/remotes/vnm/fw
     NETWORK_OVSWITCH_FILES:$VAR_LOCATION/remotes/vnm/ovswitch
     NETWORK_VMWARE_FILES:$VAR_LOCATION/remotes/vnm/vmware
+    NETWORK_VMWARE2_FILES:$VAR_LOCATION/remotes/vnm/vmware2
     EXAMPLE_SHARE_FILES:$SHARE_LOCATION/examples
     INSTALL_NOVNC_SHARE_FILE:$SHARE_LOCATION
     INSTALL_GEMS_SHARE_FILE:$SHARE_LOCATION
@@ -531,6 +540,7 @@ INSTALL_ETC_FILES=(
     TM_DUMMY_ETC_FILES:$ETC_LOCATION/tm_dummy
     TM_LVM_ETC_FILES:$ETC_LOCATION/tm_lvm
     TM_VMWARE_ETC_FILES:$ETC_LOCATION/tm_vmware
+    TM_VMWARE2_ETC_FILES:$ETC_LOCATION/tm_vmware2
     HM_ETC_FILES:$ETC_LOCATION/hm
     AUTH_ETC_FILES:$ETC_LOCATION/auth
     ECO_ETC_FILES:$ETC_LOCATION
@@ -675,6 +685,21 @@ VMM_EXEC_VMWARE_SCRIPTS="src/vmm_mad/remotes/vmware/cancel \
                          src/vmm_mad/remotes/vmware/checkpoint \
                          src/vmm_mad/remotes/vmware/shutdown \
                          src/vmm_mad/remotes/vmware/vmware_driver.rb"
+                        
+#-------------------------------------------------------------------------------
+# VMM Driver VMWARE2 scripts, to be installed under $REMOTES_LOCATION/vmm/vmware
+#-------------------------------------------------------------------------------
+
+VMM_EXEC_VMWARE2_SCRIPTS="src/vmm_mad/remotes/vmware2/cancel \
+                          src/vmm_mad/remotes/vmware2/deploy \
+                          src/vmm_mad/remotes/vmware2/migrate \
+                          src/vmm_mad/remotes/vmware2/restore \
+                          src/vmm_mad/remotes/vmware2/reboot \
+                          src/vmm_mad/remotes/vmware2/save \
+                          src/vmm_mad/remotes/vmware2/poll \
+                          src/vmm_mad/remotes/vmware2/checkpoint \
+                          src/vmm_mad/remotes/vmware2/shutdown \
+                          src/vmm_mad/remotes/vmware2/vmware_driver.rb"
 
 #-------------------------------------------------------------------------------
 # Information Manager Probes, to be installed under $REMOTES_LOCATION/im
@@ -693,6 +718,7 @@ IM_PROBES_XEN_FILES="src/im_mad/remotes/xen.d/xen.rb \
                      src/im_mad/remotes/xen.d/name.sh"
 
 IM_PROBES_VMWARE_FILES="src/im_mad/remotes/vmware.d/vmware.rb"
+IM_PROBES_VMWARE2_FILES="src/im_mad/remotes/vmware2.d/vmware2.rb"
 
 IM_PROBES_GANGLIA_FILES="src/im_mad/remotes/ganglia.d/ganglia_probe"
 
@@ -751,6 +777,11 @@ NETWORK_VMWARE_FILES="src/vnm_mad/remotes/vmware/clean \
                     src/vnm_mad/remotes/vmware/post \
                     src/vnm_mad/remotes/vmware/pre \
                     src/vnm_mad/remotes/vmware/VMware.rb"
+                    
+NETWORK_VMWARE2_FILES="src/vnm_mad/remotes/vmware2/clean \
+                    src/vnm_mad/remotes/vmware2/post \
+                    src/vnm_mad/remotes/vmware2/pre \
+                    src/vnm_mad/remotes/vmware2/VMware2.rb"
 
 
 #-------------------------------------------------------------------------------
@@ -792,6 +823,12 @@ VMWARE_TM_COMMANDS_LIB_FILES="src/tm_mad/vmware/tm_clone.sh \
                              src/tm_mad/vmware/tm_mv.sh \
                              src/tm_mad/vmware/functions.sh \
                              src/tm_mad/vmware/tm_context.sh"
+                            
+VMWARE2_TM_COMMANDS_LIB_FILES="src/tm_mad/vmware2/tm_clone.sh \
+                             src/tm_mad/vmware2/tm_ln.sh \
+                             src/tm_mad/vmware2/tm_mv.sh \
+                             src/tm_mad/vmware2/functions.sh \
+                             src/tm_mad/vmware2/tm_context.sh"
 
 #-------------------------------------------------------------------------------
 # Image Repository drivers, to be installed under $REMOTES_LOCATION/image
@@ -832,6 +869,8 @@ ETC_FILES="share/etc/oned.conf \
 
 VMWARE_ETC_FILES="src/vmm_mad/remotes/vmware/vmwarerc"
 
+VMWARE2_ETC_FILES="src/vmm_mad/remotes/vmware2/vmware2rc"
+
 #-------------------------------------------------------------------------------
 # Virtualization drivers config. files, to be installed under $ETC_LOCATION
 #   - ec2, $ETC_LOCATION/vmm_ec2
@@ -844,7 +883,8 @@ VMM_EC2_ETC_FILES="src/vmm_mad/ec2/vmm_ec2rc \
 VMM_EXEC_ETC_FILES="src/vmm_mad/exec/vmm_execrc \
                   src/vmm_mad/exec/vmm_exec_kvm.conf \
                   src/vmm_mad/exec/vmm_exec_xen.conf \
-                  src/vmm_mad/exec/vmm_exec_vmware.conf"
+                  src/vmm_mad/exec/vmm_exec_vmware.conf \
+                  src/vmm_mad/exec/vmm_exec_vmware2.conf"
 
 #-------------------------------------------------------------------------------
 # Information drivers config. files, to be installed under $ETC_LOCATION
@@ -875,6 +915,8 @@ TM_LVM_ETC_FILES="src/tm_mad/lvm/tm_lvm.conf \
                   src/tm_mad/lvm/tm_lvmrc"
 
 TM_VMWARE_ETC_FILES="src/tm_mad/vmware/tm_vmware.conf"
+
+TM_VMWARE2_ETC_FILES="src/tm_mad/vmware2/tm_vmware2.conf"
 
 #-------------------------------------------------------------------------------
 # Hook Manager driver config. files, to be installed under $ETC_LOCATION/hm

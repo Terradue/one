@@ -41,6 +41,7 @@ public:
 
 private:
     static const char * vmware_vnm_name;
+    static const char * vmware2_vnm_name;
     
     int deployment_description(
         const VirtualMachine *  vm,
@@ -56,6 +57,10 @@ private:
         {
             rc = deployment_description_vmware(vm,file_name);
         }
+        else if (emulator == "vmware2")
+        {
+            rc = deployment_description_vmware2(vm,file_name);
+        }
 
         return rc;
     }
@@ -65,6 +70,10 @@ private:
         const string&           file_name) const;
 
     int deployment_description_vmware(
+        const VirtualMachine *  vm,
+        const string&           file_name) const;
+        
+    int deployment_description_vmware2(
         const VirtualMachine *  vm,
         const string&           file_name) const;
 
