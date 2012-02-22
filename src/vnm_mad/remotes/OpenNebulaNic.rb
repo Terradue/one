@@ -24,7 +24,6 @@ class Nics < Array
             @nicClass = NicXen
         when "vmware"
             @nicClass = NicVMware
-        end
         when "vmware2"
             @nicClass = NicVMware2
         end

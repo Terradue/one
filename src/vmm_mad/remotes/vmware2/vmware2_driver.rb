@@ -135,13 +135,19 @@ class VMware2Driver
         return "STATE=d" if rc == false
 
         state = ""
+        usedmemory = ""
 
         info.split('\n').each{ |line|
             mdata = line.match("^State: (.*)")
 
             if mdata
                 state = mdata[1].strip
-                break
+            end
+            
+            mdata = line.match("^Used memory: (.*) .*B")
+
+            if mdata
+                usedmemory = mdata[1].strip
             end
         }
 
@@ -156,7 +162,7 @@ class VMware2Driver
                 state_short = 'd'
         end
 
-        return "STATE=#{state_short}"
+        return "STATE=#{state_short} USEDMEMORY=#{usedmemory}"
     end
 
     # ------------------------------------------------------------------------ #

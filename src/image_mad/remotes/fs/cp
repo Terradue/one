@@ -72,7 +72,7 @@ vmware://*)
     exec_and_log "chmod 0770 $DST"
     ;;
 
-# Added by manu for managing mvdk files properly
+# Managing vmdk files properly
 vmdk://*)
     SRC=`echo $SRC|sed  's/vmdk:\/\///g'`
 
@@ -95,12 +95,15 @@ vmdk://*)
         
     exec_and_log "vmware-vdiskmanager -r $SRC -t 5 -q $DST/disk.vmdk" \
         "vmware-vdiskmanager -r $SRC -t 5 -q $DST/disk.vmdk"
+        
+    exec_and_log "chmod 0770 $DST"
+    
+    DST=$DST/disk.vmdk
 
-    if [ ! -f $DST/disk.vmdk ]; then
+    if [ ! -f $DST ]; then
         error_message "Copy error!"
     fi
-
-    exec_and_log "chmod 0770 $DST"
+    
     ;;
 
 *)

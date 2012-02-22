@@ -103,15 +103,9 @@ int Image::insert(SqlDB *db, string& error_str)
 
     if ( uid != 0 && gid != GroupPool::ONEADMIN_ID )
     {
-<<<<<<< HEAD
         ImageTemplate *img_template = static_cast<ImageTemplate *>(obj_template);
 
         if (img_template->check(aname))
-=======
-        ImageTemplate *img_tmpl = static_cast<ImageTemplate *>(obj_template);
-
-        if (img_tmpl->check(aname))
->>>>>>> OpenNebula/one-3.2
         {
             goto error_restricted;
         }
@@ -202,11 +196,6 @@ int Image::insert(SqlDB *db, string& error_str)
     rc = insert_replace(db, false, error_str);
 
     return rc;
-
-error_restricted:
-    oss << "Template includes a restricted attribute " << aname << ".";
-    error_str = oss.str();
-    goto error_common;
 
 error_type:
     error_str = "Incorrect TYPE in template.";

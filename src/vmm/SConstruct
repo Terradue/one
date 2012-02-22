@@ -27,6 +27,7 @@ source_files=[
     'XenDriver.cc',
     'LibVirtDriverKVM.cc',
     'LibVirtDriverVMware.cc',
+    'LibVirtDriverVMware2.cc',
     'XMLDriver.cc'
 ]
 

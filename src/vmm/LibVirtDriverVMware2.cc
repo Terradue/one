@@ -25,12 +25,13 @@
 /* Virtual Network :: Database Access Functions                               */
 /* ************************************************************************** */
 
-const char * LibVirtDriver::vmware_vnm_name = "vmware2";
+const char * LibVirtDriver::vmware2_vnm_name = "vmware2";
 
 int LibVirtDriver::deployment_description_vmware2(
         const VirtualMachine *  vm,
         const string&           file_name) const
 {
+   
     ofstream                    file;
 
     int                         num;
@@ -68,6 +69,15 @@ int LibVirtDriver::deployment_description_vmware2(
     string data;
 
     // ------------------------------------------------------------------------
+    // Loading Host to get host information
+    // ------------------------------------------------------------------------
+    
+    Nebula&    nd    = Nebula::instance();
+    HostPool * hpool = nd.get_hpool();
+    VirtualMachinePool * vmpool = nd.get_vmpool();
+
+
+    // ------------------------------------------------------------------------
 
     file.open(file_name.c_str(), ios::out);
 
@@ -80,7 +90,7 @@ int LibVirtDriver::deployment_description_vmware2(
     // Starting XML document
     // ------------------------------------------------------------------------
 
-    file << "<domain type='" << emulator << "'>" << endl;
+    file << "<domain type='" << "vmware" << "'>" << endl;
 
     // ------------------------------------------------------------------------
     // Domain name
@@ -177,7 +187,10 @@ int LibVirtDriver::deployment_description_vmware2(
 
     if (num!=0)
     {
-        get_default("DATASTORE", datastore);
+        VirtualMachine * vm2 = vmpool->get(vm->get_oid(),false);
+        vm2->hasHistory();
+        int hid = vm2->get_hid();
+        hpool->get(hid,false)->get_template_attribute("DATASTORE",datastore);
     }
 
     for (int i=0; i < num ;i++)
@@ -221,20 +234,20 @@ int LibVirtDriver::deployment_description_vmware2(
         if ( type == "BLOCK" )
         {
             file << "\t\t<disk type='block' device='disk'>" << endl;
-            file << "\t\t\t<source file=[" <<  datastore << "] " << vm->get_oid()
-                << "/images/disk."  << i << "'/>"  << endl;
+            file << "\t\t\t<source file=[" <<  datastore << "] one-" << vm->get_oid()
+                << "/disk."  << i << "'/>"  << endl;
         }
         else if ( type == "CDROM" )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
-            file << "\t\t\t<source file=[" <<  datastore << "] " << vm->get_oid()
-                << "/images/disk."  << i << ".iso'/>"  << endl;
+            file << "\t\t\t<source file=[" <<  datastore << "] one-" << vm->get_oid()
+                << "/disk."  << i << ".iso'/>"  << endl;
         }
         else
         {
             file << "\t\t<disk type='file' device='disk'>" << endl
-                 << "\t\t\t<source file='[" <<  datastore <<"] " << vm->get_oid()
-                 << "/images/disk." << i << "/disk.vmdk'/>" << endl;
+                 << "\t\t\t<source file='[" <<  datastore <<"] one-" << vm->get_oid()
+                 << "/disk." << i << ".vmdk'/>" << endl;
         }
 
         file << "\t\t\t<target dev='" << target << "'";
