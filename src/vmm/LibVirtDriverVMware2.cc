@@ -53,6 +53,7 @@ int LibVirtDriver::deployment_description_vmware2(
     string  ro         = "";
     string  source     = "";
     string  datastore  = "";
+    string  imagestore = "";
     string  driver     = "";
     string  default_driver = "";
     bool    readonly;
@@ -191,6 +192,12 @@ int LibVirtDriver::deployment_description_vmware2(
         vm2->hasHistory();
         int hid = vm2->get_hid();
         hpool->get(hid,false)->get_template_attribute("DATASTORE",datastore);
+        hpool->get(hid,false)->get_template_attribute("IMAGESTORE",imagestore);
+    }
+    
+    if (datastore.empty() || imagestore.empty())
+    {
+        goto error_vmware_datastore;
     }
 
     for (int i=0; i < num ;i++)
@@ -240,8 +247,8 @@ int LibVirtDriver::deployment_description_vmware2(
         else if ( type == "CDROM" )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
-            file << "\t\t\t<source file=[" <<  datastore << "] one-" << vm->get_oid()
-                << "/disk."  << i << ".iso'/>"  << endl;
+            file << "\t\t\t<source file=[" <<  imagestore << "] " << vm->get_oid()
+                << "/images/disk."  << i << ".iso'/>"  << endl;
         }
         else
         {
@@ -296,8 +303,8 @@ int LibVirtDriver::deployment_description_vmware2(
         if ( !target.empty() )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
-            file << "\t\t\t<source file='[" <<  datastore <<"] " << vm->get_oid()
-                 << "/disk." << num << ".iso'/>" << endl;
+            file << "\t\t\t<source file='[" <<  imagestore <<"] " << vm->get_oid()
+                 << "/images/disk." << num << ".iso'/>" << endl;
             file << "\t\t\t<target dev='" << target << "'/>" << endl;
             file << "\t\t\t<readonly/>" << endl;
             file << "\t\t</disk>" << endl;
@@ -421,6 +428,11 @@ error_vmware_memory:
 
 error_vmware_disk:
     vm->log("VMM", Log::ERROR, "Wrong target value in DISK.");
+    file.close();
+    return -1;
+    
+error_vmware_datastore:
+    vm->log("VMM", Log::ERROR, "No DATASTORE or IMAGESTORE defined in host tample.");
     file.close();
     return -1;
 }

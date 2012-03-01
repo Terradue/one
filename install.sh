@@ -829,6 +829,8 @@ VMWARE2_TM_COMMANDS_LIB_FILES="src/tm_mad/vmware2/tm_clone.sh \
 								src/tm_mad/vmware2/tm_delete \
                              src/tm_mad/vmware2/tm_ln.sh \
                              src/tm_mad/vmware2/tm_mv.sh \
+							 src/tm_mad/vmware2/tm_mv \
+							src/tm_mad/vmware2/tm_mkimage \
                              src/tm_mad/vmware2/functions.sh \
                             src/tm_mad/vmware2/tm_context.sh \
                             src/tm_mad/vmware2/VMKFSDriver.rb"

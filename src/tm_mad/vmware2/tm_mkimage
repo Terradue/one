@@ -30,23 +30,12 @@ $: << File.join(File.dirname(__FILE__), "..")
 
 require 'VMKFSDriver'
 
-src      = ARGV[0]
-dst      = ARGV[1]
-
-src_host = src.split(":")[0]
-src_path = src.split(":")[1].squeeze("/")
+size     = ARGV[0]
+format   = ARGV[1]
+dst      = ARGV[2]
 
 dst_host = dst.split(":")[0]
 dst_path = dst.split(":")[1].squeeze("/")
 
-
-src_ext = File.extname(src_path)
-
-case src_ext
-when ".vmdk" then
-  vmkfs = VMKSFSDriver.new(dst_host)
-  vmkfs.clone(src_path,dst_path)
-else
-  command = File.dirname(__FILE__)+"/tm_clone.sh"
-  puts `#{command} #{src} #{dst}`
-end
+vmkfs = VMKSFSDriver.new(dst_host)
+vmkfs.mkimage(size,format,dst_path)

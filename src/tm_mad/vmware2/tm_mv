@@ -39,14 +39,31 @@ src_path = src.split(":")[1].squeeze("/")
 dst_host = dst.split(":")[0]
 dst_path = dst.split(":")[1].squeeze("/")
 
+hostname=`hostname`.tr("\n","")
 
-src_ext = File.extname(src_path)
-
-case src_ext
-when ".vmdk" then
-  vmkfs = VMKSFSDriver.new(dst_host)
-  vmkfs.clone(src_path,dst_path)
+# Transfer from one to host
+if src_host == hostname
+  if src_path.match(".*(\/images$)")
+    then
+    vmkfs = VMKSFSDriver.new(dst_host)
+    vmkfs.mvdirto(src_path,dst_path)
+  elsif src_path.match(".*(\/disk\..*$)")
+    vmkfs = VMKSFSDriver.new(dst_host)
+    vmkfs.mvto(src_path,dst_path)
+  else
+    command = File.dirname(__FILE__)+"/tm_mv.sh"
+    puts `#{command} #{src} #{dst}`
+  end
 else
-  command = File.dirname(__FILE__)+"/tm_clone.sh"
-  puts `#{command} #{src} #{dst}`
+  if src_path.match(".*(\/images$)")
+    then
+    vmkfs = VMKSFSDriver.new(src_host)
+    vmkfs.mvdirfrom(src_path,dst_path)
+  elsif src_path.match(".*(\/disk\..*$)")
+    vmkfs = VMKSFSDriver.new(src_host)
+    vmkfs.mvfrom(src_path,dst_path)
+  else
+    command = File.dirname(__FILE__)+"/tm_mv.sh"
+    puts `#{command} #{src} #{dst}`
+  end
 end

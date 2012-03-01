@@ -28,7 +28,6 @@ end
 $: << File.dirname(__FILE__)
 $: << File.join(File.dirname(__FILE__), "..")
 
-
 require 'VMKFSDriver'
 
 dst      = ARGV[0]
@@ -36,8 +35,11 @@ dst      = ARGV[0]
 dst_host = dst.split(":")[0]
 dst_path = dst.split(":")[1].squeeze("/")
 
-vm_id = dst_path.gsub(VMDIR.squeeze("/"),"").split("/")[1]
-disk_id = dst_path.gsub(VMDIR.squeeze("/"),"").split("/")[3]
-
-vmkfs = VMKSFSDriver.new(dst_host)
-vmkfs.delete("one-"+vm_id)
+if dst_path.match(".*(\/images$)")
+  then
+  vmkfs = VMKSFSDriver.new(dst_host)
+  vmkfs.deletedir(dst_path)
+else
+  vmkfs = VMKSFSDriver.new(dst_host)
+  vmkfs.delete(dst_path)
+end
