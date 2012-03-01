@@ -15,16 +15,19 @@
 /* -------------------------------------------------------------------------- */
 
 /*Virtual Machines tab plugin*/
-//var INCLUDE_URI = "vendor/noVNC/include/";
+var INCLUDE_URI = "vendor/noVNC/include/";
 //var VM_HISTORY_LENGTH = 40;
 
-/*
+
 function loadVNC(){
     var script = '<script src="vendor/noVNC/include/vnc.js"></script>';
     document.write(script);
 }
 loadVNC();
+var vnc_enable=false;
+var use_wss=false;
 
+/*
 var vm_graphs = [
     { title : tr("CPU"),
       monitor_resources : "cpu_usage",
@@ -89,8 +92,11 @@ var create_vm_tmpl ='<form id="create_vm_form" action="">\
            </select>\
         </fieldset>\
         <fieldset>\
-           <label for="vm_n_times">'+tr("Create # VMs")+':</label>\
-           <input type="text" name="vm_n_times" id="vm_n_times" value="1">\
+           <div>\
+             <label for="vm_n_times">'+tr("Create # VMs")+':</label>\
+             <input type="text" name="vm_n_times" id="vm_n_times" value="1">\
+             <div class="tip">'+tr("You can use the wildcard %i. When creating several VMs, %i will be replaced with a different number starting from 0 in each of them")+'.</div>\
+           </div>\
         </fieldset>\
           <div class="form_buttons">\
             <button type="button" class="vm_close_dialog_link">'+tr("Close")+'</button>\
@@ -147,13 +153,6 @@ var vm_actions = {
         error: onError
     },
 
-    "VM.showstate" : {
-        type: "single",
-        call: OCCI.VM.show,
-        callback: updateVMStateCB,
-        error: onError
-    },
-
     "VM.refresh" : {
         type: "custom",
         call : function (){
@@ -172,7 +171,7 @@ var vm_actions = {
     "VM.suspend" : {
         type: "multiple",
         call: OCCI.VM.suspend,
-        callback: updateVMStateCB,
+        callback: updateVMachineElement,
         elements: vmElements,
         error: onError,
         notify: true
@@ -181,7 +180,7 @@ var vm_actions = {
     "VM.resume" : {
         type: "multiple",
         call: OCCI.VM.resume,
-        callback: updateVMStateCB,
+        callback: updateVMachineElement,
         elements: vmElements,
         error: onError,
         notify: true
@@ -190,7 +189,7 @@ var vm_actions = {
     "VM.stop" : {
         type: "multiple",
         call: OCCI.VM.stop,
-        callback: updateVMStateCB,
+        callback: updateVMachineElement,
         elements: vmElements,
         error: onError,
         notify: true
@@ -208,7 +207,7 @@ var vm_actions = {
     "VM.shutdown" : {
         type: "multiple",
         call: OCCI.VM.shutdown,
-        callback: updateVMStateCB,
+        callback: updateVMachineElement,
         elements: vmElements,
         error: onError,
         notify: true
@@ -217,7 +216,7 @@ var vm_actions = {
     "VM.cancel" : {
         type: "multiple",
         call: OCCI.VM.cancel,
-        callback: updateVMStateCB,
+        callback: updateVMachineElement,
         elements: vmElements,
         error: onError,
         notify: true
@@ -234,7 +233,7 @@ var vm_actions = {
     "VM.saveas" : {
         type: "single",
         call: OCCI.VM.saveas,
-        callback: updateVMStateCB,
+        callback: updateVMachineElement,
         error:onError
     },
 
@@ -253,7 +252,7 @@ var vm_actions = {
             };
             var options = "";
             for (var i = 0; i<response.length; i++){
-                var type = response[i].INSTANCE_TYPE.NAME;
+                var type = response[i].INSTANCE_TYPE.name;
                 options += '<option value="'+type+'">'+type+'</option>';
             };
             $('#dialog select#instance_type').html(options);
@@ -261,7 +260,6 @@ var vm_actions = {
         error: onError
     },
 
-    /*
     "VM.startvnc" : {
         type: "single",
         call: OCCI.VM.startvnc,
@@ -277,6 +275,7 @@ var vm_actions = {
         notify: true
     },
 
+/*
     "VM.monitor" : {
         type: "monitor",
         call : OCCI.VM.monitor,
@@ -417,7 +416,7 @@ function vMachineElementArray(vm_json){
     return [
         '<input class="check_item" type="checkbox" id="vm_'+id+'" name="selected_items" value="'+id+'"/>',
         id,
-        name
+        VMStateBulletStr(vm_json) + name
     ];
 }
 
@@ -467,16 +466,15 @@ function updateVMachinesView(request, vmachine_list){
     $.each(vmachine_list,function(){
         el_array = vMachineElementArray(this);
         vmachine_list_array.push(el_array);
-        Sunstone.runAction("VM.showstate",el_array[1]);
     });
 
     updateView(vmachine_list_array,dataTable_vMachines);
     updateDashboard("vms",vmachine_list);
 };
 
-function updateVMStateCB(request,vm){
+function VMStateBulletStr(vm){
     var vm_state = vm.COMPUTE.STATE;
-    var state_html = vm_state;
+    var state_html = "";
     switch (vm_state) {
     case "INIT":
     case "PENDING":
@@ -493,13 +491,8 @@ function updateVMStateCB(request,vm){
         state_html = '<img style="display:inline-block;margin-right:5px;" src="images/red_bullet.png" alt="'+vm_state+'" title="'+vm_state+'"/>';
         break;
     };
-
-    var tag = 'input#vm_'+vm.COMPUTE.ID;
-    var array = vMachineElementArray(vm);
-    array[2] = state_html + array[2];
-    updateSingleElement(array,dataTable_vMachines,tag);
-};
-
+    return state_html;
+}
 
 // Refreshes the information panel for a VM
 function updateVMInfo(request,vm){
@@ -536,6 +529,10 @@ function updateVMInfo(request,vm){
               <tr>\
                  <td class="key_td">'+tr("Memory")+'</td>\
                  <td class="value_td">'+vm_info.MEMORY+'</td>\
+              </tr>\
+              <tr>\
+                 <td class="key_td">'+tr("Launch VNC session")+'</td>\
+                 <td class="value_td">'+vncIcon(vm_info)+'</td>\
               </tr>\
             </tbody>\
           </table>\
@@ -686,6 +683,8 @@ function popUpCreateVMDialog(){
         text: true
     });
 
+    setupTips(dialog);
+
     var net_select = makeSelectOptions(dataTable_vNetworks,
                                        1,//id_col
                                        2,//name_col
@@ -772,17 +771,19 @@ function popUpCreateVMDialog(){
 
         if (n_times.length){
             n_times_int=parseInt(n_times,10);
-        }
+        };
 
-        if (n_times_int>1){
-            if (!vm_name.length){
-                vm_name = $('#template_id option:selected',this).text();
-            }
+        if (vm_name.indexOf("%i") == -1){ //no wildcard
             for (var i=0; i< n_times_int; i++){
                 Sunstone.runAction("VM.create",vm);
             };
-        } else {
-            Sunstone.runAction("VM.create",vm);
+        } else { //wildcard present: replace wildcard
+            var name = "";
+            for (var i=0; i< n_times_int; i++){
+                name = vm_name.replace(/%i/gi,i);
+                vm["NAME"] = name;
+                Sunstone.runAction("VM.create",vm);
+            };
         };
 
         popUpVMDashboard();
@@ -933,7 +934,7 @@ function setVMAutorefresh(){
      },INTERVAL+someTime());
 }
 
-/*
+
 function updateVNCState(rfb, state, oldstate, msg) {
     var s, sb, cad, klass;
     s = $D('VNC_status');
@@ -1009,7 +1010,7 @@ function setupVNC(){
         Sunstone.runAction("VM.stopvnc",id);
     });
 
-    $('.vnc',main_tabs_context).live("click",function(){
+    $('.vnc').live("click",function(){
         //Which VM is it?
         var id = $(this).attr('vm_id');
         //Set attribute to dialog
@@ -1022,7 +1023,7 @@ function setupVNC(){
 
 function vncCallback(request,response){
     rfb = new RFB({'target':       $D('VNC_canvas'),
-                   'encrypt':      false,
+                   'encrypt':      use_wss,
                    'true_color':   true,
                    'local_cursor': true,
                    'shared':       true,
@@ -1043,6 +1044,20 @@ function vncCallback(request,response){
 }
 
 function vncIcon(vm){
+    var gr_icon;
+    if (vnc_enable){
+        gr_icon = '<a class="vnc" href="#" vm_id="'+vm.ID+'">';
+        gr_icon += '<img src="images/vnc_on.png" alt=\"'+tr("Open VNC Session")+'\" /></a>';
+    }
+    else {
+        gr_icon = '<img src="images/vnc_off.png" alt=\"'+tr("VNC Disabled")+'\" />';
+    }
+    return gr_icon;
+}
+
+/*
+
+function vncIcon(vm){
     var graphics = vm.TEMPLATE.GRAPHICS;
     var state = vm.STATE;
     var gr_icon;
@@ -1056,6 +1071,9 @@ function vncIcon(vm){
     return gr_icon;
 }
 
+*/
+
+/*
 function vmMonitorError(req,error_json){
     var message = error_json.error.message;
     var info = req.request.data[0].monitor;
@@ -1063,9 +1081,9 @@ function vmMonitorError(req,error_json){
     var id_suffix = labels.replace(/,/g,'_');
     var id = '#vm_monitor_'+id_suffix;
     $('#vm_monitoring_tab '+id).html('<div style="padding-left:20px;">'+message+'</div>');
-}
+}*/
 
-*/
+
 
 // At this point the DOM is ready and the sunstone.js ready() has been run.
 $(document).ready(function(){
@@ -1095,7 +1113,7 @@ $(document).ready(function(){
     //setupCreateVMDialog();
     setupSaveasDialog();
     setVMAutorefresh();
-    //setupVNC();
+    setupVNC();
 
     initCheckAllBoxes(dataTable_vMachines);
     tableCheckboxesListener(dataTable_vMachines);

@@ -155,8 +155,11 @@ void PoolObjectSQL::set_template_error_message(const string& message)
     error_value.insert(make_pair("TIMESTAMP",str));
     error_value.insert(make_pair("MESSAGE",message));
 
+    //Replace previous error message and insert the new one
+
     attr = new VectorAttribute(error_attribute_name,error_value);
 
+    obj_template->erase(error_attribute_name);
     obj_template->set(attr);
 }
 
@@ -166,7 +169,6 @@ void PoolObjectSQL::set_template_error_message(const string& message)
 int PoolObjectSQL::replace_template(const string& tmpl_str, string& error)
 {
     Template * new_tmpl  = get_new_template();
-    char *     error_msg = 0;
 
     if ( new_tmpl == 0 )
     {
@@ -174,21 +176,8 @@ int PoolObjectSQL::replace_template(const string& tmpl_str, string& error)
         return -1;
     }
     
-    if ( new_tmpl->parse(tmpl_str, &error_msg) != 0 )
+    if ( new_tmpl->parse_str_or_xml(tmpl_str, error) != 0 )
     {
-        ostringstream oss;
-        
-        oss << "Parse error";
-         
-        if (error_msg != 0)
-        {
-            oss << ": " << error_msg;
-
-            free(error_msg);
-        }
-        
-        error = oss.str();
-
         return -1;
     }
 

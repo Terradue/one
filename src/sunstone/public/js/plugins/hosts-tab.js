@@ -67,6 +67,7 @@ var create_host_tmpl =
           <select id="vmm_mad" name="vmm">\
                 <option value="vmm_kvm">' + tr("KVM") + '</option>\
                 <option value="vmm_xen">' + tr("XEN") + '</option>\
+                <option value="vmm_vmware">' + tr("VMware") + '</option>\
                 <option value="vmm_ec2">' + tr("EC2") + '</option>\
                 <option value="vmm_dummy">' + tr("Dummy") + '</option>\
           </select>\
@@ -76,6 +77,7 @@ var create_host_tmpl =
       <select id="im_mad" name="im">\
                <option value="im_kvm">' + tr("KVM") + '</option>\
                <option value="im_xen">' + tr("XEN") + '</option>\
+               <option value="im_vmware">' + tr("VMware") + '</option>\
                <option value="im_ec2">' + tr("EC2") + '</option>\
                <option value="im_dummy">' + tr("Dummy") + '</option>\
       </select>\
@@ -83,11 +85,12 @@ var create_host_tmpl =
     <div class="manager clear" id="vnm_mads">\
       <label>Virtual Network Manager:</label>\
        <select id="vnm_mad" name="vn">\
-         <option value="dummy">Default (dummy)</option>\
+         <option value="dummy">' + tr("Default (dummy)") +'</option>\
          <option value="fw">Firewall</option>\
          <option value="802.1Q">802.1Q</option>\
          <option value="ebtables">Ebtables</option>\
          <option value="ovswitch">Open vSwitch</option>\
+         <option value="vmware">VMware</option>\
        </select>\
     </div>\
     <div class="manager clear" id="tm_mads">\
@@ -95,6 +98,7 @@ var create_host_tmpl =
        <select id="tm_mad" name="tm">\
          <option value="tm_shared">' + tr("Shared") + '</option>\
          <option value="tm_ssh">' + tr("SSH") + '</option>\
+         <option value="tm_vmware">' + tr("VMware") + '</option>\
          <option value="tm_dummy">' + tr("Dummy") + '</option>\
        </select>\
     </div>\
