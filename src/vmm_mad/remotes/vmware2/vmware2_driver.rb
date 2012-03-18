@@ -47,10 +47,14 @@ class VMware2Driver
   SHUTDOWN_INTERVAL = 5
   SHUTDOWN_TIMEOUT  = 500
 
+  BOOT_INTERVAL = 10
+  BOOT_TIMEOUT = 1200
+
   def initialize(host)
     conf  = YAML::load(File.read(CONF_FILE))
 
     @uri  = conf[:libvirt_uri].gsub!('@HOST@', host)
+    @host = host
 
     @user = conf[:username]
     @pass = conf[:password]
@@ -89,8 +93,21 @@ class VMware2Driver
 
     # Start the VM
     rc, info = do_action("virsh -c #{@uri} start #{deploy_id}")
+    sleep BOOT_INTERVAL
 
-    if rc == false
+    counter = 0
+    
+    begin
+
+      sleep BOOT_INTERVAL
+      info = `/usr/lib/vmware-vcli/apps/vm/vminfo.pl --username #{@user} --password #{@pass} --server #{@host} --vmname #{deploy_id} --fields hostName | grep Host`
+      info = "@Not Known" if $? == false
+      counter = counter + BOOT_INTERVAL
+    end while info.match(".*Not Known.*") and counter < BOOT_TIMEOUT
+
+    if counter >= BOOT_TIMEOUT
+      OpenNebula.error_message(
+      "Timeout reached, Check if VM is booted")
       undefine_domain(deploy_id)
       exit info
     end
@@ -106,6 +123,23 @@ class VMware2Driver
     rc, info = do_action("virsh -c #{@uri} destroy #{deploy_id}")
 
     exit info if rc == false
+
+    counter = 0
+    
+    begin
+      rc, info = do_action("virsh -c #{@uri} list")
+      info     = "" if rc == false
+
+      sleep SHUTDOWN_INTERVAL
+
+      counter = counter + SHUTDOWN_INTERVAL
+    end while info.match(deploy_id) and counter < SHUTDOWN_TIMEOUT
+
+    if counter >= SHUTDOWN_TIMEOUT
+      OpenNebula.error_message(
+      "Timeout reached, VM #{deploy_id} is still alive")
+      exit - 1
+    end
 
     OpenNebula.log_debug("Successfully canceled domain #{deploy_id}.")
 
@@ -148,6 +182,7 @@ class VMware2Driver
 
     state = ""
     usedmemory = ""
+    usedcpu = ""
 
     info.split('\n').each{ |line|
       mdata = line.match("^State: (.*)")
@@ -156,11 +191,6 @@ class VMware2Driver
         state = mdata[1].strip
       end
 
-      mdata = line.match("^Used memory: (.*) .*B")
-
-      if mdata
-        usedmemory = mdata[1].strip
-      end
     }
 
     case state
@@ -174,7 +204,25 @@ class VMware2Driver
       state_short = 'd'
     end
 
-    return "STATE=#{state_short} USEDMEMORY=#{usedmemory}"
+    rc, info = do_action("/usr/lib/vmware-vcli/apps/vm/vminfo.pl --username #{@user} --password #{@pass} --server #{@host} --vmname #{deploy_id}")
+
+    info.split("\n").each{ |line|
+      mdata = line.match("^Host memory usage:\ *(.*) MB")
+
+      if mdata
+        usedmemory = mdata[1].strip.to_i * 1024
+        next
+      end
+
+      mdata = line.match("^Cpu usage:\ *(.*) MHz")
+      if mdata
+        usedcpu = mdata[1].strip.to_f / 1000
+        next
+      end
+
+    }
+
+    return "STATE=#{state_short} USEDMEMORY=#{usedmemory} USEDCPU=#{usedcpu}"
   end
 
   # ------------------------------------------------------------------------ #
@@ -216,7 +264,8 @@ class VMware2Driver
   # Saves a VM taking a snapshot                                             #
   # ------------------------------------------------------------------------ #
   def save(deploy_id)
-    
+
+    # Here when the save is an actual save, we shutdown gracefully the machine
     state = get_state(deploy_id)
     if state[0] == "5" then
       # shutdown the VM

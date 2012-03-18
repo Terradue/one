@@ -76,6 +76,18 @@ Then install the following packages:
   
     $ sudo gem install nokogiri --no-ri --no-rdoc
 
+### OPTIONAL PACKAGES for driver vmware2
+
+These packages are not needed to run or build OpenNebula. They are necessary 
+if the driver vmware2 is enabled in the configuration of OpenNebula.
+
+* **vmware-vdiskmgr**, linux tool to manipulate locally virtual disk in vmdk
+  format
+* **vsphere-CLI**, linux toolbox for scripting commands to vmware ESX(i) 
+  hypervisors
+  
+  Those tools may be downloaded freely after registration on VMWare website
+
 
 ### BUILDING
 

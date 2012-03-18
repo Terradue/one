@@ -241,14 +241,14 @@ int LibVirtDriver::deployment_description_vmware2(
         if ( type == "BLOCK" )
         {
             file << "\t\t<disk type='block' device='disk'>" << endl;
-            file << "\t\t\t<source file=[" <<  datastore << "] one-" << vm->get_oid()
+            file << "\t\t\t<source file='[" <<  datastore << "] one-" << vm->get_oid()
                 << "/disk."  << i << "'/>"  << endl;
         }
         else if ( type == "CDROM" )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
-            file << "\t\t\t<source file=[" <<  imagestore << "] " << vm->get_oid()
-                << "/images/disk."  << i << ".iso'/>"  << endl;
+            file << "\t\t\t<source file='[" <<  datastore << "] one-" << vm->get_oid()
+                << "/disk."  << i << ".iso'/>"  << endl;
         }
         else
         {

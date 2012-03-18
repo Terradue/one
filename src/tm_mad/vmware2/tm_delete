@@ -35,10 +35,12 @@ dst      = ARGV[0]
 dst_host = dst.split(":")[0]
 dst_path = dst.split(":")[1].squeeze("/")
 
+# when path ends with /images, all the remote disk
+# must be removed 
 if dst_path.match(".*(\/images$)")
   then
   vmkfs = VMKSFSDriver.new(dst_host)
-  vmkfs.deletedir(dst_path)
+  vmkfs.deletedisks(dst_path)
 else
   vmkfs = VMKSFSDriver.new(dst_host)
   vmkfs.delete(dst_path)

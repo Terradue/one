@@ -43,25 +43,34 @@ hostname=`hostname`.tr("\n","")
 
 # Transfer from one to host
 if src_host == hostname
+  # if local source path ends with images, it is probably
+  # a resume and then all disks must be copied on the host 
   if src_path.match(".*(\/images$)")
     then
     vmkfs = VMKSFSDriver.new(dst_host)
-    vmkfs.mvdirto(src_path,dst_path)
+    vmkfs.restoredisks(src_path,dst_path)
+  # if it is an individual disk
   elsif src_path.match(".*(\/disk\..*$)")
     vmkfs = VMKSFSDriver.new(dst_host)
     vmkfs.mvto(src_path,dst_path)
+  # the rest
   else
     command = File.dirname(__FILE__)+"/tm_mv.sh"
     puts `#{command} #{src} #{dst}`
   end
+  # Transfer from host to one
 else
+  # if remote source path ends with images, it is probably
+  # a save and then all disks must be copied on one 
   if src_path.match(".*(\/images$)")
     then
     vmkfs = VMKSFSDriver.new(src_host)
-    vmkfs.mvdirfrom(src_path,dst_path)
+    vmkfs.savedisks(src_path,dst_path)
+  # if it is an individual disk
   elsif src_path.match(".*(\/disk\..*$)")
     vmkfs = VMKSFSDriver.new(src_host)
-    vmkfs.mvfrom(src_path,dst_path)
+    vmkfs.save disk(src_path,dst_path)
+  # the rest
   else
     command = File.dirname(__FILE__)+"/tm_mv.sh"
     puts `#{command} #{src} #{dst}`

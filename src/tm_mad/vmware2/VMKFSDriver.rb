@@ -14,14 +14,12 @@
 # limitations under the License.                                               #
 # ---------------------------------------------------------------------------- #
 
-ONE_LOCATION=ENV["ONE_LOCATION"]
+ONE_LOCATION=ENV["ONE_LOCATION"] if !ONE_LOCATION
 
 if !ONE_LOCATION
   RUBY_LIB_LOCATION="/usr/lib/one/ruby"
-  VMDIR="/var/lib/one"
 else
   RUBY_LIB_LOCATION=ONE_LOCATION+"/lib/ruby"
-  VMDIR=ONE_LOCATION+"/var"
 end
 
 $: << RUBY_LIB_LOCATION
@@ -75,76 +73,115 @@ class VMKSFSDriver
       exit -1
     end
 
+    # retrieve the remote datastores
+    # network file system to ONE
+    @imagestore = get_host_image_store_path(@host)
+    # local datastore for runtime
+    @datastore = get_host_data_store_path(@host)
+
   end
 
   # ######################################################################## #
-  #                       VMWKFS DRIVER ACTIONS                              #
+  #                       VMWARE DRIVER ACTIONS                              #
   # ######################################################################## #
 
   # ------------------------------------------------------------------------ #
-  # Create a virtual disk                                                     #
+  # Create a virtual disk                                                    #
   # ------------------------------------------------------------------------ #
   def mkimage(size, format, dst)
 
+    # retrieve the vm deploy id and the disk id
     vm_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[1]
     disk_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[3]
 
+    # build the ESXi disk remote path
     remote_dst = "one-"+vm_id+"/"+disk_id+".vmdk"
-
-    imagestore = get_host_image_store_path(@host)
-    datastore = get_host_data_store_path(@host)
-
+    # directory path
     dst_path = remote_dst.gsub(/\/disk\..*/,"")
-
-    # create the directory
-    rc, info = do_vifs("-f --mkdir '[#{datastore}] #{dst_path}'")
+    # create the directory if not existing
+    rc, info = do_vifs("-f --mkdir '[#{@datastore}] #{dst_path}'", false)
 
     # delete eventual previous disk
-    rc, info = do_vmkfs("-U '[#{datastore}] #{remote_dst}'")
+    rc, info = do_vmkfs("-U '[#{@datastore}] #{remote_dst}'", false)
 
     # Clone the disk
-    rc, info = do_vmkfs("-c #{size}M -d thin '[#{datastore}] #{remote_dst}'")
+    rc, info = do_vmkfs("-c #{size}M -d thin '[#{@datastore}] #{remote_dst}'")
 
+    # if cloning failed
     if rc == false
-      OpenNebula.log_error("Error during creating the virtual disk on the host #{@host}")
+      OpenNebula.log_error("Error during creating the virtual disk '[#{@datastore}] #{remote_dst}' on the host #{@host}")
       exit info
     end
 
+    OpenNebula.log_info("Successfully created virtual disk '[#{@datastore}] #{remote_dst}' on the host #{@host}")
     return 0
   end
 
   # ------------------------------------------------------------------------ #
   # Clone a virtual disk                                                     #
   # ------------------------------------------------------------------------ #
-  def clone(src, dst)
+  def clonevmdk(src, dst)
 
+    # retrieve the vm deploy id and the disk id
     vm_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[1]
     disk_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[3]
 
-    # map src to VMWARE HOST src
+    # build remote ESXi path to one mapping
     img_src = src.gsub(VAR_LOCATION + "/","")
-
+    # build the ESXi disk remote path
     remote_dst = "one-"+vm_id+"/"+disk_id+".vmdk"
-
-    imagestore = get_host_image_store_path(@host)
-    datastore = get_host_data_store_path(@host)
-
+    # directory path
     dst_path = remote_dst.gsub(/\/disk\..*/,"")
 
-    # create the directory
-    rc, info = do_vifs("-f --mkdir '[#{datastore}] #{dst_path}'")
+    # create the directory if not existing
+    rc, info = do_vifs("-f --mkdir '[#{@datastore}] #{dst_path}'", false)
 
     # delete eventual previous disk
-    rc, info = do_vmkfs("-U '[#{datastore}] #{remote_dst}'")
+    rc, info = do_vmkfs("-U '[#{@datastore}] #{remote_dst}'", false)
 
     # Clone the disk
-    rc, info = do_vmkfs("-i '[#{imagestore}] #{img_src}' -d thin '[#{datastore}] #{remote_dst}'")
+    rc, info = do_vmkfs("-i '[#{@imagestore}] #{img_src}' -d thin '[#{@datastore}] #{remote_dst}'")
 
     if rc == false
-      OpenNebula.log_error("Error during cloning the virtual disk on the host #{@host}")
+      OpenNebula.log_error("Error during cloning the virtual disk '[#{@imagestore}] #{img_src}' to '[#{@datastore}] #{remote_dst}' on the host #{@host}")
       exit info
     end
 
+    OpenNebula.log_info("Successfully cloned virtual disk '[#{@imagestore}] #{img_src}' to '[#{@datastore}] #{remote_dst}' on the host #{@host}")
+    return 0
+  end
+
+  # ------------------------------------------------------------------------ #
+  # Clone a virtual disk                                                     #
+  # ------------------------------------------------------------------------ #
+  def copyiso(src, dst)
+
+    # retrieve the vm deploy id and the disk id
+    vm_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[1]
+    disk_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[3]
+
+    # build remote ESXi path to one mapping
+    img_src = src.gsub(VAR_LOCATION + "/","")
+    # build the ESXi disk remote path
+    remote_dst = "one-"+vm_id+"/"+disk_id+".iso"
+    # directory path
+    dst_path = remote_dst.gsub(/\/disk\..*/,"")
+
+    # create the directory if not existing
+    rc, info = do_vifs("-f --mkdir '[#{@datastore}] #{dst_path}'", false)
+
+    # delete eventual previous disk
+    rc, info = do_vifs("--rm '[#{@datastore}] #{remote_dst}'", false)
+
+    # Clone the disk
+    rc, info = do_vifs("-c '[#{@imagestore}] #{img_src}' '[#{@datastore}] #{remote_dst}'")
+
+    if rc == false
+      OpenNebula.log_error("Error during cloning the ISO virtual disk '[#{@imagestore}] #{img_src}' '[#{@datastore}] #{remote_dst}' on the host #{@host}")
+      exit info
+    end
+
+    OpenNebula.log_info("Sucessfully cloned ISO virtual disk '[#{@imagestore}] #{img_src}' '[#{@datastore}] #{remote_dst}' on the host #{@host}")
     return 0
   end
 
@@ -153,55 +190,65 @@ class VMKSFSDriver
   # ------------------------------------------------------------------------ #
   def delete(dst)
 
+    # retrieve the vm deploy id and the path
     vm_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[1]
     path = dst.gsub(VMDIR.squeeze("/"),"").split("/",3)[2]
 
+    # build the ESXi disk remote path
     remote_dst = "one-"+vm_id+"/"+path
 
-    rc, info = do_vifs("-f --rm '[#{datastore}] #{remote_dst}'")
+    # remove the file
+    rc, info = do_vifs("-f --rm '[#{@datastore}] #{remote_dst}'")
 
     if rc == false
-      OpenNebula.log_error("Error during delete the virtual disk(s) on the host #{@host}")
+      OpenNebula.log_error("Error during delete the file '[#{@datastore}] #{remote_dst}' on the host #{@host}")
       exit info
     end
 
+    OpenNebula.log_info("Sucessfully deletes file '[#{@datastore}] #{remote_dst}' on the host #{@host}")
     return 0
   end
 
   # ------------------------------------------------------------------------ #
   # delete dir                                                               #
   # ------------------------------------------------------------------------ #
-  def deletedir(dst)
+  def deletedisks(dst)
 
+    # retrieve the vm deploy id and the path
     vm_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[1]
     path = dst.gsub(VMDIR.squeeze("/"),"").gsub("/images","").split("/",3)[2]
 
+    # the remote VM dir
     remote_dst = "one-"+vm_id
 
-    datastore = get_host_data_store_path(@host)
-
     # list the directory
-    rc, info = do_vifs("--dir '[#{datastore}] #{remote_dst}'")
+    rc, info = do_vifs("--dir '[#{@datastore}] #{remote_dst}'",false)
     entrylist = ""
     if rc == true
       info.split("\n").each{ |line|
         next if line.empty?
+        # skip headers
         entrylist = line.match(".*(Content Listing).*")
         next if entrylist
         entrylist = line.match(".*(\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-).*")
         next if entrylist
-        # delete directory file
-        rc, info = do_vifs("-f --rm '[#{datastore}] #{remote_dst}/#{line}'")
+        entrylist = line.match("disk\.[0-9]*.*")
+        # if this is a disk
+        if entrylist
+          rc, info = do_vifs("-f --rm '[#{@datastore}] #{remote_dst}/#{line}'")
+          if rc == false
+            OpenNebula.log_error("Error during deleting the virtual disk '[#{@datastore}] #{remote_dst}/#{line}' on the host #{@host}")
+            exit info
+          end
+        else
+          skip
+        end
       }
+    else
+      exit 0
     end
 
-    # delete the directory
-    rc, info = do_vifs("-f --rmdir '[#{datastore}] #{remote_dst}'")
-
-    if rc == false
-      OpenNebula.log_error("Error during delete the virtual disk(s) on the host #{@host}")
-      exit info
-    end
+    OpenNebula.log_info("Sucessfully deleted virtual disks in '[#{@datastore}] #{remote_dst}' on the host #{@host}")
 
     return 0
   end
@@ -211,34 +258,36 @@ class VMKSFSDriver
   # ------------------------------------------------------------------------ #
   def mvto(src, dst)
 
+    # clone
     clone(src,dst)
 
+    # then delete
     delete(src)
+
+    OpenNebula.log_info("Sucessfully moved virtual disk #{src} to #{dst} on the host #{@host}")
 
     return 0
 
   end
 
   # ------------------------------------------------------------------------ #
-  # move directory to host                                                   #
+  # restore disks of a VM                                                    #
   # ------------------------------------------------------------------------ #
-  def mvdirto(src, dst)
+  def restoredisks(src, dst)
 
+    # retrieve the vm deploy id
     vm_id = dst.gsub(VMDIR.squeeze("/"),"").split("/")[1]
 
-    # source is the save directory on one server
-    img_src = dst.gsub(VAR_LOCATION + "/","")
-
+    # source is the save directory on one
+    img_src = dst.gsub(VAR_LOCATION + "/","")+"/save"
+    # remote VM directory on ESX(i) host
     remote_dst = "one-"+vm_id
 
-    imagestore = get_host_image_store_path(@host)
-    datastore = get_host_data_store_path(@host)
-    
     # create the directory
-    rc, info = do_vifs("-f --mkdir '[#{datastore}] #{remote_dst}'")
+    rc, info = do_vifs("-f --mkdir '[#{@datastore}] #{remote_dst}'", false)
 
     # list the directory
-    rc, info = do_vifs("--dir '[#{imagestore}] #{img_src}'")
+    rc, info = do_vifs("--dir '[#{@imagestore}] #{img_src}'", false)
     entrylist = ""
     if rc == true
       info.split("\n").each{ |line|
@@ -247,25 +296,38 @@ class VMKSFSDriver
         next if entrylist
         entrylist = line.match(".*(\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-).*")
         next if entrylist
+        # VMWare disks
         entrylist = line.match("disk\.[0-9]*\.vmdk")
         if entrylist
           # delete eventual previous disk
-          rc, info = do_vmkfs("-U '[#{datastore}] #{remote_dst}/#{line}'")
+          rc, info = do_vmkfs("-U '[#{@datastore}] #{remote_dst}/#{line}'", false)
           # clone file
-          rc, info = do_vmkfs("-i '[#{imagestore}] #{img_src}/#{line}' -d thin '[#{datastore}] #{remote_dst}/#{line}'")
-
+          rc, info = do_vmkfs("-i '[#{@imagestore}] #{img_src}/#{line}' -d thin '[#{@datastore}] #{remote_dst}/#{line}'")
+          # if cloning successful
           if rc == true
-            # delete
-            rc, info = do_vmkfs("-U '[#{imagestore}] #{img_src}/#{line}'")
+            # delete the original
+            rc, info = do_vmkfs("-U '[#{@imagestore}] #{img_src}/#{line}'")
+          else
+            OpenNebula.log_error("Error during move of the virtual disk '[#{@imagestore}] #{img_src}/#{line}' to '[#{@datastore}] #{remote_dst}/#{line}' on the host #{@host}")
+            exit info
+          end
+        end
+        # ISO disks
+        entrylist = line.match("disk\.[0-9]*\.iso")
+        if entrylist
+          # delete eventual previous disk
+          rc, info = do_vifs("-f --rm '[#{@datastore}] #{remote_dst}/#{line}'", false)
+          # clone file
+          rc, info = do_vifs("-f -m '[#{@imagestore}] #{img_src}/#{line}' '[#{@datastore}] #{remote_dst}/#{line}'")
+          if rc == false
+            OpenNebula.log_error("Error during move of the virtual disk '[#{@imagestore}] #{img_src}/#{line}' to '[#{@datastore}] #{remote_dst}/#{line}' on the host #{@host}")
+            exit info
           end
         end
       }
     end
 
-    if rc == false
-      OpenNebula.log_error("Error during cloning the virtual disk on the host #{@host}")
-      exit info
-    end
+    OpenNebula.log_info("Successfully restored virtual disks from '[#{@imagestore}] #{img_src}' to '[#{@datastore}] #{remote_dst}' on the host #{@host}")
 
     return 0
 
@@ -274,20 +336,22 @@ class VMKSFSDriver
   # ------------------------------------------------------------------------ #
   # move directory from host                                                 #
   # ------------------------------------------------------------------------ #
-  def mvdirfrom(src, dst)
+  def savedisks(src, dst)
 
+    # retrieve the vm deploy id
     vm_id = src.gsub(VMDIR.squeeze("/"),"").split("/")[1]
 
-    imagestore = get_host_image_store_path(@host)
-    datastore = get_host_data_store_path(@host)
-
     # destination will contain all VMWare files in save dir on one server
-    vm_dst_path = dst.gsub(VAR_LOCATION + "/","")+"/images/"
+    vm_dst_path = dst.gsub(VAR_LOCATION + "/","")+"/images/save"
 
+    # create destination dir
+    rc, info = do_vifs("-f --mkdir '[#{@imagestore}] #{vm_dst_path}'", false)
+
+    # remote deploy id
     remote_src = "one-"+vm_id
 
     # list the directory
-    rc, info = do_vifs("--dir '[#{datastore}] #{remote_src}'")
+    rc, info = do_vifs("--dir '[#{@datastore}] #{remote_src}'", false)
     entrylist = ""
     if rc == true
       info.split("\n").each{ |line|
@@ -299,24 +363,35 @@ class VMKSFSDriver
         entrylist = line.match("disk\.[0-9]*\.vmdk")
         if entrylist
           # clone file
-          rc, info = do_vmkfs("-i '[#{datastore}] #{remote_src}/#{line}' -d thin '[#{imagestore}] #{vm_dst_path}/#{line}'")
+          rc, info = do_vmkfs("-i '[#{@datastore}] #{remote_src}/#{line}' -d thin '[#{@imagestore}] #{vm_dst_path}/#{line}'")
+          if rc == false
+            OpenNebula.log_error("Error during saving virtual disk from '[#{@datastore}] #{remote_src}/#{line}' to '[#{@imagestore}] #{vm_dst_path}/#{line}' on the host #{@host}")
+            exit info
+          end
           # delete
-          rc, info = do_vmkfs("-U '[#{datastore}] #{remote_src}/#{line}'")
+          rc, info = do_vmkfs("-U '[#{@datastore}] #{remote_src}/#{line}'", false)
+          next
+        end
+        entrylist = line.match("disk\.[0-9]*\.iso")
+        if entrylist
+          # move file
+          rc, info = do_vifs("-f -m '[#{@datastore}] #{remote_src}/#{line}' '[#{@imagestore}] #{vm_dst_path}/#{line}'")
+          if rc == false
+            OpenNebula.log_error("Error during saving virtual disk from '[#{@datastore}] #{remote_src}/#{line}' to '[#{@imagestore}] #{vm_dst_path}/#{line}' on the host #{@host}")
+            exit info
+          end
+          next
         end
         entrylist = line.match("disk\.*\.vmdk")
         next if entrylist
-        rc, info = do_vifs("-f --rm '[#{datastore}] #{remote_src}/#{line}'")
-
+        rc, info = do_vifs("-f --rm '[#{@datastore}] #{remote_src}/#{line}'")
       }
     end
 
     # delete the directory
-    rc, info = do_vifs("-f --rmdir '[#{datastore}] #{remote_src}'")
+    rc, info = do_vifs("-f --rmdir '[#{@datastore}] #{remote_src}'", false)
 
-    if rc == false
-      OpenNebula.log_error("Error during saving the virtual machine on the host #{@host}")
-      exit info
-    end
+    OpenNebula.log_info("Sucessfully saved the virtual disks from '[#{@datastore}] #{remote_src}' to '[#{@imagestore}] #{vm_dst_path}' on the host #{@host}")
 
     return 0
 
@@ -325,24 +400,23 @@ class VMKSFSDriver
   # ------------------------------------------------------------------------ #
   # move disk from host                                                      #
   # ------------------------------------------------------------------------ #
-  def mvfrom(src, dst)
+  def savedisk(src, dst)
 
+    # retrieve the vm deploy id and the path
     vm_id = src.gsub(VMDIR.squeeze("/"),"").split("/")[1]
     disk_id = src.gsub(VMDIR.squeeze("/"),"").split("/")[3]
-
-    imagestore = get_host_image_store_path(@host)
-    datastore = get_host_data_store_path(@host)
 
     # destination will contain all VMWare files in save dir on one server
     vm_dst_path = dst.gsub(VAR_LOCATION + "/","")
 
+    # remote path on ESX(i) host
     remote_src = "one-"+vm_id+"/"+disk_id+".vmdk"
 
-    # Clone the dir
-    rc, info = do_vifs("-f --move '[#{datastore}] #{remote_src}' '[#{imagestore}] #{vm_dst_path}.vmdk' ")
+    # move the file
+    rc, info = do_vifs("-f --move '[#{@datastore}] #{remote_src}' '[#{@imagestore}] #{vm_dst_path}.vmdk' ")
 
     if rc == false
-      OpenNebula.log_error("Error during saving the virtual machine on the host #{@host}")
+      OpenNebula.log_error("Error during saving the virtual virtual disk '[#{@datastore}] #{remote_src}' '[#{@imagestore}] #{vm_dst_path}.vmdk' on the host #{@host}")
       exit info
     end
 
@@ -350,7 +424,12 @@ class VMKSFSDriver
 
   end
 
-  #Performs an action usgin vifs
+  # ------------------------------------------------------------------------ #
+  # private functions                                                        #
+  # ------------------------------------------------------------------------ #
+  private
+
+  # Performs an action usgin vifs
   def do_vifs(cmd, log=true)
     rc = LocalCommand.run(VIFS_PREFIX + " --server #{@host} --username #{@user} --password #{@pass} "+cmd)
 
@@ -363,7 +442,7 @@ class VMKSFSDriver
     end
   end
 
-  #Performs an action usgin vmkfstools
+  # Performs an action usgin vmkfstools
   def do_vmkfs(cmd, log=true)
     rc = LocalCommand.run(VMKFSTOOLS_PREFIX + " --server #{@host} --username #{@user} --password #{@pass} "+cmd)
 
@@ -376,7 +455,7 @@ class VMKSFSDriver
     end
   end
 
-  # get Host Image mapping
+  # Get Host Image mapping
   def get_host_image_store_path(hostname)
     hpool = HostPool.new(@client)
     return -1 if OpenNebula.is_error?(hpool)
@@ -392,6 +471,7 @@ class VMKSFSDriver
     end
   end
 
+  # Get Host datastore
   def get_host_data_store_path(hostname)
     hpool = HostPool.new(@client)
     return -1 if OpenNebula.is_error?(hpool)

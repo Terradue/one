@@ -45,8 +45,8 @@ src_ext = File.extname(src_path)
 case src_ext
 when ".vmdk" then
   vmkfs = VMKSFSDriver.new(dst_host)
-  vmkfs.clone(src_path,dst_path)
+  vmkfs.clonevmdk(src_path,dst_path)
 else
-  command = File.dirname(__FILE__)+"/tm_clone.sh"
-  puts `#{command} #{src} #{dst}`
+  vmkfs = VMKSFSDriver.new(dst_host)
+  vmkfs.copyiso(src_path,dst_path)
 end
