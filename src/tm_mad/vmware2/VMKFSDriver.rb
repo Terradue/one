@@ -32,6 +32,7 @@ require 'OpenNebula'
 include OpenNebula
 
 class VMKSFSDriver
+
   # -------------------------------------------------------------------------#
   # Set up the environment for the driver                                    #
   # -------------------------------------------------------------------------#
@@ -241,7 +242,7 @@ class VMKSFSDriver
             exit info
           end
         else
-          skip
+          next
         end
       }
     else
@@ -411,12 +412,25 @@ class VMKSFSDriver
 
     # remote path on ESX(i) host
     remote_src = "one-"+vm_id+"/"+disk_id+".vmdk"
+      
+    # create destination dir
+    rc, info = do_vifs("-f --mkdir '[#{@imagestore}] #{vm_dst_path}'", false)
 
-    # move the file
-    rc, info = do_vifs("-f --move '[#{@datastore}] #{remote_src}' '[#{@imagestore}] #{vm_dst_path}.vmdk' ")
+    # clone the disk
+    rc, info = do_vmkfs("-i '[#{@datastore}] #{remote_src}' -d thin '[#{@imagestore}] #{vm_dst_path}/disk.vmdk' ")
 
     if rc == false
       OpenNebula.log_error("Error during saving the virtual virtual disk '[#{@datastore}] #{remote_src}' '[#{@imagestore}] #{vm_dst_path}.vmdk' on the host #{@host}")
+      exit info
+    end
+    
+    # delete the disk
+    rc, info = do_vmkfs("-U '[#{@datastore}] #{remote_src}'")
+
+    `sudo /bin/chown oneadmin -R #{dst}`
+
+    if $? == false
+      OpenNebula.log_error("Error during fixing perm for #{dst}: sudo /bin/chown oneadmin -R #{dst}")
       exit info
     end
 

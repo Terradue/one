@@ -69,10 +69,11 @@ else
   # if it is an individual disk
   elsif src_path.match(".*(\/disk\..*$)")
     vmkfs = VMKSFSDriver.new(src_host)
-    vmkfs.save disk(src_path,dst_path)
+    vmkfs.savedisk(src_path,dst_path)
   # the rest
   else
     command = File.dirname(__FILE__)+"/tm_mv.sh"
     puts `#{command} #{src} #{dst}`
   end
 end
+
