@@ -39,11 +39,7 @@ src_path = src.split(":")[1].squeeze("/")
 dst_host = dst.split(":")[0]
 dst_path = dst.split(":")[1].squeeze("/")
 
-
-src_ext = File.extname(src_path)
-
-case src_ext
-when ".vmdk" then
+if File.directory?(src_path) then
   vmkfs = VMKSFSDriver.new(dst_host)
   vmkfs.clonevmdk(src_path,dst_path)
 else
