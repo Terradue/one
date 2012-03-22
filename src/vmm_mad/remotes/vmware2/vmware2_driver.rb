@@ -100,7 +100,7 @@ class VMware2Driver
     begin
 
       sleep BOOT_INTERVAL
-      info = `/usr/lib/vmware-vcli/apps/vm/vminfo.pl --username #{@user} --password #{@pass} --server #{@host} --vmname #{deploy_id} --fields hostName | grep Host`
+      info = `/usr/lib/vmware-vcli/apps/vm/vminfo.pl --username #{@user} --password #{@pass} --server #{@host} --vmname #{deploy_id} | grep Cpu`
       info = "@Not Known" if $? == false
       counter = counter + BOOT_INTERVAL
     end while info.match(".*Not Known.*") and counter < BOOT_TIMEOUT
@@ -290,7 +290,10 @@ class VMware2Driver
   def shutdown(deploy_id)
     rc, info = do_action("virsh -c #{@uri} shutdown #{deploy_id}")
 
-    exit info if rc == false
+    if rc == false
+      rc, info = do_action("/usr/lib/vmware-vcli/apps/vm/vmcontrol.pl --username #{@user} --password #{@pass} --server #{@host} --vmname #{deploy_id} --operation poweroff")
+      exit info if rc == false
+    end
 
     counter = 0
 
