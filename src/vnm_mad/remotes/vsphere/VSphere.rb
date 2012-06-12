@@ -27,7 +27,7 @@ else
    RUBY_LIB_LOCATION = ONE_LOCATION + "/lib/ruby"
 end
 
-CONF_FILE = ETC_LOCATION + "/vmwarerc"
+CONF_FILE = ETC_LOCATION + "/vsphererc"
 
 $: << RUBY_LIB_LOCATION
 # ---------------------------------------------------------------------------#
@@ -36,7 +36,7 @@ require 'yaml'
 require 'CommandManager'
 require 'OpenNebulaNetwork'
 
-class OpenNebulaVMware2 < OpenNebulaNetwork
+class OpenNebulaVSphere < OpenNebulaNetwork
     XPATH_FILTER = "TEMPLATE/NIC"
     VCLI_PREFIX  = "/usr/bin/vicfg"
 

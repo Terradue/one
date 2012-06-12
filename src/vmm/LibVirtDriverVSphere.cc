@@ -25,9 +25,9 @@
 /* Virtual Network :: Database Access Functions                               */
 /* ************************************************************************** */
 
-const char * LibVirtDriver::vmware2_vnm_name = "vmware2";
+const char * LibVirtDriver::vsphere_vnm_name = "vsphere";
 
-int LibVirtDriver::deployment_description_vmware2(
+int LibVirtDriver::deployment_description_vsphere(
         const VirtualMachine *  vm,
         const string&           file_name) const
 {
@@ -91,7 +91,7 @@ int LibVirtDriver::deployment_description_vmware2(
 
     if (file.fail() == true)
     {
-        goto error_vmware_file;
+        goto error_vsphere_file;
     }
 
     // ------------------------------------------------------------------------
@@ -141,7 +141,7 @@ int LibVirtDriver::deployment_description_vmware2(
     }
     else
     {
-        goto error_vmware_memory;
+        goto error_vsphere_memory;
     }
 
     // ------------------------------------------------------------------------
@@ -169,7 +169,7 @@ int LibVirtDriver::deployment_description_vmware2(
 
         if (arch.empty())
         {
-            goto error_vmware_arch;
+            goto error_vsphere_arch;
         }
     }
 
@@ -204,7 +204,7 @@ int LibVirtDriver::deployment_description_vmware2(
     
     if (datastore.empty() || imagestore.empty())
     {
-        goto error_vmware_datastore;
+        goto error_vsphere_datastore;
     }
 
     for (int i=0; i < num ;i++)
@@ -226,7 +226,7 @@ int LibVirtDriver::deployment_description_vmware2(
 
         if (target.empty())
         {
-            goto error_vmware_disk;
+            goto error_vsphere_disk;
         }
 
         readonly = false;
@@ -347,7 +347,7 @@ int LibVirtDriver::deployment_description_vmware2(
         script     = nic->vector_value("SCRIPT");
         model      = nic->vector_value("MODEL");
 
-        if (vm->get_vnm_mad() == LibVirtDriver::vmware2_vnm_name)
+        if (vm->get_vnm_mad() == LibVirtDriver::vsphere_vnm_name)
         {
             bridge = "one-pg-";
             bridge.append(network_id);
@@ -443,7 +443,7 @@ int LibVirtDriver::deployment_description_vmware2(
     file << "\t</devices>" << endl;
 
     // ------------------------------------------------------------------------
-    // Raw VMware attributes
+    // Raw vsphere attributes
     // ------------------------------------------------------------------------
 
     num = vm->get_template_attribute("RAW",attrs);
@@ -461,7 +461,7 @@ int LibVirtDriver::deployment_description_vmware2(
 
         transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
 
-        if ( type == "VMWARE2" )
+        if ( type == "VSPHERE" )
         {
             data = raw->vector_value("DATA");
             file << "\t" << data << endl;
@@ -474,26 +474,26 @@ int LibVirtDriver::deployment_description_vmware2(
 
     return 0;
 
-error_vmware_file:
+error_vsphere_file:
     vm->log("VMM", Log::ERROR, "Could not open VMWARE2 deployment file.");
     return -1;
 
-error_vmware_arch:
+error_vsphere_arch:
     vm->log("VMM", Log::ERROR, "No ARCH defined and no default provided.");
     file.close();
     return -1;
 
-error_vmware_memory:
+error_vsphere_memory:
     vm->log("VMM", Log::ERROR, "No MEMORY defined and no default provided.");
     file.close();
     return -1;
 
-error_vmware_disk:
+error_vsphere_disk:
     vm->log("VMM", Log::ERROR, "Wrong target value in DISK.");
     file.close();
     return -1;
     
-error_vmware_datastore:
+error_vsphere_datastore:
     vm->log("VMM", Log::ERROR, "No DATASTORE or IMAGESTORE defined in host tample.");
     file.close();
     return -1;

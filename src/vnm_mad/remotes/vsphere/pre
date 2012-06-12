@@ -20,11 +20,11 @@
 $: << File.dirname(__FILE__)
 $: << File.join(File.dirname(__FILE__), "..")
 
-require 'VMware2'
+require 'VSphere'
 
 deploy_id  = nil
-hypervisor = "vmware"
+hypervisor = "vsphere"
 vm_64      = ARGV[0]
 
-vmware = OpenNebulaVMware2.from_base64(vm_64, deploy_id, hypervisor)
-exit vmware.activate
+vsphere = OpenNebulaVSphere.from_base64(vm_64, deploy_id, hypervisor)
+exit vsphere.activate

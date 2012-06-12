@@ -27,7 +27,7 @@ end
 $: << RUBY_LIB_LOCATION
 $: << File.dirname(__FILE__)
 
-require 'vmware2_driver'
+require 'vsphere_driver'
 
 checkpoint_file = ARGV[0]
 host            = ARGV[1]

@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # ---------------------------------------------------------------------------- #
-# Copyright 2010-2011, C12G Labs S.L                                           #
+# Copyright 2006-2012, Terradue S.r.l.                                         #
 #                                                                              #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may      #
 # not use this file except in compliance with the License. You may obtain      #
@@ -34,7 +34,7 @@ end
 
 $: << RUBY_LIB_LOCATION
 
-CONF_FILE   = ETC_LOCATION + "/vmwarerc"
+CONF_FILE   = ETC_LOCATION + "/vsphererc"
 
 ENV['LANG'] = 'C'
 
@@ -179,7 +179,7 @@ data.split(/\n/).each{|line|
 free_cpu    = ($total_cpu.to_i - $used_cpu.to_i)
 free_memory = ($total_memory.to_i - $used_memory.to_i)
 
-add_info("HYPERVISOR","vmware2")
+add_info("HYPERVISOR","vsphere")
 add_info("TOTALCPU",$total_cpu)
 add_info("FREECPU",free_cpu.to_i)
 add_info("CPUSPEED",$cpu_speed)

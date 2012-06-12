@@ -1293,10 +1293,10 @@ void VirtualMachineManager::load_mads(int uid)
             vmm_driver = new LibVirtDriver(uid, vattr->value(),
                                            (uid != 0),vmpool,"vmware");
         }
-        else if ( type == "VMWARE2" )
+        else if ( type == "VSPHERE" )
         {
             vmm_driver = new LibVirtDriver(uid, vattr->value(),
-                                           (uid != 0),vmpool,"vmware2");
+                                           (uid != 0),vmpool,"vsphere");
         }
         else if ( type == "XML" )
         {
