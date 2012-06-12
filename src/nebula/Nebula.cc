@@ -85,18 +85,11 @@ void Nebula::start()
 
     try
     {
-        string              log_fname;
-        int                 log_level_int;
-        Log::MessageType    clevel = Log::ERROR;
+        string           log_fname;
+        Log::MessageType clevel;
 
         log_fname = log_location + "oned.log";
-
-        nebula_configuration->get("DEBUG_LEVEL", log_level_int);
-
-        if (0 <= log_level_int && log_level_int <= 3 )
-        {
-            clevel = static_cast<Log::MessageType>(log_level_int);
-        }
+        clevel    = get_debug_level();
 
         // Initializing ONE Daemon log system
 
@@ -248,6 +241,8 @@ void Nebula::start()
             rc += ImagePool::bootstrap(db);
             rc += VMTemplatePool::bootstrap(db);
             rc += AclManager::bootstrap(db);
+            rc += DatastorePool::bootstrap(db);
+            rc += ClusterPool::bootstrap(db);
 
             // Create the versioning table only if bootstrap went well
             if ( rc == 0 )
@@ -268,16 +263,22 @@ void Nebula::start()
 
     try
     {
-        string  mac_prefix;
         int     size;
+
+        string  mac_prefix;
         string  default_image_type;
         string  default_device_prefix;
+
         time_t  expiration_time;
+        time_t  vm_expiration;
+        time_t  host_expiration;
 
         vector<const Attribute *> vm_hooks;
         vector<const Attribute *> host_hooks;
         vector<const Attribute *> vm_restricted_attrs;
         vector<const Attribute *> img_restricted_attrs;
+
+        clpool  = new ClusterPool(db);
 
         nebula_configuration->get("VM_HOOK", vm_hooks);
         nebula_configuration->get("HOST_HOOK", host_hooks);
@@ -285,12 +286,20 @@ void Nebula::start()
         nebula_configuration->get("VM_RESTRICTED_ATTR", vm_restricted_attrs);
         nebula_configuration->get("IMAGE_RESTRICTED_ATTR", img_restricted_attrs);
 
+        nebula_configuration->get("VM_MONITORING_EXPIRATION_TIME",vm_expiration);
+        nebula_configuration->get("HOST_MONITORING_EXPIRATION_TIME",host_expiration);
+
         vmpool = new VirtualMachinePool(db, 
                                         vm_hooks, 
                                         hook_location, 
                                         remotes_location,
-                                        vm_restricted_attrs);
-        hpool  = new HostPool(db, host_hooks, hook_location, remotes_location);
+                                        vm_restricted_attrs,
+                                        vm_expiration);
+        hpool  = new HostPool(  db,
+                                host_hooks,
+                                hook_location,
+                                remotes_location,
+                                host_expiration);
 
         nebula_configuration->get("MAC_PREFIX", mac_prefix);
         nebula_configuration->get("NETWORK_SIZE", size);
@@ -311,6 +320,8 @@ void Nebula::start()
                                img_restricted_attrs);
 
         tpool  = new VMTemplatePool(db);
+
+        dspool = new DatastorePool(db);
     }
     catch (exception&)
     {
@@ -546,7 +557,7 @@ void Nebula::start()
     {
         vector<const Attribute *> image_mads;
 
-        nebula_configuration->get("IMAGE_MAD", image_mads);
+        nebula_configuration->get("DATASTORE_MAD", image_mads);
 
         imagem = new ImageManager(ipool,image_mads);
     }

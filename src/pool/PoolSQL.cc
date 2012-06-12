@@ -21,6 +21,7 @@
 #include <algorithm>
 
 #include "PoolSQL.h"
+#include "RequestManagerPoolInfoFilter.h"
 
 #include <errno.h>
 
@@ -50,8 +51,8 @@ int PoolSQL::init_cb(void *nil, int num, char **values, char **names)
 
 /* -------------------------------------------------------------------------- */
 
-PoolSQL::PoolSQL(SqlDB * _db, const char * _table):
-    db(_db), lastOID(-1), table(_table)
+PoolSQL::PoolSQL(SqlDB * _db, const char * _table, bool cache_by_name):
+    db(_db), lastOID(-1), table(_table), uses_name_pool(cache_by_name)
 {
     ostringstream   oss;
 
@@ -187,6 +188,7 @@ PoolObjectSQL * PoolSQL::get(
 
                 if ( objectsql->isValid() == false )
                 {
+                    objectsql->unlock();
                     objectsql = 0;
                 }
             }
@@ -198,8 +200,6 @@ PoolObjectSQL * PoolSQL::get(
     }
     else
     {
-        map<string,PoolObjectSQL *>::iterator name_index;
-
         objectsql = create();
 
         objectsql->oid = oid;
@@ -215,23 +215,30 @@ PoolObjectSQL * PoolSQL::get(
             return 0;
         }
 
-        string okey = key(objectsql->name,objectsql->uid);
-        name_index  = name_pool.find(okey);
-
-        if ( name_index != name_pool.end() )
+        if ( uses_name_pool )
         {        
-            name_index->second->lock();
+            map<string,PoolObjectSQL *>::iterator name_index;
+            string okey;
 
-            PoolObjectSQL * tmp_ptr  = name_index->second;
+            okey       = key(objectsql->name,objectsql->uid);
+            name_index = name_pool.find(okey);
 
-            name_pool.erase(okey);
-            pool.erase(tmp_ptr->oid);
+            if ( name_index != name_pool.end() )
+            {
+                name_index->second->lock();
 
-            delete tmp_ptr;
+                PoolObjectSQL * tmp_ptr  = name_index->second;
+
+                name_pool.erase(okey);
+                pool.erase(tmp_ptr->oid);
+
+                delete tmp_ptr;
+            }
+
+            name_pool.insert(make_pair(okey, objectsql));
         }
 
         pool.insert(make_pair(objectsql->oid,objectsql));
-        name_pool.insert(make_pair(okey, objectsql));
 
         if ( olock == true )
         {
@@ -263,6 +270,12 @@ PoolObjectSQL * PoolSQL::get(const string& name, int ouid, bool olock)
 
     lock();
 
+    if ( uses_name_pool == false )
+    {
+        unlock();
+        return 0;
+    }
+
     index = name_pool.find(key(name,ouid));
 
     if ( index != name_pool.end() && index->second->isValid() == true )
@@ -276,7 +289,6 @@ PoolObjectSQL * PoolSQL::get(const string& name, int ouid, bool olock)
             if ( objectsql->isValid() == false )
             {
                 objectsql->unlock();
-
                 objectsql = 0;
             }
         }
@@ -348,6 +360,12 @@ void PoolSQL::update_cache_index(string& old_name,
 
     lock();
 
+    if ( uses_name_pool == false )
+    {
+        unlock();
+        return;
+    }
+
     string old_key  = key(old_name, old_uid);
     string new_key  = key(new_name, new_uid);
 
@@ -398,10 +416,14 @@ void PoolSQL::replace()
         else
         {
             PoolObjectSQL * tmp_ptr = index->second;
-            string          okey    = key(tmp_ptr->name,tmp_ptr->uid);
 
             pool.erase(index);
-            name_pool.erase(okey);
+
+            if ( uses_name_pool )
+            {
+                string okey = key(tmp_ptr->name,tmp_ptr->uid);
+                name_pool.erase(okey);
+            }
 
             delete tmp_ptr;
 
@@ -458,13 +480,7 @@ int PoolSQL::dump(ostringstream& oss,
                   const char * table,
                   const string& where)
 {
-    int             rc;
     ostringstream   cmd;
-
-    oss << "<" << elem_name << ">";
-
-    set_callback(static_cast<Callbackable::Callback>(&PoolSQL::dump_cb),
-                  static_cast<void *>(&oss));
 
     cmd << "SELECT body FROM " << table;
 
@@ -475,9 +491,26 @@ int PoolSQL::dump(ostringstream& oss,
 
     cmd << " ORDER BY oid";
 
-    rc = db->exec(cmd, this);
+    return dump(oss, elem_name, cmd);
+}
 
-    oss << "</" << elem_name << ">";
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int PoolSQL::dump(ostringstream&  oss,
+                  const string&   root_elem_name,
+                  ostringstream&  sql_query)
+{
+    int rc;
+
+    oss << "<" << root_elem_name << ">";
+
+    set_callback(static_cast<Callbackable::Callback>(&PoolSQL::dump_cb),
+                 static_cast<void *>(&oss));
+
+    rc = db->exec(sql_query, this);
+
+    oss << "</" << root_elem_name << ">";
 
     unset_callback();
 
@@ -525,3 +558,120 @@ int PoolSQL::search(
     return rc;
 }
 
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void PoolSQL::acl_filter(int                       uid, 
+                         int                       gid, 
+                         PoolObjectSQL::ObjectType auth_object,
+                         bool&                     all,
+                         string&                   filter)
+{
+    filter.clear();
+
+    if ( uid == 0 || gid == 0 )
+    {
+        all = true;
+        return;
+    }
+
+    Nebula&     nd   = Nebula::instance();
+    AclManager* aclm = nd.get_aclm();
+
+    ostringstream         acl_filter;
+    vector<int>::iterator it;
+
+    vector<int> oids;
+    vector<int> gids;
+
+    aclm->reverse_search(uid, 
+                         gid, 
+                         auth_object,
+                         AuthRequest::USE, 
+                         all, 
+                         oids, 
+                         gids);
+
+    for ( it = oids.begin(); it < oids.end(); it++ )
+    {
+        acl_filter << " OR oid = " << *it;
+    }
+
+    for ( it = gids.begin(); it < gids.end(); it++ )
+    {
+        acl_filter << " OR gid = " << *it;
+    }
+
+    filter = acl_filter.str();
+}
+
+/* -------------------------------------------------------------------------- */
+
+void PoolSQL::usr_filter(int           uid, 
+                         int           gid, 
+                         int           filter_flag,
+                         bool          all,
+                         const string& acl_str,
+                         string&       filter)
+{
+    ostringstream uid_filter;
+
+    if ( filter_flag == RequestManagerPoolInfoFilter::MINE )
+    {
+        uid_filter << "uid = " << uid;
+    }
+    else if ( filter_flag == RequestManagerPoolInfoFilter::MINE_GROUP )
+    {
+        uid_filter << " uid = " << uid 
+                   << " OR ( gid = " << gid << " AND group_u = 1 )";        
+    }
+    else if ( filter_flag == RequestManagerPoolInfoFilter::ALL )
+    {
+        if (!all)
+        {
+            uid_filter << " uid = " << uid 
+                       << " OR ( gid = " << gid << " AND group_u = 1 )"
+                       << " OR other_u = 1"
+                       << acl_str;
+        }
+    }
+    else
+    {
+        uid_filter << "uid = " << filter_flag;
+
+        if ( filter_flag != uid && !all )
+        {
+            uid_filter << " AND ("
+                       << " ( gid = " << gid << " AND group_u = 1)"
+                       << " OR other_u = 1"
+                       << acl_str
+                       << ")";
+        }
+    }
+
+    filter = uid_filter.str();
+}
+
+/* -------------------------------------------------------------------------- */
+
+void PoolSQL::oid_filter(int     start_id,
+                         int     end_id,
+                         string& filter)
+{
+    ostringstream idfilter;
+
+    if ( start_id != -1 )
+    {
+        idfilter << "oid >= " << start_id;
+
+        if ( end_id != -1 )
+        {
+            idfilter << " AND oid <= " << end_id;
+        }
+    }
+
+    filter = idfilter.str();
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */

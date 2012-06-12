@@ -199,7 +199,7 @@ var image_actions = {
 
     "Image.delete" : {
         type: "multiple",
-        call: OCCI.Image.delete,
+        call: OCCI.Image.del,
         callback: deleteImageElement,
         elements: imageElements,
         error: onError,
@@ -261,7 +261,7 @@ var image_create_panel = {
 };
 
 var images_tab = {
-    title: tr("Storage"),
+    title: '<i class="icon-folder-open"></i>'+tr("Storage"),
     content: images_tab_content,
     buttons: image_buttons
 }
@@ -298,24 +298,6 @@ function imageElementArray(image_json){
         id,
         name
     ];
-}
-
-// Set up the listener on the table TDs to show the info panel
-function imageInfoListener(){
-    $('#tbodyimages tr',dataTable_images).live("click",function(e){
-        var target = $(e.target);
-
-        if (target.is('input') || target.is('select') || target.is('option'))
-            return true;
-
-        var aData = dataTable_images.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Image.showinfo",id);
-        return false;
-    });
 }
 
 // Callback to update an element in the dataTable
@@ -629,7 +611,7 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_images);
     tableCheckboxesListener(dataTable_images);
-    imageInfoListener();
+    infoListener(dataTable_images, 'Image.showinfo');
 
     $('#li_images_tab').click(function(){
         popUpImageDashboard();

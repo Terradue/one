@@ -25,21 +25,23 @@ module OpenNebula
 
 
         HOST_METHODS = {
-            :info     => "host.info",
-            :allocate => "host.allocate",
-            :delete   => "host.delete",
-            :enable   => "host.enable",
-            :update   => "host.update"
+            :info       => "host.info",
+            :allocate   => "host.allocate",
+            :delete     => "host.delete",
+            :enable     => "host.enable",
+            :update     => "host.update",
+            :monitoring => "host.monitoring"
         }
 
-        HOST_STATES=%w{INIT MONITORING MONITORED ERROR DISABLED}
+        HOST_STATES=%w{INIT MONITORING_MONITORED MONITORED ERROR DISABLED MONITORING_ERROR}
 
         SHORT_HOST_STATES={
-            "INIT"          => "on",
-            "MONITORING"    => "on",
-            "MONITORED"     => "on",
-            "ERROR"         => "err",
-            "DISABLED"      => "off"
+            "INIT"                 => "init",
+            "MONITORING_MONITORED" => "update",          
+            "MONITORED"            => "on",
+            "ERROR"                => "err",
+            "DISABLED"             => "off",
+            "MONITORING_ERROR"     => "retry", 
         }
 
         # Creates a Host description with just its identifier
@@ -79,14 +81,15 @@ module OpenNebula
         # Allocates a new Host in OpenNebula
         #
         # @param hostname [String] Name of the new Host.
-        # @param im [String] Name of the im_driver
-        # @param vmm [String] Name of the vmm_driver
-        # @param tm [String] Name of the tm_driver
+        # @param im [String] Name of the im_driver (information/monitoring)
+        # @param vmm [String] Name of the vmm_driver (hypervisor)
+        # @param tm [String] Name of the vnm_driver (networking)
+        # @param cluster_id [String] Id of the cluster
         #
-        # @return [Integer, OpenNebula::Error] the new VM ID in case of
+        # @return [Integer, OpenNebula::Error] the new ID in case of
         #   success, error otherwise
-        def allocate(hostname,im,vmm,vnm,tm)
-            super(HOST_METHODS[:allocate],hostname,im,vmm,vnm,tm)
+        def allocate(hostname,im,vmm,vnm,cluster_id=ClusterPool::NONE_CLUSTER_ID)
+            super(HOST_METHODS[:allocate],hostname,im,vmm,vnm,cluster_id)
         end
 
         # Deletes the Host
@@ -109,6 +112,39 @@ module OpenNebula
         # +new_template+ New template contents
         def update(new_template)
             super(HOST_METHODS[:update], new_template)
+        end
+
+        # Retrieves this Host's monitoring data from OpenNebula
+        #
+        # @param [Array<String>] xpath_expressions Elements to retrieve.
+        #
+        # @return [Hash<String, Array<Array<int>>>, OpenNebula::Error] Hash with
+        #   the requested xpath expressions, and an Array of 'timestamp, value'.
+        #
+        # @example
+        #   host.monitoring( ['HOST_SHARE/FREE_CPU', 'HOST_SHARE/RUNNING_VMS'] )
+        #
+        #   { "HOST_SHARE/RUNNING_VMS" =>
+        #       [["1337266000", "1"], 
+        #        ["1337266044", "1"], 
+        #        ["1337266088", "3"]],
+        #     "HOST_SHARE/FREE_CPU" =>
+        #       [["1337266000", "800"], 
+        #        ["1337266044", "800"], 
+        #        ["1337266088", "800"]]
+        #   }
+        def monitoring(xpath_expressions)
+            return super(HOST_METHODS[:monitoring], 'HOST',
+                'LAST_MON_TIME', xpath_expressions)
+        end
+
+        # Retrieves this Host's monitoring data from OpenNebula, in XML
+        #
+        # @return [String] Monitoring data, in XML
+        def monitoring_xml()
+            return Error.new('ID not defined') if !@pe_id
+
+            return @client.call(HOST_METHODS[:monitoring], @pe_id)
         end
 
         #######################################################################

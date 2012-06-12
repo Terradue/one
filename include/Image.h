@@ -40,6 +40,49 @@ public:
     };
 
     /**
+     *  Return the string representation of an ImageType
+     *    @param ob the type
+     *    @return the string
+     */ 
+    static string type_to_str(ImageType ob)
+    {
+        switch (ob)
+        {
+            case OS:        return "OS" ; break;
+            case CDROM:     return "CDROM" ; break;
+            case DATABLOCK: return "DATABLOCK" ; break;
+            default:        return "";
+        }
+    };
+
+    /**
+     *  Type of Disks (used by the VMM_MAD). Values: BLOCK, CDROM or 
+     *  FILE
+     */
+    enum DiskType
+    {
+        FILE   = 0, /** < File-based disk */
+        CD_ROM = 1, /** < An ISO9660 disk */
+        BLOCK  = 2  /** < Block-device disk */
+    };
+
+    /**
+     *  Return the string representation of a DiskType
+     *    @param ob the type
+     *    @return the string
+     */ 
+    static string disk_type_to_str(DiskType ob)
+    {
+        switch (ob)
+        {
+            case FILE:   return "FILE" ; break;
+            case CD_ROM: return "CDROM" ; break;
+            case BLOCK:  return "BLOCK" ; break;
+            default:     return "";
+        }
+    };
+
+    /**
      *  Image State
      */
     enum ImageState
@@ -200,6 +243,17 @@ public:
     }
 
     /**
+     *  Check if the image is used for saving_as a current one
+     *  @return true if the image will be used to save an existing image.
+     */
+    bool isSaving()
+    {
+        ImageTemplate * it = static_cast<ImageTemplate *>(obj_template);
+
+        return it->is_saving();
+    }
+
+    /**
      *  Set permissions for the Image. Extends the PoolSQLObject method
      *  by checking the persistent state of the image.
      */
@@ -275,27 +329,43 @@ public:
      * Modifies the given disk attribute adding the following attributes:
      *  * SOURCE: the file-path.
      *  * BUS:    will only be set if the Image's definition includes it.
-     *  * TARGET: the value set depends on:
-     *    - OS images will be mounted at prefix + a:  hda, sda.
-     *    - Prefix + b is reserved for the contex cdrom.
-     *    - CDROM images will be at prefix + c:  hdc, sdc.
-     *    - Several DATABLOCK images can be mounted, they will be set to
-     *      prefix + (d + index) :   hdd, hde, hdf...
+     *  * TARGET: will only be set if the Image's definition includes it.
+     *
      * @param disk attribute for the VM template
-     * @param index number of datablock images used by the same VM. Will be
-     *              automatically increased.
      * @param img_type will be set to the used image's type
+     * @param dev_prefix will be set to the defined dev_prefix,
+     *   or the default one
+     *
+     * @return 0 on success, -1 otherwise
      */
-    int disk_attribute(VectorAttribute * disk, int* index, ImageType* img_type);
+    int disk_attribute( VectorAttribute * disk,
+                        ImageType&        img_type,
+                        string&           dev_prefix);
 
     /**
      *  Factory method for image templates
      */
-    Template * get_new_template()
+    Template * get_new_template() const
     {
         return new ImageTemplate;
     }
 
+    /**
+     * Returns the Datastore ID
+     */
+    int get_ds_id() const
+    {
+        return ds_id;
+    };
+
+    /**
+     * Returns the Datastore ID
+     */
+    const string& get_ds_name() const
+    {
+        return ds_name;
+    };
+    
 private:
 
     // -------------------------------------------------------------------------
@@ -312,6 +382,11 @@ private:
      *  Type of the Image
      */
     ImageType    type;
+
+    /**
+     *  Type for the Disk
+     */
+    DiskType     disk_type;
 
     /**
      *  Persistency of the Image
@@ -352,6 +427,16 @@ private:
      * Number of VMs using the image
      */
     int running_vms;
+
+    /**
+     * Datastore ID
+     */
+    int ds_id;
+
+    /**
+     * Datastore name
+     */
+    string ds_name;
 
     // *************************************************************************
     // DataBase implementation (Private)

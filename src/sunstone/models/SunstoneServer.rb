@@ -19,7 +19,6 @@ require 'CloudServer'
 require 'OpenNebulaJSON'
 include OpenNebulaJSON
 
-require 'acct/watch_client'
 require 'OpenNebulaVNC'
 require 'OpenNebulaJSON/JSONUtils'
 include JSONUtils
@@ -48,6 +47,7 @@ class SunstoneServer < CloudServer
 
         pool = case kind
             when "group"      then GroupPoolJSON.new(@client)
+            when "cluster"    then ClusterPoolJSON.new(@client)
             when "host"       then HostPoolJSON.new(@client)
             when "image"      then ImagePoolJSON.new(@client, user_flag)
             when "vmtemplate" then TemplatePoolJSON.new(@client, user_flag)
@@ -55,6 +55,7 @@ class SunstoneServer < CloudServer
             when "vnet"       then VirtualNetworkPoolJSON.new(@client, user_flag)
             when "user"       then UserPoolJSON.new(@client)
             when "acl"        then AclPoolJSON.new(@client)
+            when "datastore"  then DatastorePoolJSON.new(@client)
             else
                 error = Error.new("Error: #{kind} resource not supported")
                 return [404, error.to_json]
@@ -100,6 +101,7 @@ class SunstoneServer < CloudServer
     def create_resource(kind, template)
         resource = case kind
             when "group"      then GroupJSON.new(Group.build_xml, @client)
+            when "cluster"    then ClusterJSON.new(Group.build_xml, @client)
             when "host"       then HostJSON.new(Host.build_xml, @client)
             when "image"      then ImageJSON.new(Image.build_xml, @client)
             when "vmtemplate" then TemplateJSON.new(Template.build_xml, @client)
@@ -107,6 +109,7 @@ class SunstoneServer < CloudServer
             when "vnet"       then VirtualNetworkJSON.new(VirtualNetwork.build_xml, @client)
             when "user"       then UserJSON.new(User.build_xml, @client)
             when "acl"        then AclJSON.new(Acl.build_xml, @client)
+            when "datastore"  then DatastoreJSON.new(Acl.build_xml, @client)
             else
                 error = Error.new("Error: #{kind} resource not supported")
                 return [404, error.to_json]
@@ -126,9 +129,22 @@ class SunstoneServer < CloudServer
     ############################################################################
     def upload(template, file_path)
         image_hash = parse_json(template, 'image')
+        if OpenNebula.is_error?(image_hash)
+            return [500, image_hash.to_json]
+        end
+
         image_hash['PATH'] = file_path
 
-        new_template = {:image => image_hash}.to_json
+        ds_id = parse_json(template, 'ds_id')
+        if OpenNebula.is_error?(ds_id)
+            return [500, ds_id.to_json]
+        end
+        
+        new_template = {
+            :image => image_hash,
+            :ds_id => ds_id,
+        }.to_json
+
         image = ImageJSON.new(Image.build_xml, @client)
 
         rc = image.create(new_template)
@@ -181,7 +197,7 @@ class SunstoneServer < CloudServer
     end
 
     ############################################################################
-    #
+    # Unused
     ############################################################################
     def get_vm_log(id)
         resource = retrieve_resource("vm", id)
@@ -236,35 +252,58 @@ class SunstoneServer < CloudServer
     ############################################################################
     #
     ############################################################################
-    def get_monitoring(id, resource, monitor_resources, opts={})
-        watch_client = case resource
-            when "vm","VM"
-                OneWatchClient::VmWatchClient.new
-            when "host","HOST"
-                OneWatchClient::HostWatchClient.new
+    def get_pool_monitoring(resource, meters)
+        #pool_element
+        pool = case resource
+            when "vm", "VM"
+                VirtualMachinePool.new(@client)
+            when "host", "HOST"
+                HostPool.new(@client)
             else
-                error = Error.new("Monitoring not supported for this resource: #{resource}")
+                error = Error.new("Monitoring not supported for #{resource}")
                 return [200, error.to_json]
             end
 
-        filter = {}
-        filter[:uid] = opts[:uid] if opts[:gid]!="0"
+        meters_a = meters.split(',')
 
-        columns = monitor_resources.split(',')
-        columns.map!{|e| e.to_sym}
+        rc = pool.monitoring(meters_a)
 
-        if id
-            rc = watch_client.resource_monitoring(id.to_i, columns, filter)
-        else
-            rc = watch_client.total_monitoring(columns, filter)
-        end
-
-        if rc.nil?
-            error = Error.new("There is no monitoring information for #{resource} #{id}")
+        if OpenNebula.is_error?(rc)
+            error = Error.new(rc.message)
             return [500, error.to_json]
         end
 
+        rc[:resource] = resource
+
         return [200, rc.to_json]
+    end
+
+    def get_resource_monitoring(id, resource, meters)
+        pool_element = case resource
+            when "vm", "VM"
+                VirtualMachine.new_with_id(id, @client)
+            when "host", "HOST"
+                Host.new_with_id(id, @client)
+            else
+                error = Error.new("Monitoring not supported for #{resource}")
+                return [200, error.to_json]
+            end
+
+        meters_a = meters.split(',')
+
+        rc = pool_element.monitoring(meters_a)
+
+        if OpenNebula.is_error?(rc)
+            error = Error.new(rc.message)
+            return [500, error.to_json]
+        end
+
+        meters_h = Hash.new
+        meters_h[:resource]   = resource
+        meters_h[:id]         = id
+        meters_h[:monitoring] = rc
+
+        return [200, meters_h.to_json]
     end
 
     private
@@ -274,14 +313,16 @@ class SunstoneServer < CloudServer
     ############################################################################
     def retrieve_resource(kind, id)
         resource = case kind
-            when "group"    then GroupJSON.new_with_id(id, @client)
-            when "host"     then HostJSON.new_with_id(id, @client)
-            when "image"    then ImageJSON.new_with_id(id, @client)
+            when "group"      then GroupJSON.new_with_id(id, @client)
+            when "cluster"    then ClusterJSON.new_with_id(id, @client)
+            when "host"       then HostJSON.new_with_id(id, @client)
+            when "image"      then ImageJSON.new_with_id(id, @client)
             when "vmtemplate" then TemplateJSON.new_with_id(id, @client)
-            when "vm"       then VirtualMachineJSON.new_with_id(id, @client)
-            when "vnet"     then VirtualNetworkJSON.new_with_id(id, @client)
-            when "user"     then UserJSON.new_with_id(id, @client)
-            when "acl"      then AclJSON.new_with_id(id, @client)
+            when "vm"         then VirtualMachineJSON.new_with_id(id, @client)
+            when "vnet"       then VirtualNetworkJSON.new_with_id(id, @client)
+            when "user"       then UserJSON.new_with_id(id, @client)
+            when "acl"        then AclJSON.new_with_id(id, @client)
+            when "datastore"  then DatastoreJSON.new_with_id(id, @client)
             else
                 error = Error.new("Error: #{kind} resource not supported")
                 return error

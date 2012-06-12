@@ -1,12 +1,12 @@
 /*******************************************************************************
  * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -71,6 +71,24 @@ public class Image extends PoolElement
     // Static XML-RPC methods
     // =================================
 
+    /**
+     * Allocates a new Image in OpenNebula.
+     *
+     * @param client XML-RPC Client.
+     * @param description A string containing the template of the image.
+     * @param clusterId The cluster ID. If it is -1, this image
+     * won't be added to any cluster.
+     *
+     * @return If successful the message contains the associated
+     * id generated for this Image.
+     */
+    public static OneResponse allocate(
+            Client client,
+            String description,
+            int    clusterId)
+    {
+        return client.call(ALLOCATE, description, clusterId);
+    }
 
     /**
      * Allocates a new Image in OpenNebula.
@@ -82,7 +100,7 @@ public class Image extends PoolElement
      */
     public static OneResponse allocate(Client client, String description)
     {
-        return client.call(ALLOCATE, description);
+        return allocate(client, description, -1);
     }
 
     /**
@@ -100,7 +118,7 @@ public class Image extends PoolElement
 
     /**
      * Deletes an image from OpenNebula.
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to delete.
      * @return A encapsulated response.
@@ -112,7 +130,7 @@ public class Image extends PoolElement
 
     /**
      * Replaces the template contents.
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to modify.
      * @param new_template New template contents
@@ -125,7 +143,7 @@ public class Image extends PoolElement
 
     /**
      * Enables or disables an image.
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to modify.
      * @param enable True for enabling, false for disabling.
@@ -138,7 +156,7 @@ public class Image extends PoolElement
 
     /**
      * Publishes or unpublishes an image.
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to modify.
      * @param publish True for publishing, false for unpublishing.
@@ -153,7 +171,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the owner/group
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to modify.
      * @param uid The new owner user ID. Set it to -1 to leave the current one.
@@ -167,7 +185,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the Image permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to modify.
      * @param owner_u 1 to allow, 0 deny, -1 do not change
@@ -194,7 +212,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target object.
      * @param octet Permissions octed , e.g. 640
@@ -207,7 +225,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target object.
      * @param octet Permissions octed , e.g. 640
@@ -220,7 +238,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the Image type
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The image id of the target image we want to modify.
      * @param type The new Image type
@@ -250,7 +268,7 @@ public class Image extends PoolElement
 
     /**
      * Deletes the image from OpenNebula.
-     * 
+     *
      * @return A encapsulated response.
      */
     public OneResponse delete()
@@ -260,7 +278,7 @@ public class Image extends PoolElement
 
     /**
      * Replaces the template contents.
-     * 
+     *
      * @param new_template New template contents
      * @return If successful the message contains the image id.
      */
@@ -271,7 +289,7 @@ public class Image extends PoolElement
 
     /**
      * Enables or disables the image.
-     * 
+     *
      * @param enable True for enabling, false for disabling.
      * @return If successful the message contains the image id.
      */
@@ -282,7 +300,7 @@ public class Image extends PoolElement
 
     /**
      * Enables the image.
-     * 
+     *
      * @return If successful the message contains the image id.
      */
     public OneResponse enable()
@@ -292,7 +310,7 @@ public class Image extends PoolElement
 
     /**
      * Disables the image.
-     * 
+     *
      * @return If successful the message contains the image id.
      */
     public OneResponse disable()
@@ -302,7 +320,7 @@ public class Image extends PoolElement
 
     /**
      * Publishes or unpublishes the image.
-     * 
+     *
      * @param publish True for publishing, false for unpublishing.
      * @return If successful the message contains the image id.
      */
@@ -313,7 +331,7 @@ public class Image extends PoolElement
 
     /**
      * Publishes the image.
-     * 
+     *
      * @return If successful the message contains the image id.
      */
     public OneResponse publish()
@@ -323,7 +341,7 @@ public class Image extends PoolElement
 
     /**
      * Unpublishes the image.
-     * 
+     *
      * @return If successful the message contains the image id.
      */
     public OneResponse unpublish()
@@ -333,7 +351,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the owner/group
-     * 
+     *
      * @param uid The new owner user ID. Set it to -1 to leave the current one.
      * @param gid The new group ID. Set it to -1 to leave the current one.
      * @return If an error occurs the error message contains the reason.
@@ -345,7 +363,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the owner
-     * 
+     *
      * @param uid The new owner user ID.
      * @return If an error occurs the error message contains the reason.
      */
@@ -356,7 +374,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the group
-     * 
+     *
      * @param gid The new group ID.
      * @return If an error occurs the error message contains the reason.
      */
@@ -367,7 +385,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the Image permissions
-     * 
+     *
      * @param owner_u 1 to allow, 0 deny, -1 do not change
      * @param owner_m 1 to allow, 0 deny, -1 do not change
      * @param owner_a 1 to allow, 0 deny, -1 do not change
@@ -413,7 +431,7 @@ public class Image extends PoolElement
 
     /**
      * Changes the Image type
-     * 
+     *
      * @param type The new Image type
      * @return If an error occurs the error message contains the reason.
      */
@@ -430,7 +448,7 @@ public class Image extends PoolElement
      * Returns the state of the Image.
      * <br/>
      * The method {@link Image#info()} must be called before.
-     * 
+     *
      * @return The state of the Image.
      */
     public String stateString()
@@ -443,7 +461,7 @@ public class Image extends PoolElement
      * Returns the short length string state of the Image.
      * <br/>
      * The method {@link Image#info()} must be called before.
-     * 
+     *
      * @return The short length string state of the Image.
      */
     public String shortStateStr()
@@ -454,7 +472,7 @@ public class Image extends PoolElement
 
     /**
      * Returns the type of the Image.
-     * 
+     *
      * @return The type of the Image.
      */
     public int type()
@@ -465,7 +483,7 @@ public class Image extends PoolElement
 
     /**
      * Returns the type of the Image as a String.
-     * 
+     *
      * @return The type of the Image as a String.
      */
     public String typeStr()
@@ -476,7 +494,7 @@ public class Image extends PoolElement
 
     /**
      * Returns the type of the Image as a short String.
-     * 
+     *
      * @return The type of the Image as a short String.
      */
     public String shortTypeStr()
@@ -487,7 +505,7 @@ public class Image extends PoolElement
 
     /**
      * Returns true if the image is enabled.
-     * 
+     *
      * @return True if the image is enabled.
      */
     public boolean isEnabled()

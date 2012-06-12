@@ -18,8 +18,9 @@
 var dataTable_acls;
 var $create_acl_dialog;
 
-var acls_tab_content =
-'<form id="acl_form" action="" action="javascript:alert(\'js error!\');">\
+var acls_tab_content = '\
+<h2>'+tr("Access Control Lists")+'</h2>\
+<form id="acl_form" action="" action="javascript:alert(\'js error!\');">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_acls" class="display">\
@@ -31,11 +32,18 @@ var acls_tab_content =
       <th>'+tr("Affected resources")+'</th>\
       <th>'+tr("Resource ID / Owned by")+'</th>\
       <th>'+tr("Allowed operations")+'</th>\
+      <th>'+tr("ACL String")+'</th>\
     </tr>\
   </thead>\
   <tbody id="tbodyaclss">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+  <span>?</span>\
+  <p class="legend_p">\
+'+tr("This table shows the ACLs rules broken down to easier the reading and meaning of each one. You can show the ACL original string by clicking on Show/Hide columns.")+'\
+  </p>\
+</div>\
 </form>';
 
 var create_acl_tmpl =
@@ -45,8 +53,10 @@ var create_acl_tmpl =
                 <label for="applies">'+tr("This rule applies to")+':</label>\
                 <select name="applies" id="applies"></select>\
                 <div class="clear"></div>\
-                <label style="height:9em">'+tr("Affected resources")+':</label>\
+                <label style="height:11em">'+tr("Affected resources")+':</label>\
                 <input type="checkbox" name="res_host" class="resource_cb" value="HOST">'+tr("Hosts")+'</input><br />\
+                <input type="checkbox" name="res_cluster" class="resource_cb" value="CLUSTER">'+tr("Clusters")+'</input><br />\
+                <input type="checkbox" name="res_datastore" class="resource_cb" value="DATASTORE">'+tr("Datastores")+'</input><br />\
                 <input type="checkbox" name="res_vm" class="resource_cb" value="VM">'+tr("Virtual Machines")+'</input><br />\
                 <input type="checkbox" name="res_net" class="resource_cb" value="NET">'+tr("Virtual Networks")+'</input><br />\
                 <input type="checkbox" name="res_image" class="resource_cb" value="IMAGE">'+tr("Images")+'</input><br />\
@@ -127,11 +137,19 @@ var acl_actions = {
 
     "Acl.delete" : {
         type: "multiple",
-        call: OpenNebula.Acl.delete,
+        call: OpenNebula.Acl.del,
         callback: deleteAclElement,
         elements: aclElements,
         error: onError,
         notify: true
+    },
+
+    "Acl.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#acls_tab div.legend_div').slideToggle();
+        }
     },
 }
 
@@ -148,13 +166,21 @@ var acl_buttons = {
     "Acl.delete" : {
         type: "confirm",
         text: tr("Delete")
+    },
+    "Acl.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
+
 }
 
 var acls_tab = {
     title: tr("ACLs"),
     content: acls_tab_content,
-    buttons: acl_buttons
+    buttons: acl_buttons,
+    tabClass: 'subTab',
+    parentTab: 'system_tab'
 }
 
 Sunstone.addActions(acl_actions);
@@ -247,6 +273,12 @@ function parseAclString(string) {
         case "GROUP":
             resources_str+=tr("Groups")+", ";
             break;
+        case "CLUSTER":
+            resources_str+=tr("Clusters")+", ";
+            break;
+        case "DATASTORE":
+            resources_str+=tr("Datastores")+", ";
+            break;
         };
     };
     //remove ", " from end
@@ -277,7 +309,8 @@ function aclElementArray(acl_json){
         acl_array[0],
         acl_array[1],
         acl_array[2],
-        acl_array[3]
+        tr(acl_array[3].charAt(0).toUpperCase()+acl_array[3].substring(1)), //capitalize 1st letter for translation
+        acl.STRING
     ]
 }
 
@@ -295,6 +328,7 @@ function updateAclsView(request,list){
     });
     updateView(list_array,dataTable_acls);
     updateDashboard("acls",list);
+    updateSystemDashboard("acls",list);
 }
 
 function setupCreateAclDialog(){
@@ -469,22 +503,27 @@ $(document).ready(function(){
     dataTable_acls = $("#datatable_acls",main_tabs_context).dataTable({
         "bJQueryUI": true,
         "bSortClasses": false,
+        "sDom" : '<"H"lfrC>t<"F"ip>',
+        "oColVis": {
+            "aiExclude": [ 0 ]
+        },
         "sPaginationType": "full_numbers",
         "bAutoWidth":false,
         "aoColumnDefs": [
             { "bSortable": false, "aTargets": ["check"] },
             { "sWidth": "60px", "aTargets": [0] },
-            { "sWidth": "35px", "aTargets": [1] }
+            { "sWidth": "35px", "aTargets": [1] },
+            { "bVisible": false, "aTargets": [6]}
         ],
-	"oLanguage": (datatable_lang != "") ?
-	    {
-		sUrl: "locale/"+lang+"/"+datatable_lang
-	    } : ""
+        "oLanguage": (datatable_lang != "") ?
+            {
+                sUrl: "locale/"+lang+"/"+datatable_lang
+            } : ""
     });
     dataTable_acls.fnClearTable();
     addElement([
         spinner,
-        '','','','',''],dataTable_acls);
+        '','','','','',''],dataTable_acls);
 
     Sunstone.runAction("Acl.list");
 
@@ -495,4 +534,7 @@ $(document).ready(function(){
     tableCheckboxesListener(dataTable_acls);
     //shortenedInfoFields('#datatable_acls');
 
+    infoListener(dataTable_acls);
+
+    $('div#acls_tab div.legend_div').hide();
 })

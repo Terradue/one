@@ -63,6 +63,7 @@ var vms_tab_content =
       <th class="check"><input type="checkbox" class="check_all" value="">'+tr("All")+'</input></th>\
       <th>'+tr("ID")+'</th>\
       <th>'+tr("Name")+' / '+tr("State")+'</th>\
+      <th>'+tr("IP")+'</th>\
     </tr>\
   </thead>\
   <tbody id="tbodyvmachines">\
@@ -95,7 +96,7 @@ var create_vm_tmpl ='<form id="create_vm_form" action="">\
            <div>\
              <label for="vm_n_times">'+tr("Create # VMs")+':</label>\
              <input type="text" name="vm_n_times" id="vm_n_times" value="1">\
-             <div class="tip">'+tr("You can use the wildcard %i. When creating several VMs, %i will be replaced with a different number starting from 0 in each of them")+'.</div>\
+             <div class="tip">'+tr("You can use the wildcard &#37;. When creating several VMs, &#37; will be replaced with a different number starting from 0 in each of them")+'.</div>\
            </div>\
         </fieldset>\
           <div class="form_buttons">\
@@ -207,6 +208,24 @@ var vm_actions = {
     "VM.shutdown" : {
         type: "multiple",
         call: OCCI.VM.shutdown,
+        callback: updateVMachineElement,
+        elements: vmElements,
+        error: onError,
+        notify: true
+    },
+
+    "VM.reboot" : {
+        type: "multiple",
+        call: OCCI.VM.reboot,
+        callback: updateVMachineElement,
+        elements: vmElements,
+        error: onError,
+        notify: true
+    },
+
+    "VM.reset" : {
+        type: "multiple",
+        call: OCCI.VM.reset,
         callback: updateVMachineElement,
         elements: vmElements,
         error: onError,
@@ -335,6 +354,16 @@ var vm_buttons = {
                 text: tr("Stop"),
                 tip: "This will stop selected VMs"
             },
+            "VM.reboot" : {
+                type: "confirm",
+                text: tr("Reboot"),
+                tip: "This will reboot [via acpi] selected VMs"
+            },
+            "VM.reset" : {
+                type: "confirm",
+                text: tr("Reset"),
+                tip: "This will perform a hard reset on selected VMs"
+            },
             "VM.cancel" : {
                 type: "confirm",
                 text: tr("Cancel"),
@@ -377,7 +406,7 @@ var vm_create_panel = {
 };
 
 var vms_tab = {
-    title: tr("Compute"),
+    title: '<i class="icon-bar-chart"></i>'+tr("Compute"),
     content: vms_tab_content,
     buttons: vm_buttons
 }
@@ -396,6 +425,20 @@ function vmElements() {
 function str_start_time(vm){
     return pretty_time(vm.STIME);
 }
+
+function ip_str(vm){
+    var nic = vm.NIC;
+    var ip = '--';
+    if ($.isArray(nic)) {
+        ip = '';
+        $.each(nic, function(index,value){
+            ip += value.IP+'<br />';
+        });
+    } else if (nic && nic.IP) {
+        ip = nic.IP;
+    };
+    return ip;
+};
 
 // Returns an array formed by the information contained in the vm_json
 // and ready to be introduced in a dataTable
@@ -416,26 +459,11 @@ function vMachineElementArray(vm_json){
     return [
         '<input class="check_item" type="checkbox" id="vm_'+id+'" name="selected_items" value="'+id+'"/>',
         id,
-        VMStateBulletStr(vm_json) + name
+        VMStateBulletStr(vm_json) + name,
+        ip_str(vm)
     ];
 }
 
-
-//Creates a listener for the TDs of the VM table
-function vMachineInfoListener(){
-
-    $('#tbodyvmachines tr',dataTable_vMachines).live("click", function(e){
-        if ($(e.target).is('input') || $(e.target).is('a img')) {return true;}
-
-        var aData = dataTable_vMachines.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("VM.showinfo",id);
-        return false;
-    });
-}
 
 // Callback to refresh a single element from the list
 function updateVMachineElement(request, vm_json){
@@ -454,7 +482,7 @@ function addVMachineElement(request,vm_json){
     var id = vm_json.COMPUTE.ID;
     var element = vMachineElementArray(vm_json);
     addElement(element,dataTable_vMachines);
-    Sunstone.runAction("VM.showstate",id);
+    Sunstone.runAction("VM.show",id);
 }
 
 
@@ -993,10 +1021,11 @@ function setupVNC(){
 
     dialog.dialog({
         autoOpen:false,
-        width:700,
+        width:750,
         modal:true,
         height:500,
         resizable:true,
+        closeOnEscape: false
     });
 
     $('#sendCtrlAltDelButton',dialog).click(function(){
@@ -1097,6 +1126,7 @@ $(document).ready(function(){
             { "bSortable": false, "aTargets": ["check"] },
             { "sWidth": "60px", "aTargets": [0] },
             { "sWidth": "35px", "aTargets": [1] },
+            { "sWidth": "110px", "aTargets": [3] },
         ],
         "oLanguage": (datatable_lang != "") ?
             {
@@ -1107,7 +1137,7 @@ $(document).ready(function(){
     dataTable_vMachines.fnClearTable();
     addElement([
         spinner,
-        '',''],dataTable_vMachines);
+        '','',''],dataTable_vMachines);
     Sunstone.runAction("VM.list");
 
     //setupCreateVMDialog();
@@ -1117,7 +1147,7 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_vMachines);
     tableCheckboxesListener(dataTable_vMachines);
-    vMachineInfoListener();
+    infoListener(dataTable_vMachines,'VM.showinfo');
 
     $('#li_vms_tab').click(function(){
         popUpVMDashboard();

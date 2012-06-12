@@ -111,6 +111,8 @@ void  LifeCycleManager::suspend_action(int vid)
 
         vm->set_state(VirtualMachine::SAVE_SUSPEND);
 
+        vm->set_resched(false);
+        
         vmpool->update(vm);
 
         vm->log("LCM", Log::INFO, "New VM state is SAVE_SUSPEND");
@@ -154,7 +156,9 @@ void  LifeCycleManager::stop_action(int vid)
         //----------------------------------------------------
 
         vm->set_state(VirtualMachine::SAVE_STOP);
-
+        
+        vm->set_resched(false);
+        
         vmpool->update(vm);
 
         vm->log("LCM", Log::INFO, "New VM state is SAVE_STOP");
@@ -199,6 +203,8 @@ void  LifeCycleManager::migrate_action(int vid)
         //----------------------------------------------------
 
         vm->set_state(VirtualMachine::SAVE_MIGRATE);
+
+        vm->set_resched(false);
 
         vmpool->update(vm);
 
@@ -254,6 +260,8 @@ void  LifeCycleManager::live_migrate_action(int vid)
 
         vm->set_state(VirtualMachine::MIGRATE);
 
+        vm->set_resched(false);
+
         vmpool->update(vm);
 
         vm->set_stime(time(0));
@@ -305,6 +313,8 @@ void  LifeCycleManager::shutdown_action(int vid)
         //----------------------------------------------------
 
         vm->set_state(VirtualMachine::SHUTDOWN);
+
+        vm->set_resched(false);
 
         vmpool->update(vm);
 
@@ -410,6 +420,8 @@ void  LifeCycleManager::cancel_action(int vid)
 
         vm->set_state(VirtualMachine::CANCEL);
 
+        vm->set_resched(false);
+
         vmpool->update(vm);
 
         vm->log("LCM", Log::INFO, "New state is CANCEL");
@@ -421,37 +433,6 @@ void  LifeCycleManager::cancel_action(int vid)
     else
     {
         vm->log("LCM", Log::ERROR, "cancel_action, VM in a wrong state.");
-    }
-
-    vm->unlock();
-
-    return;
-}
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-void  LifeCycleManager::reboot_action(int vid)
-{
-    VirtualMachine *    vm;
-
-    vm = vmpool->get(vid,true);
-
-    if ( vm == 0 )
-    {
-        return;
-    }
-
-    if (vm->get_state() == VirtualMachine::ACTIVE &&
-        vm->get_lcm_state() == VirtualMachine::RUNNING)
-    {
-        Nebula&                 nd = Nebula::instance();
-        VirtualMachineManager * vmm = nd.get_vmm();
-
-        vmm->trigger(VirtualMachineManager::REBOOT,vid);
-    }
-    else
-    {
-        vm->log("LCM", Log::ERROR, "reboot_action, VM in a wrong state.");
     }
 
     vm->unlock();
@@ -595,9 +576,11 @@ void  LifeCycleManager::clean_up_vm(VirtualMachine * vm)
     int                      vid   = vm->get_oid();
 
     vm->set_state(VirtualMachine::CLEANUP);
+    vm->set_resched(false);
     vmpool->update(vm);
 
     vm->set_etime(the_time);
+    vm->set_vm_info();
     vm->set_reason(History::USER);
 
     vm->get_requirements(cpu,mem,disk);
@@ -633,6 +616,7 @@ void  LifeCycleManager::clean_up_vm(VirtualMachine * vm)
             vmpool->update_history(vm);
 
             vm->set_previous_etime(the_time);
+            vm->set_previous_vm_info();
             vm->set_previous_running_etime(the_time);
             vm->set_previous_reason(History::USER);
             vmpool->update_previous_history(vm);
@@ -663,6 +647,7 @@ void  LifeCycleManager::clean_up_vm(VirtualMachine * vm)
             vmpool->update_history(vm);
 
             vm->set_previous_etime(the_time);
+            vm->set_previous_vm_info();
             vm->set_previous_running_etime(the_time);
             vm->set_previous_reason(History::USER);
             vmpool->update_previous_history(vm);
@@ -694,6 +679,7 @@ void  LifeCycleManager::clean_up_vm(VirtualMachine * vm)
         break;
 
         case VirtualMachine::FAILURE:
+            vmpool->update_history(vm);
             tm->trigger(TransferManager::EPILOG_DELETE,vid);
         break;
         

@@ -89,10 +89,17 @@ enable_logging OCCI_LOG, settings.config[:debug_level].to_i
 # Set Sinatra configuration
 use Rack::Session::Pool, :key => 'occi'
 
-set :public, Proc.new { File.join(root, "ui/public") }
+set :public_folder, Proc.new { File.join(root, "ui/public") }
 set :views, settings.root + '/ui/views'
 
-if CloudServer.is_port_open?(settings.config[:server],
+if settings.config[:server]
+    settings.config[:host] ||= settings.config[:server]
+    warning = "Warning: :server: configuration parameter has been deprecated."
+    warning << " Use :host: instead."
+    settings.logger.warn warning
+end
+
+if CloudServer.is_port_open?(settings.config[:host],
                              settings.config[:port])
     settings.logger.error {
         "Port #{settings.config[:port]} busy, please shutdown " <<
@@ -101,7 +108,7 @@ if CloudServer.is_port_open?(settings.config[:server],
     exit -1
 end
 
-set :bind, settings.config[:server]
+set :bind, settings.config[:host]
 set :port, settings.config[:port]
 
 

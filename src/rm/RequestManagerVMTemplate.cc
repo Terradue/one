@@ -39,6 +39,7 @@ void VMTemplateInstantiate::request_execute(xmlrpc_c::paramList const& paramList
     VMTemplate *             rtmpl;
 
     string error_str;
+    string aname;
 
     rtmpl = tpool->get(id,true);
 
@@ -57,13 +58,32 @@ void VMTemplateInstantiate::request_execute(xmlrpc_c::paramList const& paramList
 
     rtmpl->unlock();
 
+    // Check template for restricted attributes, but only if the Template owner
+    // is not oneadmin
+
+    if ( perms.uid != UserPool::ONEADMIN_ID && perms.gid != GroupPool::ONEADMIN_ID )
+    {
+        if (tmpl->check(aname))
+        {
+            ostringstream oss;
+
+            oss << "VM Template includes a restricted attribute " << aname;
+
+            failure_response(AUTHORIZATION,
+                    authorization_error(oss.str(), att),
+                    att);
+
+            delete tmpl;
+            return;
+        }
+    }
+
     tmpl->erase("NAME");
     tmpl->set(new SingleAttribute("NAME",name));
 
     if ( att.uid != 0 )
     {
         AuthRequest ar(att.uid, att.gid);
-        string      tmpl_txt;
 
         ar.add_auth(auth_op, perms); //USE TEMPLATE
 
@@ -93,6 +113,81 @@ void VMTemplateInstantiate::request_execute(xmlrpc_c::paramList const& paramList
     }
     
     success_response(vid, att);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void VMTemplateClone::request_execute(xmlrpc_c::paramList const& paramList,
+                                            RequestAttributes& att)
+{
+    int    source_id = xmlrpc_c::value_int(paramList.getInt(1));
+    string name      = xmlrpc_c::value_string(paramList.getString(2));
+
+    int rc, new_id;
+
+    PoolObjectAuth perms;
+
+    VMTemplatePool * tpool     = static_cast<VMTemplatePool *>(pool);
+
+    VirtualMachineTemplate * tmpl;
+    VMTemplate *             source_tmpl;
+
+    string error_str;
+
+    source_tmpl = tpool->get(source_id,true);
+
+    if ( source_tmpl == 0 )
+    {
+        failure_response(NO_EXISTS,
+                get_error(object_name(auth_object),source_id),
+                att);
+
+        return;
+    }
+
+    tmpl  = source_tmpl->clone_template();
+
+    source_tmpl->get_permissions(perms);
+
+    source_tmpl->unlock();
+
+    tmpl->erase("NAME");
+    tmpl->set(new SingleAttribute("NAME",name));
+
+    if ( att.uid != 0 )
+    {
+        string tmpl_str = "";
+
+        AuthRequest ar(att.uid, att.gid);
+
+        ar.add_auth(auth_op, perms); //USE TEMPLATE
+
+        tmpl->to_xml(tmpl_str);
+
+        ar.add_create_auth(auth_object, tmpl_str);
+
+        if (UserPool::authorize(ar) == -1)
+        {
+            failure_response(AUTHORIZATION,
+                    authorization_error(ar.message, att),
+                    att);
+
+            delete tmpl;
+            return;
+        }
+    }
+
+    rc = tpool->allocate(att.uid, att.gid, att.uname, att.gname,
+                         tmpl, &new_id, error_str);
+
+    if ( rc < 0 )
+    {
+        failure_response(INTERNAL, allocate_error(error_str), att);
+        return;
+    }
+
+    success_response(new_id, att);
 }
 
 /* -------------------------------------------------------------------------- */

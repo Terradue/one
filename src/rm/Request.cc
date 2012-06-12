@@ -61,11 +61,6 @@ bool Request::basic_authorization(int oid,
     PoolObjectSQL * object;
     PoolObjectAuth  perms;
 
-    if ( att.uid == 0 )
-    {
-        return true;
-    }
-
     if ( oid >= 0 )
     {
         object = pool->get(oid,true);
@@ -78,12 +73,23 @@ bool Request::basic_authorization(int oid,
             return false;
         }
 
+        if ( att.uid == 0 )
+        {
+            object->unlock();
+            return true;
+        }
+
         object->get_permissions(perms);
 
         object->unlock();
     }
     else
     {
+        if ( att.uid == 0 )
+        {
+            return true;
+        }
+
         perms.obj_type = auth_object;
     }
 
@@ -177,6 +183,10 @@ string Request::object_name(PoolObjectSQL::ObjectType ob)
             return "group";
         case PoolObjectSQL::ACL:
             return "ACL";
+        case PoolObjectSQL::DATASTORE:
+            return "datastore";
+        case PoolObjectSQL::CLUSTER:
+            return "cluster";
         default:
             return "-";
       }
@@ -289,6 +299,34 @@ string Request::allocate_error (const string& error)
     }
 
     return oss.str();
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Request::get_info(
+        PoolSQL *                 pool,
+        int                       id,
+        PoolObjectSQL::ObjectType type,
+        RequestAttributes&        att,
+        PoolObjectAuth&           perms,
+        string&                   name)
+{
+    PoolObjectSQL * ob;
+
+    if ((ob = pool->get(id,true)) == 0 )
+    {
+        failure_response(NO_EXISTS, get_error(object_name(type), id), att);
+        return -1;
+    }
+
+    ob->get_permissions(perms);
+
+    name = ob->get_name();
+
+    ob->unlock();
+
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */

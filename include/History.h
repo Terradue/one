@@ -44,10 +44,9 @@ public:
         int seq,
         int hid,
         const string& hostname,
-        const string& vm_dir,
         const string& vmm,
         const string& vnm,
-        const string& tm);
+        const string& vm_info);
 
     ~History(){};
 
@@ -71,9 +70,8 @@ private:
     // ----------------------------------------
     // DataBase implementation variables
     // ----------------------------------------
-
     static const char * table;
-
+    
     static const char * db_names;
 
     static const char * db_bootstrap;
@@ -87,13 +85,10 @@ private:
     int     seq;
 
     string  hostname;
-    string  vm_dir;
-
     int     hid;
 
     string  vmm_mad_name;
     string  vnm_mad_name;
-    string  tm_mad_name;
 
     time_t  stime;
     time_t  etime;
@@ -109,13 +104,17 @@ private:
 
     MigrationReason reason;
 
-    //Non-persistent history fields
-    string  vm_lhome;
+    string  vm_info;
+
+    // -------------------------------------------------------------------------
+    // Non-persistent history fields
+    // -------------------------------------------------------------------------
+    // Local paths
     string  transfer_file;
     string  deployment_file;
     string  context_file;
 
-    string  vm_rhome;
+    // Remote paths
     string  checkpoint_file;
     string  rdeployment_file;
 
@@ -171,6 +170,23 @@ private:
      *    @return 0 on success
      */
     int select_cb(void *nil, int num, char **values, char **names);
+
+    /**
+     * Function to print the History object into a string in
+     * XML format, to be stored in the DB. It includes the VM template info
+     *  @param xml the resulting XML string
+     *  @return a reference to the generated string
+     */
+    string& to_db_xml(string& xml) const;
+
+    /**
+     * Function to print the History object into a string in
+     * XML format. The VM info can be optionally included
+     *  @param xml the resulting XML string
+     *  @param database If it is true, the TEMPLATE element will be included
+     *  @return a reference to the generated string
+     */
+    string& to_xml(string& xml, bool database) const;
 
     /**
      *  Rebuilds the object from an xml node

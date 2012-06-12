@@ -16,8 +16,9 @@
 
 /*Templates tab plugin*/
 
-var templates_tab_content =
-'<form id="template_form" action="" action="javascript:alert(\'js error!\');">\
+var templates_tab_content = '\
+<h2>'+tr("Templates")+'</h2>\
+<form id="template_form" action="" action="javascript:alert(\'js error!\');">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_templates" class="display">\
@@ -34,6 +35,15 @@ var templates_tab_content =
   <tbody id="tbodytemplates">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+  <span>?</span>\
+  <p class="legend_p">\
+'+tr("Clicking `instantiate` will instantly create new Virtual Machines from the selected templates and name one-id. If you want to assign a specific name to a new VM, or launch several instances at once, use Virtual Machines->New button.")+'\
+  </p>\
+  <p class="legend_p">\
+'+tr("You can clone a template to obtain a copy from an existing template. This copy will be owned by you.")+'\
+  </p>\
+</div>\
 </form>';
 
 var create_template_tmpl = '<div id="template_create_tabs">\
@@ -186,7 +196,7 @@ var create_template_tmpl = '<div id="template_create_tabs">\
 <h3>'+tr("Add disks/images")+' <a id="add_disks" class="icon_left" href="#"><span class="ui-icon ui-icon-plus" /></a></h3>\
                           </div>\
                           <fieldset><legend>'+tr("Disks")+'</legend>\
-                             <div class="" id="image_vs_disk">\
+                             <div class="" id="image_vs_disk" style="display:none;">\
                                   <label>'+tr("Add disk/image")+'</label>\
                                   <input type="radio" id="add_disk" name="image_vs_disk" value="disk">'+tr("Disk")+'</input>\
                                   <!--<label for="add_disk">Add a disk</label>-->\
@@ -207,7 +217,7 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                                   </select>\
                                   <div class="tip">'+tr("Type of disk device to emulate: ide, scsi")+'</div>\
                             </div>\
-                            <div class="vm_param kvm_opt xen_opt vmware">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt">\
                                   <label for="TARGET">'+tr("Target")+':</label>\
                                   <input type="text" id="TARGET" name="target" />\
                                   <div class="tip">'+tr("Device to map image disk. If set, it will overwrite the default device mapping")+'</div>\
@@ -227,6 +237,11 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                                   <label for="SOURCE">'+tr("Source")+':</label>\
                                   <input type="text" id="SOURCE" name="source" />\
                                   <div class="tip">'+tr("Disk file location path or URL")+'</div>\
+                            </div>\
+                            <div class="vm_param kvm xen vmware add_disk">\
+                                  <label for="TM_MAD">'+tr("Transfer Manager")+':</label>\
+                                  <input type="text" id="TM_MAD" name="tm_mad" />\
+                                  <div class="tip">'+tr("shared,ssh,iscsi,dummy")+'</div>\
                             </div>\
                             <div class="vm_param kvm_opt xen_opt add_disk ">\
                             <!--Mandatory for swap, fs and block images-->\
@@ -283,7 +298,7 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                               <h3>'+tr("Setup Networks")+' <a id="add_networks" class="icon_left" href="#"><span class="ui-icon ui-icon-plus" /></a></h3>\
                             </div>\
                           <fieldset><legend>'+tr("Network")+'</legend>\
-                            <div class="" id="network_vs_niccfg">\
+                            <div class="" id="network_vs_niccfg" style="display:none;">\
                                   <label>'+tr("Add network")+'</label>\
                                   <input type="radio" id="add_network" name="network_vs_niccfg" value="network">'+tr("Predefined")+'</input>\
                                   <!--<label style="width:200px;" for="add_network">Pre-defined network</label>-->\
@@ -324,13 +339,13 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                                   <input type="text" id="SCRIPT" name="script" />\
                                   <div class="tip">'+tr("Name of a shell script to be executed after creating the tun device for the VM")+'</div>\
                             </div>\
-                            <div class="vm_param kvm_opt xen_opt vmware_opt niccfg">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt niccfg network">\
                                   <label for="MODEL">'+tr("Model")+':</label>\
                                   <input type="text" id="MODEL" name="model" />\
                                   <div class="tip">'+tr("Hardware that will emulate this network interface. With Xen this is the type attribute of the vif.")+'</div>\
                             </div>\
                             <div class="firewall_select">\
-                                  <label for="black_white_tcp">'+tr("Tcp firewall mode")+':</label>\
+                                  <label for="black_white_tcp">'+tr("TCP firewall mode")+':</label>\
                                   <select name="black_white_tcp" id="black_white_tcp">\
                                        <option value="">'+tr("Optional, please select")+'</option>\
                                        <option value="whitelist">'+tr("Port whitelist")+'</option>\
@@ -339,17 +354,17 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                             </div>\
                             <div class="clear"></div>\
                             <div class="vm_param kvm_opt xen_opt vmware_opt firewall">\
-                                  <label for="white_ports_tcp">'+tr("Tcp white ports")+':</label>\
+                                  <label for="white_ports_tcp">'+tr("TCP white ports")+':</label>\
                                   <input type="text" id="WHITE_PORTS_TCP" name="white_ports_tcp" />\
                                   <div class="tip">'+tr("Permits access to the VM only through the specified ports in the TCP protocol")+'</div>\
                             </div>\
                             <div class="vm_param kvm_opt xen_opt vmware_opt firewall">\
-                                  <label for="black_ports_tcp">'+tr("Tcp black ports")+'</label>\
+                                  <label for="black_ports_tcp">'+tr("TCP black ports")+'</label>\
                                   <input type="text" id="BLACK_PORTS_TCP" name="black_ports_tcp" />\
                                   <div class="tip">'+tr("Disallow access to the VM through the specified ports in the TCP protocol")+'</div>\
                             </div>\
                             <div class="firewall_select">\
-                                  <label for="black_white_udp">'+tr("Udp firewall mode")+':</label>\
+                                  <label for="black_white_udp">'+tr("UDP firewall mode")+':</label>\
                                   <select name="black_white_udp" id="black_white_udp">\
                                        <option value="">'+tr("Optional, please select")+'</option>\
                                        <option value="whitelist">'+tr("Port whitelist")+'</option>\
@@ -358,17 +373,17 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                             </div>\
                             <div class="clear"></div>\
                             <div class="vm_param kvm_opt xen_opt vmware_opt firewall">\
-                                  <label for="white_ports_udp">'+tr("Udp white ports")+':</label>\
+                                  <label for="white_ports_udp">'+tr("UDP white ports")+':</label>\
                                   <input type="text" id="WHITE_PORTS_UDP" name="white_ports_udp" />\
                                   <div class="tip">'+tr("Permits access to the VM only through the specified ports in the UDP protocol")+'</div>\
                             </div>\
                             <div class="vm_param kvm_opt xen_opt vmware_opt firewall">\
-                                  <label for="black_ports_udp">'+tr("Udp black ports")+':</label>\
+                                  <label for="black_ports_udp">'+tr("UDP black ports")+':</label>\
                                   <input type="text" id="BLACK_PORTS_UDP" name="black_ports_udp" />\
                                   <div class="tip">'+tr("Disallow access to the VM through the specified ports in the UDP protocol")+'</div>\
                             </div>\
                             <div class="vm_param kvm_opt xen_opt vmware_opt niccfg network">\
-                                  <label for="icmp">'+tr("Icmp")+':</label>\
+                                  <label for="icmp">'+tr("ICMP")+':</label>\
                                   <select name="icmp" id="ICMP">\
                                       <option value="" selected="selected">'+tr("Accept (default)")+'</option>\
                                       <option value="drop">'+tr("Drop")+'</option>\
@@ -429,31 +444,31 @@ var create_template_tmpl = '<div id="template_create_tabs">\
                                   <h3>'+tr("Add Graphics")+' <a id="add_graphics" class="icon_left" href="#"><span class="ui-icon ui-icon-plus" /></a></h3>\
                             </div>\
                           <fieldset><legend>'+tr("Graphics")+'</legend>\
-                            <div class="vm_param kvm_opt xen_opt">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt">\
                                   <label for="TYPE">'+tr("Graphics type")+':</label>\
                                   <select id="TYPE" name="">\
                     <option value="">'+tr("Please select")+'</option>\
                                         <option id="vnc" value="vnc">'+tr("VNC")+'</option>\
                                         <option value="sdl">'+tr("SDL")+'</option>\
                                   </select>\
-                                  <div class="tip"></div>\
+                                  <div class="tip">'+tr("VMware supports VNC only")+'</div>\
                             </div>\
-                            <div class="vm_param kvm_opt xen_opt">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt">\
                                   <label for="LISTEN">'+tr("Listen IP")+':</label>\
                                   <input type="text" id="LISTEN" name="graphics_ip" />\
                                   <div class="tip">'+tr("IP to listen on")+'</div>\
                             </div>\
-                            <div class="vm_param kvm_opt xen_opt">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt">\
                                   <label for="PORT">'+tr("Port")+':</label>\
                                   <input type="text" id="PORT" name="port" />\
                                   <div class="tip">'+tr("Port for the VNC server")+'</div>\
                             </div>\
-                            <div class="vm_param kvm_opt xen_opt">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt">\
                                   <label for="PASSWD">'+tr("Password")+':</label>\
                                   <input type="text" id="PASSWD" name="graphics_pw" />\
                                   <div class="tip">'+tr("Password for the VNC server")+'</div>\
                             </div>\
-                            <div class="vm_param kvm_opt xen_opt">\
+                            <div class="vm_param kvm_opt xen_opt vmware_opt">\
                                   <label for="KEYMAP">'+tr("Keymap")+'</label>\
                                   <input type="text" id="KEYMAP" name="keymap" />\
                                   <div class="tip">'+tr("Keyboard configuration locale to use in the VNC display")+'</div>\
@@ -599,21 +614,21 @@ var update_template_tmpl =
                          <td style="width:40px;text-align:center;">'+tr("Admin")+'</td></tr></thead>\
                      <tr>\
                          <td>'+tr("Owner")+'</td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_owner_u" class="owner_u" /></td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_owner_m" class="owner_m" /></td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_owner_a" class="owner_a" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_owner_u" class="owner_u" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_owner_m" class="owner_m" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_owner_a" class="owner_a" /></td>\
                      </tr>\
                      <tr>\
                          <td>'+tr("Group")+'</td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_group_u" class="group_u" /></td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_group_m" class="group_m" /></td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_group_a" class="group_a" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_group_u" class="group_u" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_group_m" class="group_m" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_group_a" class="group_a" /></td>\
                      </tr>\
                      <tr>\
                          <td>'+tr("Other")+'</td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_other_u" class="other_u" /></td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_other_m" class="other_m" /></td>\
-                         <td style="text-align:center"><input type="checkbox" name="vnet_other_a" class="other_a" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_other_u" class="other_u" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_other_m" class="other_m" /></td>\
+                         <td style="text-align:center"><input type="checkbox" name="template_other_a" class="other_a" /></td>\
                      </tr>\
                    </table>\
                  </div>\
@@ -624,7 +639,7 @@ var update_template_tmpl =
             <fieldset>\
                  <div class="form_buttons">\
                     <button class="button" id="template_template_update_button" value="Template.update_template">\
-                       Update\
+                       '+tr("Update")+'\
                     </button>\
                  </div>\
             </fieldset>\
@@ -720,7 +735,7 @@ var template_actions = {
 
     "Template.delete" : {
         type: "multiple",
-        call: OpenNebula.Template.delete,
+        call: OpenNebula.Template.del,
         callback: deleteTemplateElement,
         elements: templateElements,
         error: onError,
@@ -766,6 +781,23 @@ var template_actions = {
         error: onError,
         notify: true
     },
+    "Template.clone_dialog" : {
+        type: "custom",
+        call: popUpTemplateCloneDialog
+    },
+    "Template.clone" : {
+        type: "single",
+        call: OpenNebula.Template.clone,
+        error: onError,
+        notify: true
+    },
+    "Template.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#templates_tab div.legend_div').slideToggle();
+        }
+    },
 }
 
 var template_buttons = {
@@ -801,10 +833,19 @@ var template_buttons = {
         tip: tr("Select the new group")+":",
         condition: mustBeAdmin
     },
-
+    "Template.clone_dialog" : {
+        type: "action",
+        text: tr("Clone"),
+    },
     "Template.delete" : {
         type: "confirm",
         text: tr("Delete")
+    },
+
+    "Template.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
 }
 
@@ -818,7 +859,9 @@ var template_info_panel = {
 var templates_tab = {
     title: tr("Templates"),
     content: templates_tab_content,
-    buttons: template_buttons
+    buttons: template_buttons,
+    tabClass: 'subTab',
+    parentTab: 'vres_tab'
 }
 
 Sunstone.addActions(template_actions);
@@ -832,7 +875,7 @@ function templateElements(){
 
 //Runs a show action on the template with from a prev request
 function templateShow(req){
-    Sunstone.runAction("Template.show",req.request.data[0]);
+    Sunstone.runAction("Template.show",req.request.data[0][0]);
 }
 
 // Returns an array containing the values of the template_json and ready
@@ -847,21 +890,6 @@ function templateElementArray(template_json){
         template.NAME,
         pretty_time(template.REGTIME)
     ];
-}
-
-// Set up the listener on the table TDs to show the info panel
-function templateInfoListener(){
-    $('#tbodytemplates tr',dataTable_templates).live("click",function(e){
-        if ($(e.target).is('input')) {return true;}
-
-        var aData = dataTable_templates.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Template.showinfo",id);
-        return false;
-    });
 }
 
 //Updates the select input field with an option for each template
@@ -910,7 +938,7 @@ function updateTemplatesView(request, templates_list){
     updateView(template_list_array,dataTable_templates);
     updateTemplateSelect();
     updateDashboard("templates",templates_list);
-
+    updateVResDashboard("templates",templates_list);
 }
 
 // Callback to update the information panel tabs and pop it up
@@ -944,7 +972,7 @@ function updateTemplateInfo(request,template){
              <td class="key_td">'+tr("Register time")+'</td>\
              <td class="value_td">'+pretty_time(template_info.REGTIME)+'</td>\
            </tr>\
-           <tr><td class="key_td">Permissions</td><td></td></tr>\
+           <tr><td class="key_td">'+tr("Permissions")+'</td><td></td></tr>\
            <tr>\
              <td class="key_td">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'+tr("Owner")+'</td>\
              <td class="value_td" style="font-family:monospace;">'+ownerPermStr(template_info)+'</td>\
@@ -1004,7 +1032,6 @@ function setupCreateTemplateDialog(){
 
         //hide non common sections
         $(section_inputs).hide();
-        $(section_graphics).hide();
 
         switch(ui.index){
         case 0:
@@ -1092,7 +1119,6 @@ function setupCreateTemplateDialog(){
         $('input#TYPE', section_raw).val("kvm");
 
         $(section_inputs).show();
-        $(section_graphics).show();
     };
 
     // Using XEN wizard.
@@ -1128,7 +1154,6 @@ function setupCreateTemplateDialog(){
         $('select#BUS',section_disks).html(bus_opts);
 
         $('input#TYPE', section_raw).val("xen");
-        $(section_graphics).show();
     };
 
     //VMWare wizard
@@ -1206,7 +1231,7 @@ function setupCreateTemplateDialog(){
             var field = $(this);
             if (!(field.parents(".vm_param").attr('disabled')) &&
                 field.val().length){
-                //Pick up parent's ID if we do not have one
+                //Pick up parents ID if we do not have one
                 id = field.attr('id').length ? field.attr('id') : field.parent().attr('id');
                 value[id] = field.val();
             };
@@ -1397,6 +1422,11 @@ function setupCreateTemplateDialog(){
         $('#IMAGE', section_disks).change(function(){
             var uname = getValue($(this).val(),4,2,dataTable_images);
             $('input#IMAGE_UNAME',section_disks).val(uname);
+            var target = getValue($(this).val(),4,12,dataTable_images);
+            if (target && target != "--")
+                $('input#TARGET',section_disks).val(target);
+            else
+                $('input#TARGET',section_disks).val('');
         });
 
         //Depending on adding a disk or a image we need to show/hide
@@ -1404,7 +1434,7 @@ function setupCreateTemplateDialog(){
         $('#image_vs_disk input',section_disks).click(function(){
             //$('fieldset',section_disks).show();
             $('.vm_param', section_disks).show();
-            var select = $('#image_vs_disk :checked',section_disks).val();
+            var select = $(this).val();
             switch (select)
             {
             case "disk":
@@ -1412,16 +1442,12 @@ function setupCreateTemplateDialog(){
                 $('.add_image',section_disks).attr('disabled','disabled');
                 $('.add_disk',section_disks).show();
                 $('.add_disk',section_disks).removeAttr('disabled');
-                $('#TARGET',section_disks).parent().removeClass(opt_class);
-                $('#TARGET',section_disks).parent().addClass(man_class);
                 break;
             case "image":
                 $('.add_disk',section_disks).hide();
                 $('.add_disk',section_disks).attr('disabled','disabled');
                 $('.add_image',section_disks).show();
                 $('.add_image',section_disks).removeAttr('disabled');
-                $('#TARGET',section_disks).parent().removeClass(man_class);
-                $('#TARGET',section_disks).parent().addClass(opt_class);
                 break;
             }
             $('#SIZE',section_disks).parent().hide();
@@ -1538,7 +1564,11 @@ function setupCreateTemplateDialog(){
             box_remove_element(section_disks,'#disks_box');
             return false;
         });
-        };
+
+        //preselect now hidden option
+        $('#image_vs_disk input#add_image',section_disks).trigger('click');
+
+    };
 
     // Sets up the network section
     var networks_setup = function(){
@@ -1568,7 +1598,7 @@ function setupCreateTemplateDialog(){
             $('.firewall_select',section_networks).show();
             $('.firewall_select select option',section_networks).removeAttr('selected');
 
-            select = $('#network_vs_niccfg :checked',section_networks).val();
+            select = $(this).val();
             switch (select) {
             case "network":
                 $('.niccfg',section_networks).hide();
@@ -1646,6 +1676,8 @@ function setupCreateTemplateDialog(){
             return false;
         });
 
+        //preselect now hidden option
+        $('#network_vs_niccfg input#add_network',section_networks).trigger('click');
     };
 
     //Sets up the input section - basicly enabling adding and removing from box
@@ -2002,7 +2034,7 @@ function popUpCreateTemplateDialog(){
                                    4, //id col - trick -> reference by name!
                                    4, //name col
                                    [10,10,10],
-                                   ["DISABLED","LOCKED","ERROR"]
+                                   [tr("DISABLED"),tr("LOCKED"),tr("ERROR")]
                                   );
     $('div#disks select#IMAGE',$create_template_dialog).html(im_sel);
     //Repopulate network select
@@ -2076,7 +2108,6 @@ function setupTemplateTemplateUpdateDialog(){
 
         Sunstone.runAction("Template.update",id,new_template);
         $(this).parents('#template_template_update_dialog').dialog('close');
-        dialog.dialog('close');
         return false;
     });
 };
@@ -2118,6 +2149,78 @@ function popUpTemplateTemplateUpdateDialog(){
 
 };
 
+function setupTemplateCloneDialog(){
+    //Append to DOM
+    dialogs_context.append('<div id="template_clone_dialog" title="'+tr("Clone a template")+'"></div>');
+    var dialog = $('#template_clone_dialog',dialogs_context);
+
+    //Put HTML in place
+
+    var html = '<form><fieldset>\
+<div class="clone_one">'+tr("Choose a new name for the template")+':</div>\
+<div class="clone_several">'+tr("Several templates are selected, please choose prefix to name the new copies")+':</div>\
+<br />\
+<label class="clone_one">'+tr("Name")+':</label>\
+<label class="clone_several">'+tr("Prefix")+':</label>\
+<input type="text" name="name"></input>\
+<div class="form_buttons">\
+  <button class="button" id="template_clone_button" value="Template.clone">\
+'+tr("Clone")+'\
+  </button>\
+</div></fieldset></form>\
+';
+
+    dialog.html(html);
+
+    //Convert into jQuery
+    dialog.dialog({
+        autoOpen:false,
+        width:375,
+        modal:true,
+        resizable:false,
+    });
+
+    $('button',dialog).button();
+
+    $('form',dialog).submit(function(){
+        var name = $('input', this).val();
+        var sel_elems = templateElements();
+        if (!name || !sel_elems.length)
+            notifyError('A name or prefix is needed!');
+        if (sel_elems.length > 1){
+            for (var i=0; i< sel_elems.length; i++)
+                Sunstone.runAction('Template.clone',
+                                   sel_elems[i],
+                                   name+getTemplateName(sel_elems[i]));
+        } else {
+            Sunstone.runAction('Template.clone',sel_elems[0],name)
+        };
+        $(this).parents('#template_clone_dialog').dialog('close');
+        setTimeout(function(){
+            Sunstone.runAction('Template.refresh');
+        }, 1500);
+        return false;
+    });
+}
+
+function popUpTemplateCloneDialog(){
+    var dialog = $('#template_clone_dialog');
+    var sel_elems = templateElements();
+    //show different text depending on how many elements are selected
+    if (sel_elems.length > 1){
+        $('.clone_one',dialog).hide();
+        $('.clone_several',dialog).show();
+        $('input',dialog).val('Copy of ');
+    }
+    else {
+        $('.clone_one',dialog).show();
+        $('.clone_several',dialog).hide();
+        $('input',dialog).val('Copy of '+getTemplateName(sel_elems[0]));
+    };
+
+    $(dialog).dialog('open');
+}
+
 // Set the autorefresh interval for the datatable
 function setTemplateAutorefresh() {
     setInterval(function(){
@@ -2137,6 +2240,10 @@ $(document).ready(function(){
         "bJQueryUI": true,
         "bSortClasses": false,
         "bAutoWidth":false,
+        "sDom" : '<"H"lfrC>t<"F"ip>',
+        "oColVis": {
+            "aiExclude": [ 0 ]
+        },
         "sPaginationType": "full_numbers",
         "aoColumnDefs": [
             { "bSortable": false, "aTargets": ["check"] },
@@ -2159,9 +2266,12 @@ $(document).ready(function(){
 
     setupCreateTemplateDialog();
     setupTemplateTemplateUpdateDialog();
+    setupTemplateCloneDialog();
     setTemplateAutorefresh();
 
     initCheckAllBoxes(dataTable_templates);
     tableCheckboxesListener(dataTable_templates);
-    templateInfoListener();
+    infoListener(dataTable_templates,'Template.showinfo');
+
+    $('div#templates_tab div.legend_div').hide();
 });

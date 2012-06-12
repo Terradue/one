@@ -18,8 +18,9 @@ var groups_select="";
 var dataTable_groups;
 var $create_group_dialog;
 
-var groups_tab_content =
-'<form id="group_form" action="" action="javascript:alert(\'js error!\');">\
+var groups_tab_content = '\
+<h2>'+tr("Groups")+'</h2>\
+<form id="group_form" action="" action="javascript:alert(\'js error!\');">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_groups" class="display">\
@@ -34,6 +35,12 @@ var groups_tab_content =
   <tbody id="tbodygroups">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+  <span>?</span>\
+<p class="legend_p">\
+'+tr("Tip: Refresh the list if it only shows user ids in the Users column.")+'\
+</p>\
+</div>\
 </form>';
 
 var create_group_tmpl =
@@ -97,7 +104,7 @@ var group_actions = {
 
     "Group.delete" : {
         type: "multiple",
-        call : OpenNebula.Group.delete,
+        call : OpenNebula.Group.del,
         callback : deleteGroupElement,
         error : onError,
         elements: groupElements,
@@ -112,7 +119,13 @@ var group_actions = {
     //     error : onError,
     //     notify:true
     // },
-
+    "Group.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#groups_tab div.legend_div').slideToggle();
+        }
+    },
 }
 
 var group_buttons = {
@@ -136,14 +149,21 @@ var group_buttons = {
     "Group.delete" : {
         type: "confirm",
         text: tr("Delete")
+    },
+    "Group.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
 };
 
 var groups_tab = {
     title: tr("Groups"),
     content: groups_tab_content,
-    buttons: group_buttons
-}
+    buttons: group_buttons,
+    tabClass: 'subTab',
+    parentTab: 'system_tab'
+};
 
 Sunstone.addActions(group_actions);
 Sunstone.addMainTab('groups_tab',groups_tab);
@@ -172,17 +192,6 @@ function groupElementArray(group_json){
         group.NAME,
         users_str ];
 }
-
-// function groupInfoListener(){
-//     $('#groups_tab #tbodygroups tr',main_tabs_context).live("click",function(e){
-//         //do nothing if we are clicking a checkbox!
-//         if ($(e.target).is('input')) {return true;}
-//         var aData = dataTable_groups.fnGetData(this);
-//         var id = $(aData[0]).val();
-//         Sunstone.runAction("Group.showinfo",id);
-//         return false;
-//     });
-// }
 
 function updateGroupSelect(){
     groups_select = makeSelectOptions(dataTable_groups,
@@ -224,6 +233,7 @@ function updateGroupsView(request, group_list){
     updateView(group_list_array,dataTable_groups);
     updateGroupSelect(group_list);
     updateDashboard("groups",group_list);
+    updateSystemDashboard("groups",group_list);
 }
 
 //Prepares the dialog to create
@@ -270,6 +280,7 @@ $(document).ready(function(){
     dataTable_groups = $("#datatable_groups",main_tabs_context).dataTable({
         "bJQueryUI": true,
         "bSortClasses": false,
+        "sDom" : '<"H"lfrC>t<"F"ip>',
         "sPaginationType": "full_numbers",
         "bAutoWidth":false,
         "aoColumnDefs": [
@@ -277,10 +288,10 @@ $(document).ready(function(){
             { "sWidth": "60px", "aTargets": [0] },
             { "sWidth": "35px", "aTargets": [1] }
         ],
-	"oLanguage": (datatable_lang != "") ?
-	    {
-		sUrl: "locale/"+lang+"/"+datatable_lang
-	    } : ""
+        "oLanguage": (datatable_lang != "") ?
+            {
+                sUrl: "locale/"+lang+"/"+datatable_lang
+            } : ""
     });
 
     dataTable_groups.fnClearTable();
@@ -294,4 +305,7 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_groups);
     tableCheckboxesListener(dataTable_groups);
+    infoListener(dataTable_groups);
+
+    $('div#groups_tab div.legend_div').hide();
 })

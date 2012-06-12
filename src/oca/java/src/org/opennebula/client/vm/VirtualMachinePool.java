@@ -33,6 +33,7 @@ public class VirtualMachinePool extends Pool implements Iterable<VirtualMachine>
 
     private static final String ELEMENT_NAME = "VM";
     private static final String INFO_METHOD  = "vmpool.info";
+    private static final String MONITORING   = "vmpool.monitoring";
 
     /**
      * Flag for Virtual Machines in any state.
@@ -174,6 +175,27 @@ public class VirtualMachinePool extends Pool implements Iterable<VirtualMachine>
     }
 
     /**
+     * Retrieves the monitoring data for all or part of the Virtual
+     * Machines in the pool.
+     *
+     * @param client XML-RPC Client.
+     * @param filter Filter flag to use. Possible values:
+     * <ul>
+     * <li>{@link Pool#ALL}: All Virtual Machines</li>
+     * <li>{@link Pool#MINE}: Connected user's Virtual Machines</li>
+     * <li>{@link Pool#MINE_GROUP}: Connected user's Virtual Machines, and
+     * the ones in his group</li>
+     * <li>>= 0: UID User's Virtual Machines</li>
+     * </ul>
+     * @return If successful the message contains the string
+     * with the information returned by OpenNebula.
+     */
+    public static OneResponse monitoring(Client client, int filter)
+    {
+        return client.call(MONITORING, filter);
+    }
+
+    /**
      * Loads the xml representation of all or part of the
      * Virtual Machines in the pool. The filter used is the one set in
      * the constructor.
@@ -255,6 +277,26 @@ public class VirtualMachinePool extends Pool implements Iterable<VirtualMachine>
         return response;
     }
 
+    /**
+     * Retrieves the monitoring data for all or part of the Virtual
+     * Machines in the pool.
+     *
+     * @param filter Filter flag to use. Possible values:
+     * <ul>
+     * <li>{@link Pool#ALL}: All Virtual Machines</li>
+     * <li>{@link Pool#MINE}: Connected user's Virtual Machines</li>
+     * <li>{@link Pool#MINE_GROUP}: Connected user's Virtual Machines, and
+     * the ones in his group</li>
+     * <li>>= 0: UID User's Virtual Machines</li>
+     * </ul>
+     * @return If successful the message contains the string
+     * with the information returned by OpenNebula.
+     */
+    public OneResponse monitoring(int filter)
+    {
+        return monitoring(client, filter);
+    }
+
     public Iterator<VirtualMachine> iterator()
     {
         AbstractList<VirtualMachine> ab = new AbstractList<VirtualMachine>()
@@ -275,7 +317,7 @@ public class VirtualMachinePool extends Pool implements Iterable<VirtualMachine>
 
     /**
      * Returns the Virtual Machine with the given Id from the pool. If it is not found,
-     * then returns null.
+     * then returns null. The method {@link #info()} must be called before.
      *
      * @param id of the ACl rule to retrieve
      * @return The Virtual Machine with the given Id, or null if it was not found.

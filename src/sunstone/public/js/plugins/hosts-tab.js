@@ -20,38 +20,55 @@ var HOST_HISTORY_LENGTH = 40;
 var host_graphs = [
     {
         title : tr("CPU Monitoring information"),
-        monitor_resources : "cpu_usage,used_cpu,max_cpu",
+        monitor_resources : "HOST_SHARE/CPU_USAGE,HOST_SHARE/USED_CPU,HOST_SHARE/MAX_CPU",
         humanize_figures : false,
         history_length : HOST_HISTORY_LENGTH
     },
     {
         title: tr("Memory monitoring information"),
-        monitor_resources : "mem_usage,used_mem,max_mem",
+        monitor_resources : "HOST_SHARE/MEM_USAGE,HOST_SHARE/USED_MEM,HOST_SHARE/MAX_MEM",
         humanize_figures : true,
         history_length : HOST_HISTORY_LENGTH
     }
 ]
 
 
-var hosts_tab_content =
-'<form id="form_hosts" action="javascript:alert(\'js errors?!\')">\
+var hosts_tab_content = '\
+<h2>'+tr("Hosts")+'</h2>\
+<form id="form_hosts" action="javascript:alert(\'js errors?!\')">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_hosts" class="display">\
   <thead>\
     <tr>\
       <th class="check"><input type="checkbox" class="check_all" value="">' + tr("All") + '</input></th>\
-      <th>' + tr("id") + '</th>\
+      <th>' + tr("ID") + '</th>\
       <th>' + tr("Name") + '</th>\
+      <th>' + tr("Cluster") + '</th>\
       <th>' + tr("Running VMs") + '</th>\
       <th>' + tr("CPU Use") + '</th>\
       <th>' + tr("Memory use") + '</th>\
       <th>' + tr("Status") + '</th>\
+      <th>' + tr("IM MAD") + '</th>\
+      <th>' + tr("VM MAD") + '</th>\
+      <th>' + tr("Last monitored on") + '</th>\
     </tr>\
   </thead>\
   <tbody id="tbodyhosts">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+  <span>?</span>\
+  <p class="legend_p">\
+'+tr("CPU Use is calculated as the minimum between (total CPU - real CPU usage) and (allocated CPU). Real CPU usage is provided by the hosts monitoring driver. Available CPU is calculated using the information from the CPU setting of the VMs running on that host (allocated CPU)")+'\
+  </p>\
+  <p class="legend_p">\
+'+tr("Memory use is calculated according to the information provided by the host monitoring driver.")+'\
+  </p>\
+  <p class="legend_p">\
+'+tr("You can get monitoring graphs by clicking in the desired host and visiting the monitoring information tab. Note that oneacctd must be running for this information to be updated/available.")+'\
+  </p>\
+</div>\
 </form>';
 
 var create_host_tmpl =
@@ -70,7 +87,11 @@ var create_host_tmpl =
                 <option value="vmm_vmware">' + tr("VMware") + '</option>\
                 <option value="vmm_ec2">' + tr("EC2") + '</option>\
                 <option value="vmm_dummy">' + tr("Dummy") + '</option>\
+                <option value="custom">' + tr("Custom") + '</option>\
           </select>\
+          <div>\
+          <label>' + tr("Custom VMM_MAD") + ':</label>\
+          <input type="text" name="custom_vmm_mad" /></div>\
     </div>\
     <div class="manager clear" id="im_mads">\
       <label>' + tr("Information Manager") + ':</label>\
@@ -80,32 +101,38 @@ var create_host_tmpl =
                <option value="im_vmware">' + tr("VMware") + '</option>\
                <option value="im_ec2">' + tr("EC2") + '</option>\
                <option value="im_dummy">' + tr("Dummy") + '</option>\
+               <option value="custom">' + tr("Custom") + '</option>\
       </select>\
+      <div>\
+        <label>' + tr("Custom IM_MAD") + ':</label>\
+        <input type="text" name="custom_im_mad" />\
+      </div>\
     </div>\
     <div class="manager clear" id="vnm_mads">\
       <label>Virtual Network Manager:</label>\
        <select id="vnm_mad" name="vn">\
          <option value="dummy">' + tr("Default (dummy)") +'</option>\
-         <option value="fw">Firewall</option>\
-         <option value="802.1Q">802.1Q</option>\
-         <option value="ebtables">Ebtables</option>\
-         <option value="ovswitch">Open vSwitch</option>\
-         <option value="vmware">VMware</option>\
+         <option value="fw">'+tr("Firewall")+'</option>\
+         <option value="802.1Q">'+tr("802.1Q")+'</option>\
+         <option value="ebtables">'+tr("ebtables")+'</option>\
+         <option value="ovswitch">'+tr("Open vSwitch")+'</option>\
+         <option value="vmware">'+tr("VMware")+'</option>\
+         <option value="custom">' + tr("Custom") + '</option>\
        </select>\
+       <div>\
+          <label>' + tr("Custom VNM_MAD") + ':</label>\
+          <input type="text" name="custom_vnm_mad" />\
+       </div>\
     </div>\
-    <div class="manager clear" id="tm_mads">\
-      <label>' + tr("Transfer Manager") + ':</label>\
-       <select id="tm_mad" name="tm">\
-         <option value="tm_shared">' + tr("Shared") + '</option>\
-         <option value="tm_ssh">' + tr("SSH") + '</option>\
-         <option value="tm_vmware">' + tr("VMware") + '</option>\
-         <option value="tm_dummy">' + tr("Dummy") + '</option>\
+    <div class="manager clear" id="cluster_select">\
+      <label>' + tr("Cluster") + ':</label>\
+       <select id="host_cluster_id" name="host_cluster_id">\
        </select>\
     </div>\
     </fieldset>\
     <fieldset>\
     <div class="form_buttons">\
-        <div><button class="button" id="create_host_submit" value="OpenNebula.Host.create">' + tr("Create") + '</button>\
+        <div><button class="button" type="submit" id="create_host_submit" value="OpenNebula.Host.create">' + tr("Create") + '</button>\
         <button class="button" type="reset" value="reset">' + tr("Reset") + '</button></div>\
     </div>\
   </fieldset>\
@@ -192,7 +219,7 @@ var host_actions = {
 
     "Host.delete" : {
         type: "multiple",
-        call : OpenNebula.Host.delete,
+        call : OpenNebula.Host.del,
         callback : deleteHostElement,
         elements: hostElements,
         error : onError,
@@ -250,7 +277,28 @@ var host_actions = {
             notifyMessage(tr("Template updated correctly"));
         },
         error: onError
+    },
+
+    "Host.addtocluster" : {
+        type: "multiple",
+        call: function(params){
+            var cluster = params.data.extra_param;
+            var host = params.data.id;
+            Sunstone.runAction("Cluster.addhost",cluster,host);
+        },
+        callback: null,
+        elements: hostElements,
+        notify:true,
+    },
+
+    "Host.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#hosts_tab div.legend_div').slideToggle();
+        }
     }
+
 };
 
 var host_buttons = {
@@ -261,24 +309,41 @@ var host_buttons = {
         },
     "Host.create_dialog" : {
         type: "create_dialog",
-        text: tr("+ New")
+        text: tr("+ New"),
+        condition: mustBeAdmin
     },
     "Host.update_dialog" : {
         type: "action",
         text: tr("Update a template"),
-        alwaysActive: true
+        alwaysActive: true,
+        condition: mustBeAdmin
+    },
+    "Host.addtocluster" : {
+        type: "confirm_with_select",
+        text: tr("Select cluster"),
+        select: clusters_sel,
+        tip: tr("Select the destination cluster:"),
+        condition: mustBeAdmin
     },
     "Host.enable" : {
         type: "action",
-        text: tr("Enable")
+        text: tr("Enable"),
+        condition: mustBeAdmin
     },
     "Host.disable" : {
         type: "action",
-        text: tr("Disable")
+        text: tr("Disable"),
+        condition: mustBeAdmin
     },
     "Host.delete" : {
         type: "confirm",
-        text: tr("Delete host")
+        text: tr("Delete host"),
+        condition: mustBeAdmin
+    },
+    "Host.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
 };
 
@@ -302,8 +367,11 @@ var host_info_panel = {
 var hosts_tab = {
     title: tr("Hosts"),
     content: hosts_tab_content,
-    buttons: host_buttons
-}
+    buttons: host_buttons,
+    tabClass: "subTab",
+    parentTab: "infra_tab",
+    showOnTopMenu: false,
+};
 
 Sunstone.addActions(host_actions);
 Sunstone.addMainTab('hosts_tab',hosts_tab);
@@ -362,26 +430,15 @@ function hostElementArray(host_json){
         '<input class="check_item" type="checkbox" id="host_'+host.ID+'" name="selected_items" value="'+host.ID+'"/>',
         host.ID,
         host.NAME,
+        host.CLUSTER.length ? host.CLUSTER : "-",
         host.HOST_SHARE.RUNNING_VMS, //rvm
         pb_cpu,
         pb_mem,
-        OpenNebula.Helper.resource_state("host_simple",host.STATE) ];
-}
-
-//Listen to clicks on the tds of the tables and shows the info dialogs.
-function hostInfoListener(){
-    $('#tbodyhosts tr',dataTable_hosts).live("click",function(e){
-        //do nothing if we are clicking a checkbox!
-        if ($(e.target).is('input')) {return true;}
-
-        var aData = dataTable_hosts.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Host.showinfo",id);
-        return false;
-    });
+        OpenNebula.Helper.resource_state("host_simple",host.STATE),
+        host.IM_MAD,
+        host.VM_MAD,
+        pretty_time(host.LAST_MON_TIME)
+    ];
 }
 
 //updates the host select by refreshing the options in it
@@ -389,8 +446,8 @@ function updateHostSelect(){
     hosts_select = makeSelectOptions(dataTable_hosts,
                                      1,//id_col
                                      2,//name_col
-                                     [6,6],//status_cols
-                                     ["ERROR","OFF"]//bad_st
+                                     [7,7],//status_cols
+                                     [tr("ERROR"),tr("OFF"),tr("RETRY")]//bad_st
                                     );
 }
 
@@ -429,9 +486,10 @@ function updateHostsView (request,host_list){
     updateHostSelect();
     //dependency with the dashboard plugin
     updateDashboard("hosts",host_list);
+    updateInfraDashboard("hosts",host_list);
 }
 
-//Updates the host info panel tab's content and pops it up
+//Updates the host info panel tab content and pops it up
 function updateHostInfo(request,host){
     var host_info = host.HOST;
 
@@ -449,6 +507,14 @@ function updateHostInfo(request,host){
                 <td class="value_td">'+host_info.ID+'</td>\
             </tr>\
             <tr>\
+                <td class="key_td">' + tr("Name") + '</td>\
+                <td class="value_td">'+host_info.NAME+'</td>\
+            </tr>\
+            <tr>\
+                <td class="key_td">' + tr("Cluster") + '</td>\
+                <td class="value_td">'+(host_info.CLUSTER.length ? host_info.CLUSTER : "-")+'</td>\
+            </tr>\
+            <tr>\
                 <td class="key_td">' + tr("State") + '</td>\
                 <td class="value_td">'+tr(OpenNebula.Helper.resource_state("host",host_info.STATE))+'</td>\
             </tr>\
@@ -463,10 +529,6 @@ function updateHostInfo(request,host){
             <tr>\
                 <td class="key_td">'+ tr("VN MAD") +'</td>\
                 <td class="value_td">'+host_info.VN_MAD+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">'+ tr("TM MAD") +'</td>\
-                <td class="value_td">'+host_info.TM_MAD+'</td>\
             </tr>\
             </tbody>\
          </table>\
@@ -485,7 +547,11 @@ function updateHostInfo(request,host){
                </tr>\
                <tr>\
                   <td class="key_td">' + tr("Used Mem (allocated)") + '</td>\
-                  <td class="value_td">'+humanize_size(host_info.HOST_SHARE.MAX_USAGE)+'</td>\
+                  <td class="value_td">'+humanize_size(host_info.HOST_SHARE.MEM_USAGE)+'</td>\
+               </tr>\
+               <tr>\
+                  <td class="key_td">' + tr("Max CPU") + '</td>\
+                  <td class="value_td">'+host_info.HOST_SHARE.MAX_CPU+'</td>\
                </tr>\
                <tr>\
                   <td class="key_td">' + tr("Used CPU (real)") + '</td>\
@@ -547,24 +613,61 @@ function setupCreateHostDialog(){
 
     $('button',dialog).button();
 
+    $('input[name="custom_vmm_mad"],'+
+       'input[name="custom_im_mad"],'+
+       'input[name="custom_vnm_mad"]',dialog).parent().hide();
+
+    $('select#vmm_mad',dialog).change(function(){
+        if ($(this).val()=="custom")
+            $('input[name="custom_vmm_mad"]').parent().show();
+        else
+            $('input[name="custom_vmm_mad"]').parent().hide();
+    });
+
+    $('select#im_mad',dialog).change(function(){
+        if ($(this).val()=="custom")
+            $('input[name="custom_im_mad"]').parent().show();
+        else
+            $('input[name="custom_im_mad"]').parent().hide();
+    });
+
+    $('select#vnm_mad',dialog).change(function(){
+        if ($(this).val()=="custom")
+            $('input[name="custom_vnm_mad"]').parent().show();
+        else
+            $('input[name="custom_vnm_mad"]').parent().hide();
+    });
+
     //Handle the form submission
     $('#create_host_form',dialog).submit(function(){
-        if (!($('#name',this).val().length)){
+        var name = $('#name',this).val();
+        if (!name){
             notifyError(tr("Host name missing!"));
             return false;
         }
+
+        var cluster_id = $('#host_cluster_id',this).val();
+        if (!cluster_id) cluster_id = "-1";
+
+        var vmm_mad = $('select#vmm_mad',this).val();
+        vmm_mad = vmm_mad == "custom" ? $('input[name="custom_vmm_mad"]').val() : vmm_mad;
+        var im_mad = $('select#im_mad',this).val();
+        im_mad = im_mad == "custom" ? $('input[name="custom_im_mad"]').val() : im_mad;
+        var vnm_mad = $('select#vnm_mad',this).val();
+        vnm_mad = vnm_mad == "custom" ? $('input[name="custom_vnm_mad"]').val() : vnm_mad;
+
         var host_json = {
             "host": {
-                "name": $('#name',this).val(),
-                "tm_mad": $('#tm_mad :selected',this).val(),
-                "vm_mad": $('#vmm_mad :selected',this).val(),
-                "vnm_mad": $('#vnm_mad :selected',this).val(),
-                "im_mad": $('#im_mad :selected',this).val()
+                "name": name,
+                "vm_mad": vmm_mad,
+                "vnm_mad": vnm_mad,
+                "im_mad": im_mad,
+                "cluster_id": cluster_id
             }
-        }
+        };
 
         //Create the OpenNebula.Host.
-        //If it's successfull we refresh the list.
+        //If it is successfull we refresh the list.
         Sunstone.runAction("Host.create",host_json);
         $create_host_dialog.dialog('close');
         return false;
@@ -573,6 +676,7 @@ function setupCreateHostDialog(){
 
 //Open creation dialogs
 function popUpCreateHostDialog(){
+    $('#host_cluster_id',$create_host_dialog).html(clusters_sel());
     $create_host_dialog.dialog('open');
     return false;
 }
@@ -597,10 +701,6 @@ function hostMonitorError(req,error_json){
     $('#host_monitoring_tab '+id).html('<div style="padding-left:20px;">'+message+'</div>');
 }
 
-function hosts_sel() {
-    return hosts_select;
-}
-
 //This is executed after the sunstone.js ready() is run.
 //Here we can basicly init the host datatable, preload it
 //and add specific listeners
@@ -610,26 +710,31 @@ $(document).ready(function(){
     dataTable_hosts = $("#datatable_hosts",main_tabs_context).dataTable({
         "bJQueryUI": true,
         "bSortClasses": false,
+        "sDom" : '<"H"lfrC>t<"F"ip>',
+        "oColVis": {
+            "aiExclude": [ 0 ]
+        },
         "bAutoWidth":false,
         "sPaginationType": "full_numbers",
         "aoColumnDefs": [
             { "bSortable": false, "aTargets": ["check"] },
-            { "sWidth": "60px", "aTargets": [0,3] },
+            { "sWidth": "60px", "aTargets": [0,4] },
             { "sWidth": "35px", "aTargets": [1] },
-            { "sWidth": "100px", "aTargets": [6] },
-            { "sWidth": "200px", "aTargets": [4,5] }
+            { "sWidth": "100px", "aTargets": [7,3,8,9,10] },
+            { "sWidth": "200px", "aTargets": [5,6] },
+            { "bVisible": false, "aTargets": [8,9,10]}
         ],
-	"oLanguage": (datatable_lang != "") ?
-	    {
-		sUrl: "locale/"+lang+"/"+datatable_lang
-	    } : ""
+        "oLanguage": (datatable_lang != "") ?
+            {
+                sUrl: "locale/"+lang+"/"+datatable_lang
+            } : ""
     });
 
     //preload it
     dataTable_hosts.fnClearTable();
     addElement([
         spinner,
-        '','','','','',''],dataTable_hosts);
+        '','','','','','','','','',''],dataTable_hosts);
     Sunstone.runAction("Host.list");
 
     setupCreateHostDialog();
@@ -638,5 +743,11 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_hosts);
     tableCheckboxesListener(dataTable_hosts);
-    hostInfoListener();
+    infoListener(dataTable_hosts, "Host.showinfo");
+
+    $('div#menu li#li_hosts_tab').live('click',function(){
+        dataTable_hosts.fnFilter('',3);
+    });
+
+    $('div#hosts_tab div.legend_div',main_tabs_context).hide();
 });

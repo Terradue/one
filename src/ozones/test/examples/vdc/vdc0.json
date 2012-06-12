@@ -1,12 +1,35 @@
 {
   "VDC": {
-    "ID": 1,
-    "ACLS": "2,3,4,5,6,7",
-    "HOSTS": "1,2,3",
-    "NAME": "vdcA",
-    "ZONES_ID": 1,
-    "GROUP_ID": 100,
     "VDCADMINNAME": "vdcadminA",
-    "VDCADMIN_ID": 2
+    "VDCADMIN_ID": 2,
+    "RESOURCES": {
+      "HOSTS": [
+        0,
+        1,
+        2
+      ],
+      "NETWORKS": [
+        0
+      ],
+      "ACLS": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "DATASTORES": [
+        100
+      ]
+    },
+    "NAME": "vdcA",
+    "CLUSTER_ID": 100,
+    "ZONES_ID": 1,
+    "ID": 1,
+    "GROUP_ID": 100
   }
 }

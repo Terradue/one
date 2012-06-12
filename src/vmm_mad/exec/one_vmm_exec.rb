@@ -259,7 +259,7 @@ class ExecDriver < VirtualMachineDriver
 
         if !local_dfile || File.zero?(local_dfile)
             send_message(ACTION[:deploy],RESULT[:failure],id,
-                "Can not open deployment file #{local_dfile}")
+                "Cannot open deployment file #{local_dfile}")
             return
         end
 
@@ -469,6 +469,17 @@ class ExecDriver < VirtualMachineDriver
         deploy_id = data.elements['DEPLOY_ID'].text
 
         do_action("#{deploy_id} #{host}", id, host, ACTION[:reboot])
+    end
+
+    #
+    # RESET action, resets a running VM
+    #
+    def reset(id, drv_message)
+        data      = decode(drv_message)
+        host      = data.elements['HOST'].text
+        deploy_id = data.elements['DEPLOY_ID'].text
+
+        do_action("#{deploy_id} #{host}", id, host, ACTION[:reset])
     end
 end
 

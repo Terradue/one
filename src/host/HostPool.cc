@@ -29,13 +29,27 @@
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+time_t HostPool::_monitor_expiration;
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
 HostPool::HostPool(SqlDB*                    db,
                    vector<const Attribute *> hook_mads,
                    const string&             hook_location,
-                   const string&             remotes_location)
-                        : PoolSQL(db,Host::table)
+                   const string&             remotes_location,
+                   time_t                    expire_time)
+                        : PoolSQL(db, Host::table, true)
 {
-    // ------------------ Initialize Hooks fot the pool ----------------------
+
+    _monitor_expiration = expire_time;
+
+    if ( _monitor_expiration == 0 )
+    {
+        clean_all_monitoring();
+    }
+
+    // ------------------ Initialize Hooks for the pool ----------------------
 
     const VectorAttribute * vattr;
 
@@ -153,7 +167,8 @@ int HostPool::allocate (
     const string& im_mad_name,
     const string& vmm_mad_name,
     const string& vnm_mad_name,
-    const string& tm_mad_name,
+    int           cluster_id,
+    const string& cluster_name,
     string& error_str)
 {
     Host *        host;
@@ -184,11 +199,6 @@ int HostPool::allocate (
         goto error_vnm;
     }
 
-    if ( tm_mad_name.empty() )
-    {
-        goto error_tm;
-    }
-
     host = get(hostname,false);
 
     if ( host !=0)
@@ -198,15 +208,20 @@ int HostPool::allocate (
 
     // Build a new Host object
 
-    host = new Host(-1, hostname, im_mad_name, vmm_mad_name, vnm_mad_name,
-            tm_mad_name);
+    host = new Host(
+            -1,
+            hostname,
+            im_mad_name,
+            vmm_mad_name,
+            vnm_mad_name,
+            cluster_id,
+            cluster_name);
 
     // Insert the Object in the pool
 
     *oid = PoolSQL::allocate(host, error_str);
 
     return *oid;
-
 
 error_name:
     oss << "NAME cannot be empty.";
@@ -226,10 +241,6 @@ error_vmm:
 
 error_vnm:
     oss << "VNM_MAD_NAME cannot be empty.";
-    goto error_common;
-
-error_tm:
-    oss << "TM_MAD_NAME cannot be empty.";
     goto error_common;
 
 error_duplicated:
@@ -289,6 +300,68 @@ int HostPool::discover(map<int, string> * discovered_hosts, int host_limit)
     rc = db->exec(sql,this);
 
     unset_callback();
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int HostPool::dump_monitoring(
+        ostringstream& oss,
+        const string&  where)
+{
+    ostringstream cmd;
+
+    cmd << "SELECT " << Host::monit_table << ".body FROM " << Host::monit_table
+        << " INNER JOIN " << Host::table
+        << " WHERE hid = oid";
+
+    if ( !where.empty() )
+    {
+        cmd << " AND " << where;
+    }
+
+    cmd << " ORDER BY hid, " << Host::monit_table << ".last_mon_time;";
+
+    return PoolSQL::dump(oss, "MONITORING_DATA", cmd);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int HostPool::clean_expired_monitoring()
+{
+    if ( _monitor_expiration == 0 )
+    {
+        return 0;
+    }
+
+    int             rc;
+    time_t          max_mon_time;
+    ostringstream   oss;
+
+    max_mon_time = time(0) - _monitor_expiration;
+
+    oss << "DELETE FROM " << Host::monit_table
+        << " WHERE last_mon_time < " << max_mon_time;
+
+    rc = db->exec(oss);
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int HostPool::clean_all_monitoring()
+{
+    ostringstream   oss;
+    int             rc;
+
+    oss << "DELETE FROM " << Host::monit_table;
+
+    rc = db->exec(oss);
 
     return rc;
 }

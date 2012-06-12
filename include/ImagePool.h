@@ -52,6 +52,10 @@ public:
      *    @param uname name of the user
      *    @param gname name of the group
      *    @param img_template template associated with the image
+     *    @param ds_id the id of the datastore
+     *    @param ds_name the name of the datastore
+     *    @param ds_type disk type for the image
+     *    @param ds_data the datastore data
      *    @param oid the id assigned to the Image
      *    @param error_str Returns the error reason, if any
      *    @return the oid assigned to the object,
@@ -64,6 +68,10 @@ public:
         const string&   uname,
         const string&   gname,
         ImageTemplate * img_template,
+        int             ds_id,
+        const string&   ds_name,
+        Image::DiskType ds_type,
+        const string&   ds_data,
         int *           oid,
         string&         error_str);
 
@@ -126,23 +134,25 @@ public:
 
     /**
      *  Generates a DISK attribute for VM templates using the Image metadata
+     *
      *    @param disk the disk to be generated
      *    @param disk_id the id for this disk
-     *    @param index number of datablock images used by the same VM. Will be
-     *                 automatically increased.
      *    @param img_type will be set to the used image's type
+     *    @param dev_prefix will be set to the image defined dev_prefix,
+     *        or the default one
      *    @param uid of VM owner (to look for the image id within its images)
      *    @param image_id on success returns the acquired image id
-     *    @return 0 on success, 
-     *            -1 error, 
-     *            -2 not using the pool, 
+     *    @param error_str string describing the error
+     *
+     *    @return 0 on success, -1 otherwise
      */
     int disk_attribute(VectorAttribute *  disk,
                        int                disk_id,
-                       int *              index,
-                       Image::ImageType * img_type,
+                       Image::ImageType&  img_type,
+                       string&            dev_prefix,
                        int                uid,
-                       int&               image_id);
+                       int&               image_id,
+                       string&            error_str);
     /**
      *  Generates an Authorization token for the DISK attribute
      *    @param disk the disk to be authorized

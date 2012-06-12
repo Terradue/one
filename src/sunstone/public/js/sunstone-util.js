@@ -60,6 +60,20 @@ function pretty_time_axis(time){
     return hour + ":" + mins + ":" + secs;// + "&nbsp;" + month + "/" + day;
 }
 
+function pretty_time_runtime(time){
+    var d = new Date();
+    d.setTime(time*1000);
+
+    var secs = pad(d.getUTCSeconds(),2);
+    var hour = pad(d.getUTCHours(),2);
+    var mins = pad(d.getUTCMinutes(),2);
+    var day = d.getUTCDate()-1;
+    var month = pad(d.getUTCMonth()+1,2); //getMonths returns 0-11
+    var year = d.getUTCFullYear();
+
+    return day + "d " + hour + ":" + mins;// + ":" + secs;// + "&nbsp;" + month + "/" + day;
+}
+
 //returns a human readable size in Kilo, Mega, Giga or Tera bytes
 function humanize_size(value) {
     if (typeof(value) === "undefined") {
@@ -403,19 +417,61 @@ function waitingNodes(dataTable){
 
 function getUserName(uid){
     if (typeof(dataTable_users) != "undefined"){
-        return getName(uid,dataTable_users);
+        return getName(uid,dataTable_users,2);
     }
     return uid;
 }
 
 function getGroupName(gid){
     if (typeof(dataTable_groups) != "undefined"){
-        return getName(gid,dataTable_groups);
+        return getName(gid,dataTable_groups,2);
     }
     return gid;
 }
 
-function getName(id,dataTable){
+function getImageName(id){
+    if (typeof(dataTable_images) != "undefined"){
+        return getName(id,dataTable_images,4);
+    }
+    return id;
+};
+
+function getClusterName(id){
+    if (typeof(dataTable_clusters) != "undefined"){
+        return getName(id,dataTable_clusters,2);
+    }
+    return id;
+};
+
+function getDatastoreName(id){
+    if (typeof(dataTable_datastores) != "undefined"){
+        return getName(id,dataTable_datastores,4);
+    }
+    return id;
+};
+
+function getVNetName(id){
+    if (typeof(dataTable_vNetworks) != "undefined"){
+        return getName(id,dataTable_vNetworks,4);
+    }
+    return id;
+};
+
+function getHostName(id){
+    if (typeof(dataTable_hosts) != "undefined"){
+        return getName(id,dataTable_hosts,2);
+    }
+    return id;
+};
+
+function getTemplateName(id){
+    if (typeof(dataTable_templates) != "undefined"){
+        return getName(id,dataTable_templates,4);
+    }
+    return id;
+};
+
+function getName(id,dataTable,name_col){
     var name = id;
     if (typeof(dataTable) == "undefined") {
         return name;
@@ -424,7 +480,7 @@ function getName(id,dataTable){
 
     $.each(nodes,function(){
         if (id == this[1]) {
-            name = this[2];
+            name = this[name_col];
             return false;
         }
     });
@@ -534,7 +590,7 @@ function makeSelectOptions(dataTable,
     return select;
 }
 
-//Escape " in a string and return it
+//Escape doublequote in a string and return it
 function escapeDoubleQuotes(string){
     string = string.replace(/\\"/g,'"');
     return string.replace(/"/g,'\\"');
@@ -556,6 +612,7 @@ function generateMonitoringDivs(graphs, id_prefix){
     $.each(graphs,function(){
         label = this.monitor_resources;
         id_suffix=label.replace(/,/g,'_');
+        id_suffix=id_suffix.replace(/\//g,'_');
         id = id_prefix+id_suffix;
         str+='<table class="info_table">\
                 <thead><tr><th colspan="1">'+this.title+'</th></tr></thead>\
@@ -579,6 +636,7 @@ function plot_graph(data,context,id_prefix,info){
     var humanize = info.humanize_figures ?
         humanize_size : function(val){ return val };
     var id_suffix = labels.replace(/,/g,'_');
+    id_suffix = id_suffix.replace(/\//g,'_');
     var labels_array = labels.split(',');
     var monitoring = data.monitoring
     var series = [];
@@ -612,7 +670,8 @@ function plot_graph(data,context,id_prefix,info){
         yaxis : { labelWidth: 40,
                   tickFormatter: function(val, axis) {
                       return humanize(val);
-                  }
+                  },
+                  min: 0
                 }
     };
 
@@ -698,6 +757,9 @@ function setupTemplateUpdateDialog(){
             return false;
         };
 
+        //Workaround so deletion of templates is allowed.
+        if (!new_template) new_template=" ";
+
         var resource = $(this).val();
         Sunstone.runAction(resource+".update",id,new_template);
         dialog.dialog('close');
@@ -735,6 +797,33 @@ function popUpTemplateUpdateDialog(elem_str,select_items,sel_elems){
     return false;
 }
 
+
+//Shows run a custom action when clicking on rows.
+function infoListener(dataTable, info_action){
+    $('tbody tr',dataTable).live("click",function(e){
+        if ($(e.target).is('input')) {return true;}
+
+        var aData = dataTable.fnGetData(this);
+        var id = $(aData[0]).val();
+        if (!id) return true;
+
+        var count = $('tbody .check_item:checked', dataTable).length;
+
+        if (info_action){
+            if (e.ctrlKey || count >= 1)
+                $('.check_item',this).trigger('click');
+            else {
+                popDialogLoading();
+                Sunstone.runAction(info_action,id)
+            };
+        } else {
+            $('.check_item',this).trigger('click');
+        };
+
+        return false;
+    });
+}
+
 function mustBeAdmin(){
     return gid == 0;
 }
@@ -750,6 +839,16 @@ function groups_sel(){
 function hosts_sel(){
     return hosts_select;
 }
+
+function clusters_sel() {
+    return clusters_select;
+}
+
+function datastores_sel() {
+    return datastores_select;
+}
+
+
 
 function ownerUse(resource){
     return parseInt(resource.PERMISSIONS.OWNER_U);

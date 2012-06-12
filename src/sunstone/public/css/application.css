@@ -31,11 +31,21 @@ select, button {
     padding: 2px;
 }
 
+.inline-icon {
+    display:inline-block;
+    vertical-align:middle;
+}
+
 h2 {
     float:left;
     font-size:20px;
-    margin-bottom: 5px;
-    padding-bottom: 0}
+    margin-bottom: 2px;
+    margin-top: 8px;
+    padding-bottom: 2px;
+    width:400px;
+    color: #636663;
+    border-bottom: 3px solid;
+}
 
 h3 {
     border-bottom: 1px solid #CCCCCC;
@@ -46,17 +56,32 @@ h3 {
     margin: 0 0;
 }
 
-table#dashboard_table{
+table.dashboard_table{
     width:100%;
     margin: 0;
 }
 
-table#dashboard_table tr {
+table.dashboard_table tr {
     vertical-align: top;
 }
 
-table#dashboard_table > tbody > tr > td{
+table.dashboard_table > tbody > tr > td{
     width:50%;
+}
+
+table.dashboard_table .inline-icon {
+    margin-left: 40px;
+}
+
+
+.dashboard_p {
+    color: #353735;
+    text-align:justify;
+}
+
+
+.clusterElemLi {
+    list-style: circle;
 }
 
 div.panel {
@@ -216,6 +241,10 @@ label{
     text-align:left;
 }
 
+.dataTables_wrapper {
+    min-height: 0;
+}
+
 .dataTables_wrapper label {
     float: none;
     width: auto;
@@ -320,10 +349,12 @@ tr.odd td, tr.even td{
 
 tr.odd:hover{
     background-color: #E69138 !important;
+    cursor: pointer;
 }
 
 tr.even:hover{
     background-color: #E69138 !important;
+    cursor: pointer;
 }
 
 .show_hide label{
@@ -567,4 +598,69 @@ ul.action_list li a:hover{
 .ui-layout-resizer-open-hover, /* hover-color to 'resize' */
 .ui-layout-resizer-dragging {
     background: #EEE;
+}
+
+.dataTables_length {
+    width: auto;
+}
+
+.ColVis {
+    margin: 0 10px 0 10px;
+    float: left;
+}
+
+.ColVis_Button {
+    padding: 5px;
+    font-size: 1em;
+}
+
+
+.legend_div {
+    border: 1px #A3A3A3 solid;
+    border-radius: 5px;
+    margin-top: 10px;
+    padding: 5px;
+    padding-right: 50px;
+    width: 40%;
+    min-width: 400px;
+    z-index: -3;
+    position: absolute;
+    bottom: 10px;
+
+    background: -moz-linear-gradient(top, rgba(0,0,0,0) 0%, rgba(0,0,0,0.09) 100%); /* FF3.6+ */
+    background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgba(0,0,0,0)), color-stop(100%,rgba(0,0,0,0.09))); /* Chrome,Safari4+ */
+    background: -webkit-linear-gradient(top, rgba(0,0,0,0) 0%,rgba(0,0,0,0.09) 100%); /* Chrome10+,Safari5.1+ */
+    background: -o-linear-gradient(top, rgba(0,0,0,0) 0%,rgba(0,0,0,0.09) 100%); /* Opera 11.10+ */
+    background: -ms-linear-gradient(top, rgba(0,0,0,0) 0%,rgba(0,0,0,0.09) 100%); /* IE10+ */
+    background: linear-gradient(top, rgba(0,0,0,0) 0%,rgba(0,0,0,0.09) 100%); /* W3C */
+}
+
+.legend_div span {
+    position:relative;
+    color: #A3A3A3;
+    float: right;
+    font-size: 3em;
+    left: 27px;
+    font-family: serif;
+}
+
+.legend_p {
+    color: #636663;
+    margin-left: 10px;
+    margin-top: 3px;
+/*    padding-bottom: 9px; */
+    text-align: justify;
+/*    border-bottom: 1px solid #A3A3A3; */
+}
+
+.legend_p:before {
+    content: '⇨ ';
+}
+
+.big_text {
+    color: #333333;
+    font-size: 5em;
+    font-family: serif;
+    text-align:center;
+    vertical-align:middle;
 }

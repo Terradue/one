@@ -32,7 +32,8 @@ module OpenNebula
             :publish     => "template.publish",
             :delete      => "template.delete",
             :chown       => "template.chown",
-            :chmod       => "template.chmod"
+            :chmod       => "template.chmod",
+            :clone       => "template.clone"
         }
 
         # Creates a Template description with just its identifier
@@ -70,9 +71,12 @@ module OpenNebula
 
         # Allocates a new Template in OpenNebula
         #
-        # +templatename+ A string containing the name of the Template.
-        def allocate(templatename)
-            super(TEMPLATE_METHODS[:allocate], templatename)
+        # @param description [String] The contents of the Template.
+        #
+        # @return [nil, OpenNebula::Error] nil in case of success, Error
+        #   otherwise
+        def allocate(description)
+            super(TEMPLATE_METHODS[:allocate], description)
         end
 
         # Deletes the Template
@@ -138,6 +142,20 @@ module OpenNebula
                 other_m, other_a)
             super(TEMPLATE_METHODS[:chmod], owner_u, owner_m, owner_a, group_u,
                 group_m, group_a, other_u, other_m, other_a)
+        end
+
+        # Clones this template into a new one
+        #
+        # @param name [String] Name for the new Template.
+        #
+        # @return [Integer, OpenNebula::Error] The new Template ID in case
+        # of success, Error otherwise
+        def clone(name)
+            return Error.new('ID not defined') if !@pe_id
+
+            rc = @client.call(TEMPLATE_METHODS[:clone], @pe_id, name)
+
+            return rc
         end
 
         #######################################################################

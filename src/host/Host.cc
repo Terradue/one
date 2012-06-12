@@ -34,13 +34,14 @@ Host::Host(
     const string& _im_mad_name,
     const string& _vmm_mad_name,
     const string& _vnm_mad_name,
-    const string& _tm_mad_name):
+    int           _cluster_id,
+    const string& _cluster_name):
         PoolObjectSQL(id,HOST,_hostname,-1,-1,"","",table),
+        Clusterable(_cluster_id, _cluster_name),
         state(INIT),
         im_mad_name(_im_mad_name),
         vmm_mad_name(_vmm_mad_name),
         vnm_mad_name(_vnm_mad_name),
-        tm_mad_name(_tm_mad_name),
         last_monitored(0)
 {
     obj_template = new HostTemplate;        
@@ -68,6 +69,14 @@ const char * Host::db_bootstrap = "CREATE TABLE IF NOT EXISTS host_pool ("
     "last_mon_time INTEGER, uid INTEGER, gid INTEGER, owner_u INTEGER, "
     "group_u INTEGER, other_u INTEGER, UNIQUE(name))";
 
+
+const char * Host::monit_table = "host_monitoring";
+
+const char * Host::monit_db_names = "hid, last_mon_time, body";
+
+const char * Host::monit_db_bootstrap = "CREATE TABLE IF NOT EXISTS "
+    "host_monitoring (hid INTEGER, last_mon_time INTEGER, body TEXT, "
+    "PRIMARY KEY(hid, last_mon_time))";
 /* ------------------------------------------------------------------------ */
 /* ------------------------------------------------------------------------ */
 
@@ -140,7 +149,7 @@ error_xml:
     db->free_str(sql_hostname);
     db->free_str(sql_xml);
 
-    error_str = "Error transforming the Group to XML.";
+    error_str = "Error transforming the Host to XML.";
 
     goto error_common;
 
@@ -152,7 +161,7 @@ error_hostname:
     goto error_generic;
 
 error_generic:
-    error_str = "Error inserting Group in DB.";
+    error_str = "Error inserting Host in DB.";
 error_common:
     return -1;
 }
@@ -187,6 +196,60 @@ int Host::update_info(string &parse_str)
     return 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Host::update_monitoring(SqlDB * db)
+{
+    ostringstream   oss;
+    int             rc;
+
+    string xml_body;
+    string error_str;
+    char * sql_xml;
+
+    sql_xml = db->escape_str(to_xml(xml_body).c_str());
+
+    if ( sql_xml == 0 )
+    {
+        goto error_body;
+    }
+
+    if ( validate_xml(sql_xml) != 0 )
+    {
+        goto error_xml;
+    }
+
+    oss << "INSERT INTO " << monit_table << " ("<< monit_db_names <<") VALUES ("
+        <<          oid             << ","
+        <<          last_monitored       << ","
+        << "'" <<   sql_xml         << "')";
+
+    db->free_str(sql_xml);
+
+    rc = db->exec(oss);
+
+    return rc;
+
+error_xml:
+    db->free_str(sql_xml);
+
+    error_str = "could not transform the Host to XML.";
+
+    goto error_common;
+
+error_body:
+    error_str = "could not insert the Host in the DB.";
+
+error_common:
+    oss.str("");
+    oss << "Error updating Host monitoring information, " << error_str;
+
+    NebulaLog::log("ONE",Log::ERROR, oss);
+
+    return -1;
+}
+
 /* ************************************************************************ */
 /* Host :: Misc                                                             */
 /* ************************************************************************ */
@@ -205,8 +268,9 @@ string& Host::to_xml(string& xml) const
        "<IM_MAD>"        << im_mad_name    << "</IM_MAD>"        <<
        "<VM_MAD>"        << vmm_mad_name   << "</VM_MAD>"        <<
        "<VN_MAD>"        << vnm_mad_name   << "</VN_MAD>"        <<
-       "<TM_MAD>"        << tm_mad_name    << "</TM_MAD>"        <<
        "<LAST_MON_TIME>" << last_monitored << "</LAST_MON_TIME>" <<
+       "<CLUSTER_ID>"    << cluster_id     << "</CLUSTER_ID>"    <<
+       "<CLUSTER>"       << cluster        << "</CLUSTER>"       <<
        host_share.to_xml(share_xml)  <<
        obj_template->to_xml(template_xml) <<
     "</HOST>";
@@ -237,9 +301,11 @@ int Host::from_xml(const string& xml)
     rc += xpath(im_mad_name, "/HOST/IM_MAD", "not_found");
     rc += xpath(vmm_mad_name, "/HOST/VM_MAD", "not_found");
     rc += xpath(vnm_mad_name, "/HOST/VN_MAD", "not_found");
-    rc += xpath(tm_mad_name, "/HOST/TM_MAD", "not_found");
 
     rc += xpath(last_monitored, "/HOST/LAST_MON_TIME", 0);
+
+    rc += xpath(cluster_id, "/HOST/CLUSTER_ID", -1);
+    rc += xpath(cluster,    "/HOST/CLUSTER",    "not_found");
 
     state = static_cast<HostState>( int_state );
 

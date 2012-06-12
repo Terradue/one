@@ -21,7 +21,7 @@ include OpenNebula
 
 module OpenNebulaHelper
     ONE_VERSION=<<-EOT
-OpenNebula 3.3.0
+OpenNebula 3.5.0
 Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -178,7 +178,7 @@ EOT
         # Formatters for arguments
         ########################################################################
         def to_id(name)
-            return 0, name if name.match(/^[0123456789]+$/)
+            return 0, name.to_i if name.match(/^[0123456789]+$/)
 
             rc = get_pool
             return rc if rc.first != 0
@@ -202,7 +202,7 @@ EOT
 
             result = names.split(',').collect { |name|
                 if name.match(/^[0123456789]+$/)
-                    name
+                    name.to_i
                 else
                     rc = OneHelper.name_to_id(name, pool, poolname)
 
@@ -288,11 +288,11 @@ EOT
 
         def pool_to_array(pool)
     	    if !pool.instance_of?(Hash)
-                phash = pool.to_hash 
+                phash = pool.to_hash
             else
                 phash = pool
             end
-            
+
             rname = self.class.rname
 
             if phash["#{rname}_POOL"] &&
@@ -329,9 +329,15 @@ EOT
         client = OpenNebula::Client.new
 
         pool = case poolname
-        when "HOST"  then OpenNebula::HostPool.new(client)
-        when "GROUP" then OpenNebula::GroupPool.new(client)
-        when "USER"  then OpenNebula::UserPool.new(client)
+        when "HOST"      then OpenNebula::HostPool.new(client)
+        when "GROUP"     then OpenNebula::GroupPool.new(client)
+        when "USER"      then OpenNebula::UserPool.new(client)
+        when "DATASTORE" then OpenNebula::DatastorePool.new(client)
+        when "CLUSTER"   then OpenNebula::ClusterPool.new(client)
+        when "VNET"      then OpenNebula::VirtualNetworkPool.new(client)
+        when "IMAGE"     then OpenNebula::ImagePool.new(client)
+        when "VMTEMPLATE" then OpenNebula::TemplatePool.new(client)
+        when "VM"        then OpenNebula::VirtualMachinePool.new(client)
         end
 
         rc = pool.info
@@ -393,31 +399,45 @@ EOT
         end
     end
 
-    def OpenNebulaHelper.update_template(id, resource)
-        require 'tempfile'
-
-        tmp  = Tempfile.new(id.to_s)
-        path = tmp.path
-
-        rc = resource.info
-
-        if OpenNebula.is_error?(rc)
-            puts rc.message 
-            exit -1
+    # If the cluster name is empty, returns a '-' char.
+    #
+    # @param str [String || Hash] Cluster name, or empty Hash (when <CLUSTER/>)
+    # @return [String] the same Cluster name, or '-' if it is empty
+    def OpenNebulaHelper.cluster_str(str)
+        if str != nil && !str.empty?
+            str
+        else
+            "-"
         end
+    end
 
-        tmp << resource.template_str
-        tmp.flush
+    def OpenNebulaHelper.update_template(id, resource, path=nil)
+        unless path
+            require 'tempfile'
 
-        editor_path = ENV["EDITOR"] ? ENV["EDITOR"] : EDITOR_PATH
-        system("#{editor_path} #{path}")
+            tmp  = Tempfile.new(id.to_s)
+            path = tmp.path
 
-        unless $?.exitstatus == 0
-            puts "Editor not defined"
-            exit -1
+            rc = resource.info
+
+            if OpenNebula.is_error?(rc)
+                puts rc.message
+                exit -1
+            end
+
+            tmp << resource.template_str
+            tmp.flush
+
+            editor_path = ENV["EDITOR"] ? ENV["EDITOR"] : EDITOR_PATH
+            system("#{editor_path} #{path}")
+
+            unless $?.exitstatus == 0
+                puts "Editor not defined"
+                exit -1
+            end
+
+            tmp.close
         end
-
-        tmp.close
 
         str = File.read(path)
         str

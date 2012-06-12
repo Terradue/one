@@ -161,7 +161,7 @@ var OCCI = {
             });
         },
 
-        "delete": function(params,resource){
+        "del": function(params,resource){
             var callback = params.success;
             var callback_error = params.error;
             var id = params.data.id;
@@ -373,8 +373,8 @@ var OCCI = {
         "create": function(params){
             OCCI.Action.create(params,OCCI.Network.resource);
         },
-        "delete": function(params){
-            OCCI.Action.delete(params,OCCI.Network.resource);
+        "del": function(params){
+            OCCI.Action.del(params,OCCI.Network.resource);
         },
         "list": function(params){
             OCCI.Action.list(params,OCCI.Network.resource);
@@ -398,8 +398,8 @@ var OCCI = {
         "create": function(params){
             OCCI.Action.create(params,OCCI.VM.resource);
         },
-        "delete": function(params){
-            OCCI.Action.delete(params,OCCI.VM.resource);
+        "del": function(params){
+            OCCI.Action.del(params,OCCI.VM.resource);
         },
         "list": function(params){
             OCCI.Action.list(params,OCCI.VM.resource);
@@ -414,6 +414,14 @@ var OCCI = {
         "stop": function(params){
             params.data.body = { state : "STOPPED" };
             OCCI.Action.update(params,OCCI.VM.resource,"stop");
+        },
+        "reboot": function(params){
+            params.data.body = { state : "REBOOT" };
+            OCCI.Action.update(params,OCCI.VM.resource,"reboot");
+        },
+        "reset": function(params){
+            params.data.body = { state : "RESET" };
+            OCCI.Action.update(params,OCCI.VM.resource,"reset");
         },
         "cancel": function(params){
             params.data.body = { state : "CANCEL" };
@@ -502,8 +510,8 @@ var OCCI = {
                 }
             });
         },
-        "delete": function(params){
-            OCCI.Action.delete(params,OCCI.Image.resource);
+        "del": function(params){
+            OCCI.Action.del(params,OCCI.Image.resource);
         },
         "list": function(params){
             OCCI.Action.list(params,OCCI.Image.resource);
@@ -535,8 +543,8 @@ var OCCI = {
         "create" : function(params){
             OCCI.Action.create(params,OCCI.Template.resource);
         },
-        "delete" : function(params){
-            OCCI.Action.delete(params,OCCI.Template.resource);
+        "del" : function(params){
+            OCCI.Action.del(params,OCCI.Template.resource);
         },
         "list" : function(params){
             OCCI.Action.list(params,OCCI.Template.resource);

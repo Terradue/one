@@ -49,6 +49,8 @@ void  LifeCycleManager::save_success_action(int vid)
 
         vm->set_previous_etime(the_time);
 
+        vm->set_previous_vm_info();
+
         vm->set_previous_running_etime(the_time);
 
         vm->set_previous_reason(History::USER);
@@ -83,6 +85,8 @@ void  LifeCycleManager::save_success_action(int vid)
         vm->set_running_etime(the_time);
 
         vm->set_etime(the_time);
+
+        vm->set_vm_info();
 
         vm->set_reason(History::STOP_RESUME);
 
@@ -162,6 +166,8 @@ void  LifeCycleManager::save_failure_action(int vid)
 
         vm->set_etime(the_time);
 
+        vm->set_vm_info();
+
         vm->set_reason(History::ERROR);
 
         vmpool->update_history(vm);
@@ -171,6 +177,8 @@ void  LifeCycleManager::save_failure_action(int vid)
         hpool->del_capacity(vm->get_hid(),cpu,mem,disk);
 
         vm->set_previous_etime(the_time);
+
+        vm->set_previous_vm_info();
 
         vm->set_previous_running_etime(the_time);
 
@@ -251,6 +259,8 @@ void  LifeCycleManager::deploy_success_action(int vid)
 
         vm->set_previous_etime(the_time);
 
+        vm->set_previous_vm_info();
+
         vm->set_previous_running_etime(the_time);
 
         vm->set_previous_reason(History::USER);
@@ -304,9 +314,13 @@ void  LifeCycleManager::deploy_failure_action(int vid)
 
         vm->set_etime(the_time);
 
+        vm->set_vm_info();
+
         vm->set_reason(History::ERROR);
 
         vm->set_previous_etime(the_time);
+
+        vm->set_previous_vm_info();
 
         vm->set_previous_running_etime(the_time);
 
@@ -554,6 +568,8 @@ void  LifeCycleManager::epilog_success_action(int vid)
 
     vm->set_etime(the_time);
 
+    vm->set_vm_info();
+
     vmpool->update_history(vm);
 
     vm->get_requirements(cpu,mem,disk);
@@ -719,11 +735,15 @@ void  LifeCycleManager::monitor_suspend_action(int vid)
 
     vm->set_state(VirtualMachine::SAVE_SUSPEND);
 
+    vm->set_resched(false);
+
     vmpool->update(vm);
 
     vm->set_running_etime(the_time);
 
     vm->set_etime(the_time);
+
+    vm->set_vm_info();
 
     vm->set_reason(History::STOP_RESUME);
 
@@ -762,6 +782,8 @@ void  LifeCycleManager::monitor_done_action(int vid)
 
     vm->set_state(VirtualMachine::UNKNOWN);
 
+    vm->set_resched(false);
+
     vmpool->update(vm);
 
     vm->log("LCM", Log::INFO, "New VM state is UNKNOWN");
@@ -789,9 +811,13 @@ void  LifeCycleManager::failure_action(VirtualMachine * vm)
 
     vm->set_state(VirtualMachine::FAILURE);
 
+    vm->set_resched(false);
+    
     vmpool->update(vm);
 
     vm->set_etime(the_time);
+
+    vm->set_vm_info();
 
     vm->set_reason(History::ERROR);
 

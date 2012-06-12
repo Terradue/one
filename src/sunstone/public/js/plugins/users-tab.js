@@ -20,8 +20,9 @@ var users_select="";
 var $create_user_dialog;
 var $update_pw_dialog;
 
-var users_tab_content =
-'<form id="user_form" action="" action="javascript:alert(\'js error!\');">\
+var users_tab_content = '\
+<h2>'+tr("Users")+'</h2>\
+<form id="user_form" action="" action="javascript:alert(\'js error!\');">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_users" class="display">\
@@ -32,11 +33,25 @@ var users_tab_content =
       <th>'+tr("Name")+'</th>\
       <th>'+tr("Group")+'</th>\
       <th>'+tr("Authentication driver")+'</th>\
+      <th>'+tr("Group ID")+'</th>\
     </tr>\
   </thead>\
   <tbody id="tbodyusers">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+<span>?</span>\
+<p class="legend_p">\
+'+
+    tr("Tip: You can save any information in the user template, in the form of VAR=VAL.")+
+'\
+</p>\
+<p class="legend_p">\
+'+
+    tr("Tip: SSH authentication method is not available for web UI access.")+
+'\
+</p>\
+</div>\
 </form>';
 
 var create_user_tmpl =
@@ -52,10 +67,13 @@ var create_user_tmpl =
                      <option value="core" selected="selected">'+tr("Core")+'</option>\
                      <option value="ssh">'+tr("SSH")+'</option>\
                      <option value="x509">'+tr("x509")+'</option>\
-                     <option value="server_cipher">'+tr("Server (Cipher)")+'</option>\
-                     <option value="server_x509">'+tr("Server (x509)")+'</option>\
                      <option value="public">'+tr("Public")+'</option>\
+                     <option value="custom">'+tr("Custom")+'</option>\
                 </select>\
+                <div>\
+                  <label>'+tr("Custom auth driver")+':</label>\
+                  <input type="text" name="custom_auth" /><br />\
+                </div>\
         </div>\
         </fieldset>\
         <fieldset>\
@@ -141,7 +159,7 @@ var user_actions = {
         type: "multiple",
         call: OpenNebula.User.chgrp,
         callback : function(req){
-            Sunstone.runAction("User.show",req.request.data[0]);
+            Sunstone.runAction("User.show",req.request.data[0][0]);
         },
         elements : userElements,
         error: onError,
@@ -152,7 +170,7 @@ var user_actions = {
         type: "multiple",
         call: OpenNebula.User.chauth,
         callback : function(req){
-            Sunstone.runAction("User.show",req.request.data[0]);
+            Sunstone.runAction("User.show",req.request.data[0][0]);
         },
         elements: userElements,
         error: onError,
@@ -197,7 +215,7 @@ var user_actions = {
 
     "User.delete" : {
         type: "multiple",
-        call: OpenNebula.User.delete,
+        call: OpenNebula.User.del,
         callback: deleteUserElement,
         elements: userElements,
         error: onError,
@@ -234,7 +252,15 @@ var user_actions = {
             notifyMessage(tr("Template updated correctly"));
         },
         error: onError
-    }
+    },
+
+    "User.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#users_tab div.legend_div').slideToggle();
+        }
+    },
 
 }
 
@@ -270,8 +296,6 @@ var user_buttons = {
             return   '<option value="core" selected="selected">'+tr("Core")+'</option>\
                      <option value="ssh">'+tr("SSH")+'</option>\
                      <option value="x509">'+tr("x509")+'</option>\
-                     <option value="server_cipher">'+tr("Server (Cipher)")+'</option>\
-                     <option value="server_x509">'+tr("Server (x509)")+'</option>\
                      <option value="public">'+tr("Public")+'</option>'
         },
         tip: tr("Please choose the new type of authentication for the selected users")+":"
@@ -293,7 +317,13 @@ var user_buttons = {
     "User.delete" : {
         type: "confirm",
         text: tr("Delete")
+    },
+    "User.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
+
 };
 
 var user_info_panel = {
@@ -306,8 +336,10 @@ var user_info_panel = {
 var users_tab = {
     title: tr("Users"),
     content: users_tab_content,
-    buttons: user_buttons
-}
+    buttons: user_buttons,
+    tabClass: 'subTab',
+    parentTab: 'system_tab'
+};
 
 Sunstone.addActions(user_actions);
 Sunstone.addMainTab('users_tab',users_tab);
@@ -327,22 +359,9 @@ function userElementArray(user_json){
         user.ID,
         user.NAME,
         user.GNAME,
-        user.AUTH_DRIVER
+        user.AUTH_DRIVER,
+        user.GID
     ]
-};
-
-function userInfoListener(){
-    $('#tbodyusers tr',dataTable_users).live("click",function(e){
-        //do nothing if we are clicking a checkbox!
-        if ($(e.target).is('input')) return true;
-        var aData = dataTable_users.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("User.showinfo",id);
-        return false;
-    });
 };
 
 function updateUserSelect(){
@@ -383,6 +402,7 @@ function updateUsersView(request,users_list){
     });
     updateView(user_list_array,dataTable_users);
     updateDashboard("users",users_list);
+    updateSystemDashboard("users",users_list);
     updateUserSelect();
 };
 
@@ -437,15 +457,25 @@ function setupCreateUserDialog(){
 
     $('button',dialog).button();
 
+    $('input[name="custom_auth"]',dialog).parent().hide();
+    $('select#driver').change(function(){
+        if ($(this).val() == "custom")
+            $('input[name="custom_auth"]',dialog).parent().show();
+        else
+            $('input[name="custom_auth"]',dialog).parent().hide();
+    });
+
     $('#create_user_form',dialog).submit(function(){
         var user_name=$('#username',this).val();
         var user_password=$('#pass',this).val();
         var driver = $('#driver', this).val();
+        if (driver == 'custom')
+            driver = $('input[name="custom_auth"]').val();
 
         if (!user_name.length || !user_password.length){
             notifyError(tr("User name and password must be filled in"));
             return false;
-        }
+        };
 
         var user_json = { "user" :
                           { "name" : user_name,
@@ -518,12 +548,17 @@ $(document).ready(function(){
         "bJQueryUI": true,
         "bSortClasses": false,
         "sPaginationType": "full_numbers",
+        "sDom" : '<"H"lfrC>t<"F"ip>',
+        "oColVis": {
+            "aiExclude": [ 0 ]
+        },
         "bAutoWidth":false,
         "aoColumnDefs": [
             { "bSortable": false, "aTargets": ["check"] },
             { "sWidth": "60px", "aTargets": [0] },
-            { "sWidth": "35px", "aTargets": [1] },
-            { "sWidth": "150px", "aTargets": [4] }
+            { "sWidth": "35px", "aTargets": [1,5] },
+            { "sWidth": "150px", "aTargets": [4] },
+            { "bVisible": false, "aTargets": [5]}
         ],
         "oLanguage": (datatable_lang != "") ?
             {
@@ -533,7 +568,7 @@ $(document).ready(function(){
     dataTable_users.fnClearTable();
     addElement([
         spinner,
-        '','','',''],dataTable_users);
+        '','','','',''],dataTable_users);
 
     Sunstone.runAction("User.list");
 
@@ -544,5 +579,7 @@ $(document).ready(function(){
     initCheckAllBoxes(dataTable_users);
     tableCheckboxesListener(dataTable_users);
     //shortenedInfoFields('#datatable_users');
-    userInfoListener();
+    infoListener(dataTable_users,'User.showinfo');
+
+    $('div#users_tab div.legend_div').hide();
 });

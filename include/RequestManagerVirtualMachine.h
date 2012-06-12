@@ -48,18 +48,21 @@ protected:
     virtual void request_execute(xmlrpc_c::paramList const& _paramList,
             RequestAttributes& att) = 0;
 
-    bool vm_authorization(int id, ImageTemplate *tmpl,
-            RequestAttributes& att, PoolObjectAuth* host_perms);
+    bool vm_authorization(int id, 
+                          ImageTemplate *        tmpl,
+                          RequestAttributes&     att, 
+                          PoolObjectAuth *       host_perms, 
+                          PoolObjectAuth *       ds_perm,
+                          AuthRequest::Operation op);
 
     int get_host_information(int hid, string& name, string& vmm, string& vnm,
-            string& tm, RequestAttributes& att, PoolObjectAuth& host_perms);
+            RequestAttributes& att, PoolObjectAuth& host_perms);
 
     int add_history(VirtualMachine * vm,
                     int              hid,
                     const string&    hostname,
                     const string&    vmm_mad,
                     const string&    vnm_mad,
-                    const string&    tm_mad,
                     RequestAttributes& att);
 
     VirtualMachine * get_vm(int id, RequestAttributes& att);
@@ -71,6 +74,8 @@ protected:
 class VirtualMachineAction : public RequestManagerVirtualMachine
 {
 public:
+    //auth_op is MANAGE for all actions but "resched" and "unresched"
+    //this is dynamically set for each request in the execute method
     VirtualMachineAction():
         RequestManagerVirtualMachine("VirtualMachineAction",
                                      "Performs an action on a virtual machine",
@@ -136,6 +141,29 @@ public:
 
     void request_execute(xmlrpc_c::paramList const& _paramList,
             RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineMonitoring : public RequestManagerVirtualMachine
+{
+public:
+
+    VirtualMachineMonitoring():
+        RequestManagerVirtualMachine("VirtualMachineMonitoring",
+                "Returns the virtual machine monitoring records",
+                "A:si")
+    {
+        auth_op = AuthRequest::USE;
+    };
+
+    ~VirtualMachineMonitoring(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
 };
 
 /* -------------------------------------------------------------------------- */

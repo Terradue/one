@@ -91,10 +91,12 @@ void RequestManagerDelete::request_execute(xmlrpc_c::paramList const& paramList,
     if ( rc != 0 )
     {
         failure_response(INTERNAL,
-            request_error("Can not delete "+object_name(auth_object),error_msg),
+            request_error("Cannot delete "+object_name(auth_object),error_msg),
             att);
         return;
     }
+
+    aclm->del_resource_rules(oid, auth_object);
 
     success_response(oid, att);
 
@@ -102,18 +104,109 @@ void RequestManagerDelete::request_execute(xmlrpc_c::paramList const& paramList,
 }
 
 /* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
 
-int ImageDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+int RequestManagerDelete::drop(
+        int             oid,
+        PoolObjectSQL * object,
+        string&         error_msg)
 {
-    Nebula&         nd     = Nebula::instance();
-    ImageManager *  imagem = nd.get_imagem();
+    int cluster_id = get_cluster_id(object);
+
+    int rc = pool->drop(object, error_msg);
 
     object->unlock();
-    int rc = imagem->delete_image(oid);
+
+    if ( cluster_id != ClusterPool::NONE_CLUSTER_ID && rc == 0 )
+    {
+        Cluster * cluster = clpool->get(cluster_id, true);
+
+        if( cluster != 0 )
+        {
+            rc = del_from_cluster(cluster, oid, error_msg);
+
+            if ( rc < 0 )
+            {
+                cluster->unlock();
+                return rc;
+            }
+
+            clpool->update(cluster);
+
+            cluster->unlock();
+        }
+    }
 
     return rc;
 }
 
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+int ImageDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    Nebula&         nd     = Nebula::instance();
+
+    ImageManager *  imagem = nd.get_imagem();
+    DatastorePool * dspool = nd.get_dspool();
+
+    Datastore * ds;
+    Image *     img;
+
+    int    ds_id, rc;
+    string ds_data;
+
+    img   = static_cast<Image *>(object);
+    ds_id = img->get_ds_id();
+
+    img->unlock();
+
+    ds = dspool->get(ds_id, true);
+
+    if ( ds == 0 )
+    {
+       error_msg = "Datastore no longer exists cannot remove image";
+       return -1; 
+    }
+
+    ds->to_xml(ds_data);
+
+    ds->unlock();
+
+    rc = imagem->delete_image(oid, ds_data);
+
+    if ( rc == 0 )
+    {
+        ds = dspool->get(ds_id, true);
+
+        if ( ds != 0 )
+        {
+            ds->del_image(oid);
+            dspool->update(ds);
+
+            ds->unlock();
+        }
+    }
+
+    return rc;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+int GroupDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    int rc = RequestManagerDelete::drop(oid, object, error_msg);
+
+    if ( rc == 0 )
+    {
+        aclm->del_gid_rules(oid);
+    }
+
+    return rc;
+}
+
+/* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
 
 int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
@@ -123,7 +216,7 @@ int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 
     if (oid == 0)
     {
-        error_msg = "oneadmin can not be deleted.";
+        error_msg = "oneadmin cannot be deleted.";
 
         object->unlock();
         return -1;
@@ -135,10 +228,7 @@ int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 
     if ( rc == 0 )
     {
-        Nebula&     nd      = Nebula::instance();
-        GroupPool * gpool   = nd.get_gpool();
-
-        Group *     group   = gpool->get(group_id, true);
+        Group * group = gpool->get(group_id, true);
 
         if( group != 0 )
         {
@@ -147,6 +237,8 @@ int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 
             group->unlock();
         }
+
+        aclm->del_uid_rules(oid);
     }
 
     return rc;

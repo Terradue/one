@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------- #
-# Copyright 2010-2011, C12G Labs S.L                                           #
+# Copyright 2010-2012, C12G Labs S.L                                           #
 #                                                                              #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may      #
 # not use this file except in compliance with the License. You may obtain      #
@@ -112,6 +112,18 @@ class VMwareDriver
 
         OpenNebula.log_debug("Domain #{deploy_id} successfully rebooted.")
     end
+
+    # ------------------------------------------------------------------------ #
+    # Reset a running VM                                                       #
+    # ------------------------------------------------------------------------ #
+    def reset(deploy_id)
+        rc, info = do_action("virsh -c #{@uri} reset #{deploy_id}")
+
+        exit info if rc == false
+
+        OpenNebula.log_debug("Domain #{deploy_id} successfully reseted.")
+    end
+
     # ------------------------------------------------------------------------ #
     # Migrate                                                                  #
     # ------------------------------------------------------------------------ #
@@ -165,9 +177,10 @@ class VMwareDriver
     def restore(checkpoint)
         begin
             # Define the VM
-            dfile = File.dirname(File.dirname(checkpoint)) + "/deployment.0"
+            dfile = VAR_LOCATION + "/" + 
+                    File.basename(File.dirname(checkpoint)) + "/deployment.0"
         rescue => e
-            OpenNebula.log_error("Can not open checkpoint #{e.message}")
+            OpenNebula.log_error("Cannot open checkpoint #{e.message}")
             exit -1
         end
 

@@ -2,14 +2,14 @@
   "ZONE_POOL": {
     "ZONE": [
       {
-        "ID": 1,
         "ENDPOINT": "http://localhost:2666/RPC2",
-        "NUMBERVDCS": 0,
         "SUNSENDPOINT": "http://localhost:9869",
         "NAME": "zoneA",
         "SELFENDPOINT": null,
+        "NUMBERVDCS": 0,
+        "ID": 1,
         "ONENAME": "oneadminA",
-        "ONEPASS": "OkqWM2aSqbM/nlrdHGv3OA=="
+        "ONEPASS": "e/TkohQckqFcmcWFwrirUapdiLkg87GHPafKnxkzznk="
       }
     ]
   }

@@ -75,6 +75,9 @@ Options:
 --debug, -D
     Enables verbosity
 
+--verbose
+    Show resources in verbose mode
+
 EOT
 
 require 'occi/OCCIClient'
@@ -83,13 +86,15 @@ require 'getoptlong'
 include CloudCLI
 
 opts = GetoptLong.new(
-            ['--help',         '-h',GetoptLong::NO_ARGUMENT],
-            ['--version',      '-v',GetoptLong::NO_ARGUMENT],
-            ['--username',     '-U',GetoptLong::REQUIRED_ARGUMENT],
-            ['--password',     '-P',GetoptLong::REQUIRED_ARGUMENT],
-            ['--url',          '-R',GetoptLong::REQUIRED_ARGUMENT],
-            ['--timeout',      '-T',GetoptLong::REQUIRED_ARGUMENT],
-            ['--debug',        '-D',GetoptLong::NO_ARGUMENT]
+            ['--help',     '-h',GetoptLong::NO_ARGUMENT],
+            ['--version',  '-v',GetoptLong::NO_ARGUMENT],
+            ['--username', '-U',GetoptLong::REQUIRED_ARGUMENT],
+            ['--password', '-P',GetoptLong::REQUIRED_ARGUMENT],
+            ['--url',      '-R',GetoptLong::REQUIRED_ARGUMENT],
+            ['--timeout',  '-T',GetoptLong::REQUIRED_ARGUMENT],
+            ['--debug',    '-D',GetoptLong::NO_ARGUMENT],
+            ['--verbose',       GetoptLong::NO_ARGUMENT],
+            ['--plain',         GetoptLong::NO_ARGUMENT]
         )
 
 url      = nil
@@ -98,6 +103,8 @@ password = nil
 auth     = nil
 timeout  = nil
 debug    = false
+verbose  = false
+plain    = false
 
 begin
     opts.each do |opt, arg|
@@ -118,6 +125,10 @@ begin
                 timeout = arg
             when '--debug'
                 debug = true
+            when '--verbose'
+                verbose = true
+            when '--plain'
+                plain = true
         end
     end
 rescue Exception => e
@@ -125,7 +136,7 @@ rescue Exception => e
 end 
 
 begin
-    occi_client = OCCIClient::Client.new(url,username,password, timeout, debug)
+    occi_client = OCCIClient::Client.new(url,username,password, timeout, debug, plain)
 rescue Exception => e
     puts "#{cmd_name}: #{e.message}"
     exit(-1)
@@ -139,7 +150,7 @@ end
 
 case ARGV[0].downcase
     when 'list'
-        rc = occi_client.get_vms
+        rc = occi_client.get_vms(verbose)
 
     when 'create'
         vm_xml = ARGV[1]

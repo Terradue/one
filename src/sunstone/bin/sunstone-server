@@ -22,17 +22,25 @@ if [ -z "$ONE_LOCATION" ]; then
     SUNSTONE_SERVER=/usr/lib/one/sunstone/sunstone-server.rb
     SUNSTONE_LOCK_FILE=/var/lock/one/.sunstone.lock
     SUNSTONE_LOG=/var/log/one/sunstone.log
+    SUNSTONE_LOG_ERROR=/var/log/one/sunstone.error
     SUNSTONE_CONF=/etc/one/sunstone-server.conf
 else
     SUNSTONE_PID=$ONE_LOCATION/var/sunstone.pid
     SUNSTONE_SERVER=$ONE_LOCATION/lib/sunstone/sunstone-server.rb
     SUNSTONE_LOCK_FILE=$ONE_LOCATION/var/.sunstone.lock
     SUNSTONE_LOG=$ONE_LOCATION/var/sunstone.log
+    SUNSTONE_LOG_ERROR=$ONE_LOCATION/var/sunstone.error
     SUNSTONE_CONF=$ONE_LOCATION/etc/sunstone-server.conf
 fi
 
 setup()
 {
+  TMPDIR=$(grep ^:tmpdir: $SUNSTONE_CONF|awk '{print $2}')
+
+  if [ -n "$TMPDIR" ]; then
+    export TMPDIR
+    mkdir -p $TMPDIR
+  fi
 
   if [ -f $SUNSTONE_LOCK_FILE ]; then
     if [ -f  $SUNSTONE_PID ]; then
@@ -53,13 +61,13 @@ setup()
 start()
 {
   if [ ! -f "$SUNSTONE_SERVER" ]; then
-    echo "Can not find $SUNSTONE_SERVER."
+    echo "Cannot find $SUNSTONE_SERVER."
     exit 1
   fi
   
   # Start the sunstone daemon
   touch $SUNSTONE_LOCK_FILE
-  ruby $SUNSTONE_SERVER > $SUNSTONE_LOG 2>&1 &
+  ruby $SUNSTONE_SERVER > $SUNSTONE_LOG 2>$SUNSTONE_LOG_ERROR &
   LASTPID=$!
   if [ $? -ne 0 ]; then
     echo "Error executing $SUNSTONE_SERVER, please check the log $SUNSTONE_LOG"

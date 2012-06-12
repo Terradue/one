@@ -122,7 +122,10 @@ public:
      *  @param xml the resulting XML string
      *  @return a reference to the generated string
      */
-    string& to_xml(string& xml) const;
+    string& to_xml(string& xml) const
+    {
+        return to_xml_extended(xml, 1);
+    }
 
     /**
      * Function to print the VirtualMachine object into a string in
@@ -130,7 +133,10 @@ public:
      *  @param xml the resulting XML string
      *  @return a reference to the generated string
      */
-    string& to_xml_extended(string& xml) const;
+    string& to_xml_extended(string& xml) const
+    {
+        return to_xml_extended(xml, 2);
+    }
 
     /**
      *  Rebuilds the object from an xml formatted string
@@ -156,7 +162,7 @@ public:
 
     /**
      *  Updates VM dynamic information (usage counters).
-     *   @param _memory used by the VM (total)
+     *   @param _memory Kilobytes used by the VM (total)
      *   @param _cpu used by the VM (rate)
      *   @param _net_tx transmitted bytes (total)
      *   @param _net_tx received bytes (total)
@@ -199,12 +205,30 @@ public:
 
     /**
      *  Sets the VM exit time
-     *    @param _et VM exit time (when it arraived DONE/FAILED states)
+     *    @param _et VM exit time (when it arrived DONE/FAILED states)
      */
     void set_exit_time(time_t et)
     {
         etime = et;
     };
+
+    // ------------------------------------------------------------------------
+    // Access to VM locations
+    // ------------------------------------------------------------------------
+    /**
+     *  Returns the remote VM directory. The VM remote dir is in the form:
+     *  $DATASTORE_LOCATION/$SYSTEM_DS_ID/$VM_ID. The remote system_dir stores
+     *  disks for a running VM in the target host.
+     *    @return the remote system directory for the VM
+     */
+    string get_remote_system_dir() const;
+
+    /**
+     *  Returns the local VM directory. The VM local dir is in the form:
+     *  $SYSTEM_DS_BASE_PATH/$VM_ID. Temporary stores VM disks.
+     *    @return the system directory for the VM
+     */
+    string get_system_dir() const;
 
     // ------------------------------------------------------------------------
     // History
@@ -215,10 +239,8 @@ public:
     void add_history(
         int     hid,
         const string& hostname,
-        const string& vm_dir,
         const string& vmm_mad,
-        const string& vnm_mad,
-        const string& tm_mad);
+        const string& vnm_mad);
 
     /**
      *  Duplicates the last history record. Only the host related fields are
@@ -295,26 +317,6 @@ public:
     };
 
     /**
-     *  Returns the TM driver name for the current host. The hasHistory()
-     *  function MUST be called before this one.
-     *    @return the TM mad name
-     */
-    const string & get_tm_mad() const
-    {
-        return history->tm_mad_name;
-    };
-
-    /**
-     *  Returns the TM driver name for the previous host. The
-     *  hasPreviousHistory() function MUST be called before this one.
-     *    @return the TM mad name
-     */
-    const string & get_previous_tm_mad() const
-    {
-        return previous_history->tm_mad_name;
-    };
-
-    /**
      *  Returns the transfer filename. The transfer file is in the form:
      *          $ONE_LOCATION/var/$VM_ID/transfer.$SEQ
      *  or, in case that OpenNebula is installed in root
@@ -377,30 +379,6 @@ public:
     };
 
     /**
-     *  Returns the remote VM directory. The VM remote dir is in the form:
-     *          $VM_DIR/$VM_ID/
-     *  or, in case that OpenNebula is installed in root
-     *          /var/lib/one/$VM_ID/
-     *  The hasHistory() function MUST be called before this one.
-     *    @return the remote directory
-     */
-    const string & get_remote_dir() const
-    {
-        return history->vm_rhome;
-    };
-
-    /**
-     *  Returns the local VM directory. The VM local dir is in the form:
-     *          $ONE_LOCATION/var/$VM_ID/
-     *  The hasHistory() function MUST be called before this one.
-     *    @return the remote directory
-     */
-    const string & get_local_dir() const
-    {
-        return history->vm_lhome;
-    };
-
-    /**
      *  Returns the hostname for the current host. The hasHistory()
      *  function MUST be called before this one.
      *    @return the hostname
@@ -454,6 +432,22 @@ public:
     void set_stime(time_t _stime)
     {
         history->stime=_stime;
+    };
+
+    /**
+     *  Sets VM info (with monitoring info) in the history record 
+     */
+    void set_vm_info()
+    {
+        to_xml_extended(history->vm_info, 0);
+    };
+
+    /**
+     *  Sets VM info (with monitoring info) in the previous history record 
+     */
+    void set_previous_vm_info()
+    {
+        to_xml_extended(previous_history->vm_info, 0);
     };
 
     /**
@@ -570,7 +564,7 @@ public:
     /**
      *  Factory method for virtual machine templates
      */
-    Template * get_new_template()
+    Template * get_new_template() const
     {
         return new VirtualMachineTemplate;
     }
@@ -612,6 +606,22 @@ public:
     void set_state(LcmState s)
     {
         lcm_state = s;
+    };
+
+    /**
+     *  Sets the re-scheduling flag
+     *    @param set or unset the re-schedule flag
+     */
+    void set_resched(bool do_sched)
+    {
+        if ( do_sched == true )
+        {
+            resched = 1;
+        }
+        else
+        {
+            resched = 0;
+        }
     };
 
     // ------------------------------------------------------------------------
@@ -681,15 +691,27 @@ public:
     int  generate_context(string &files);
 
     // ------------------------------------------------------------------------
-    // Image repository related functions
+    // Datastore related functions
     // ------------------------------------------------------------------------
     /**
      *  Set the SAVE_AS attribute for the "disk_id"th disk.
      *    @param  disk_id Index of the disk to save
-     *    @param  img_id ID of the image this disk will be saved to.
+     *    @param  source to save the disk (SAVE_AS_SOURCE)
+     *    @param  img_id ID of the image this disk will be saved to (SAVE_AS).
      *    @return 0 if success
      */
-    int  save_disk(int disk_id, int img_id, string& error_str);
+    int save_disk(const string& disk_id, 
+                  const string& source,
+                  int img_id);
+
+    /**
+     * Get the original image id of the disk. It also checks that the disk can
+     * be saved_as.
+     *    @param  disk_id Index of the disk to save
+     *    @param  error_str describes the error
+     *    @return -1 if failure
+     */
+    int get_image_from_disk(int disk_id, string& error_str);
 
     // ------------------------------------------------------------------------
     // Authorization related functions
@@ -737,6 +759,11 @@ private:
     LcmState    lcm_state;
 
     /**
+     *  Marks the VM as to be re-scheduled
+     */
+    int         resched;
+
+    /**
      *  Start time, the VM enter the nebula system (in epoch)
      */
     time_t      stime;
@@ -752,7 +779,7 @@ private:
     string      deploy_id;
 
     /**
-     *  Memory in Megabytes used by the VM
+     *  Memory in Kilobytes used by the VM
      */
     int         memory;
 
@@ -762,12 +789,12 @@ private:
     int         cpu;
 
     /**
-     *  Network usage, transmitted Kilobytes
+     *  Network usage, transmitted bytes
      */
     int         net_tx;
 
     /**
-     *  Network usage, received Kilobytes
+     *  Network usage, received bytes
      */
     int         net_rx;
 
@@ -781,14 +808,13 @@ private:
      */
     History *   previous_history;
 
-
     /**
      *  Complete set of history records for the VM
      */
     vector<History *> history_records;
 
     // -------------------------------------------------------------------------
-    // Logging
+    // Logging & Dirs
     // -------------------------------------------------------------------------
 
     /**
@@ -797,7 +823,7 @@ private:
      *  or, in case that OpenNebula is installed in root
      *          /var/log/one/$VM_ID.log
      */
-    FileLog *       _log;
+    FileLog * _log;
 
     // *************************************************************************
     // DataBase implementation (Private)
@@ -812,9 +838,11 @@ private:
         int rc;
 
         ostringstream oss_vm(VirtualMachine::db_bootstrap);
+        ostringstream oss_monit(VirtualMachine::monit_db_bootstrap);
         ostringstream oss_hist(History::db_bootstrap);
 
         rc =  db->exec(oss_vm);
+        rc += db->exec(oss_monit);
         rc += db->exec(oss_hist);
 
         return rc;
@@ -869,6 +897,14 @@ private:
             return -1;
     };
 
+    /**
+     * Inserts the last monitoring, and deletes old monitoring entries.
+     *
+     * @param db pointer to the db
+     * @return 0 on success
+     */
+    int update_monitoring(SqlDB * db);
+
     // -------------------------------------------------------------------------
     // Attribute Parser
     // -------------------------------------------------------------------------
@@ -895,6 +931,14 @@ private:
     int parse_requirements(string& error_str);
 
     /**
+     * Adds automatic placement requirements: Datastore and Cluster
+     *
+     *    @param error_str Returns the error reason, if any
+     *    @return 0 on success
+     */
+    int automatic_requirements(string& error_str);
+
+    /**
      *  Parse the "GRAPHICS" attribute and generates a default PORT if not
      *  defined
      */
@@ -904,10 +948,13 @@ private:
      *  Function that renders the VM in XML format optinally including
      *  extended information (all history records)
      *  @param xml the resulting XML string
-     *  @param extended include additional info if true
+     *  @param n_history Number of history records to include:
+     *      0: none
+     *      1: the last one
+     *      2: all
      *  @return a reference to the generated string
      */
-    string& to_xml_extended(string& xml, bool extended) const;
+    string& to_xml_extended(string& xml, int n_history) const;
 
 protected:
 
@@ -927,12 +974,18 @@ protected:
     // *************************************************************************
     // DataBase implementation
     // *************************************************************************
-
+    
     static const char * table;
 
     static const char * db_names;
 
     static const char * db_bootstrap;
+
+    static const char * monit_table;
+
+    static const char * monit_db_names;
+
+    static const char * monit_db_bootstrap;
 
     /**
      *  Reads the Virtual Machine (identified with its OID) from the database.

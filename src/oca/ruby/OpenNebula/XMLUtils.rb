@@ -101,6 +101,55 @@ module OpenNebula
             end
         end
 
+        # Delete an element from the xml
+        # xpath::_String_ xpath expression that selects the elemnts to be deleted
+        def delete_element(xpath)
+            if NOKOGIRI
+                @xml.xpath(xpath.to_s).remove
+            else
+                @xml.delete_element(xpath.to_s)
+            end
+        end
+
+        # Add a new element to the xml
+        # xpath::_String_ xpath xpression where the elemente will be added
+        # elems::_Hash_ Hash containing the pairs key-value to be included
+        # Examples:
+        #   add_element('VM', 'NEW_ITEM' => 'NEW_VALUE')
+        #     <VM><NEW_ITEM>NEW_VALUE</NEW_ITEM>...</VM>
+        #
+        #   add_element('VM/TEMPLATE', 'V1' => {'X1' => 'A1', 'Y2' => 'A2'})
+        #     <VM><TEMPLATE><V1><X1>A1</X1><Y2>A2</Y2>...</TEMPLATE></VM>
+        def add_element(xpath, elems)
+            elems.each { |key, value|
+                if value.instance_of?(Hash)
+                    if NOKOGIRI
+                        elem = Nokogiri::XML::Node.new key, @xml.document
+                        value.each { |k2, v2|
+                            child = Nokogiri::XML::Node.new k2, elem
+                            child.content = v2
+                            elem.add_child(child)
+                        }
+                        @xml.xpath(xpath.to_s).first.add_child(elem)
+                    else
+                        elem = REXML::Element.new(key)
+                        value.each { |k2, v2|
+                            elem.add_element(k2).text = v2
+                        }
+                        @xml.elements[xpath].add_element(elem)
+                    end
+                else
+                    if NOKOGIRI
+                        elem = Nokogiri::XML::Node.new key, @xml.document
+                        elem.content = value
+                        @xml.xpath(xpath.to_s).first.add_child(elem)
+                    else
+                        @xml.elements[xpath].add_element(key).text = value
+                    end
+                end
+            }
+        end
+
         # Gets an array of text from elemenets extracted
         # using  the XPATH  expression passed as filter
         def retrieve_elements(filter)
@@ -187,6 +236,8 @@ module OpenNebula
             end
         end
 
+        # Returns wheter there are elements for a given XPath
+        # xpath_str:: _String_ XPath expression to locate the element
         def has_elements?(xpath_str)
             if NOKOGIRI
                 element = @xml.xpath(xpath_str.to_s.upcase)
@@ -197,51 +248,69 @@ module OpenNebula
             end
         end
 
+        # Returns the <TEMPLATE> element in text form
+        # indent:: _Boolean_ indents the resulting string, default true
         def template_str(indent=true)
             template_like_str('TEMPLATE', indent)
         end
 
+        # Returns the <TEMPLATE> element in XML form
+        def template_xml
+            if NOKOGIRI
+                @xml.xpath('TEMPLATE').to_s
+            else
+                @xml.elements['TEMPLATE'].to_s
+            end
+        end
+
+        # Returns elements in text form
+        # root_element:: _String_ base element
+        # indent:: _Boolean_ indents the resulting string, default true
+        # xpath_exp:: _String_ filter elements with a XPath
         def template_like_str(root_element, indent=true, xpath_exp=nil)
             if NOKOGIRI
-                xml_template=@xml.xpath(root_element).to_s
-                rexml=REXML::Document.new(xml_template).root
+                xml_template = @xml.xpath(root_element).to_s
+                rexml        = REXML::Document.new(xml_template).root
             else
-                rexml=@xml.elements[root_element]
+                rexml = @xml.elements[root_element]
             end
 
             if indent
-                ind_enter="\n"
-                ind_tab='  '
+                ind_enter = "\n"
+                ind_tab   = '  '
             else
-                ind_enter=''
-                ind_tab=' '
+                ind_enter = ''
+                ind_tab   = ' '
             end
 
-            str=rexml.elements.collect(xpath_exp) {|n|
-                if n.class==REXML::Element
-                    str_line=""
-                    if n.has_elements?
-                        str_line << n.name << "=[" << ind_enter
+            str = rexml.elements.collect(xpath_exp) {|n|
+                next if n.class != REXML::Element
 
-                        str_line << n.collect {|n2|
-                            if n2 && n2.class==REXML::Element
-                                str = ""
-                                str << ind_tab << n2.name << '='
-                                str << attr_to_str(n2.text) if n2.text
-                                str
-                            end
-                        }.compact.join(','+ind_enter)
-                        str_line<<" ]"
-                    else
-                        str_line << n.name << '=' << attr_to_str(n.text.to_s)
-                    end
-                    str_line
+                str_line = ""
+
+                if n.has_elements?
+                    str_line << "#{n.name}=[#{ind_enter}" << n.collect { |n2|
+
+                        next if n2.class != REXML::Element or !n2.has_text?
+
+                        str = "#{ind_tab}#{n2.name}=#{attr_to_str(n2.text)}"
+
+                    }.compact.join(",#{ind_enter}") << " ]"
+                else
+                    next if !n.has_text?
+
+                    str_line << "#{n.name}=#{attr_to_str(n.text)}"
                 end
+
+                str_line
             }.compact.join("\n")
 
-            str
+            return str
         end
 
+        #
+        #
+        #
         def to_xml(pretty=false)
             if NOKOGIRI && pretty
                 str = @xml.to_xml
@@ -259,6 +328,9 @@ module OpenNebula
             return str
         end
 
+        #
+        #
+        #
         def to_hash(hash={}, element=nil)
             element ||= @xml.document.root
 
@@ -298,13 +370,14 @@ module OpenNebula
         end
 
     private
+    
+        #
+        #
+        #
         def attr_to_str(attr)
             attr.gsub!('"',"\\\"")
-
-            if attr.match(/[=,' ']/)
-                return '"' + attr + '"'
-            end
-
+            attr = "\"#{attr}\""
+            
             return attr
         end
     end

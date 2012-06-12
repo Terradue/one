@@ -172,7 +172,7 @@ private
         when *%w{running blocked shutdown dying idle}
             'a'
         when 'paused'
-            'p'
+            'd'
         when 'crashed'
             'e'
         else
@@ -242,7 +242,7 @@ module XEN
         when *%w{r b s d}
             'a'
         when 'p'
-            'p'
+            'd'
         when 'c'
             'e'
         else

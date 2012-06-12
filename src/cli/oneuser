@@ -30,6 +30,8 @@ $: << RUBY_LIB_LOCATION+"/cli"
 require 'command_parser'
 require 'one_helper/oneuser_helper'
 
+require 'uri'
+
 cmd=CommandParser::CmdParser.new(ARGV) do
     usage "`oneuser` <command> [<args>] [<options>]"
     version OpenNebulaHelper::ONE_VERSION
@@ -181,14 +183,15 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     end
 
     update_desc = <<-EOT.unindent
-        Launches the system editor to modify and update the template contents
+        Update the template contents. If a path is not provided the editor will
+        be launched to modify the current content.
     EOT
 
-    command :update, update_desc, :userid do
+    command :update, update_desc, :userid, [:file, nil] do
         helper = OneUserHelper.new
 
         helper.perform_action(args[0],options,"modified") do |user|
-            str = OpenNebulaHelper.update_template(args[0], user)
+            str = OpenNebulaHelper.update_template(args[0], user, args[1])
             user.update(str)
         end
     end
@@ -335,4 +338,21 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         helper.show_resource(user,options)
     end
 
+    show_desc = <<-EOT.unindent
+        Encodes user and password to use it with ldap
+    EOT
+
+    command :encode, show_desc, :username, [:password, nil] do
+        ar=args.compact
+
+        if defined?(URI::Parser)
+            parser=URI::Parser.new
+        else
+            parser=URI
+        end
+
+        puts ar.map{|a| parser.escape(a) }.join(':')
+
+        0
+    end
 end

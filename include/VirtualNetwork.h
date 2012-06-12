@@ -21,6 +21,7 @@
 #include "PoolSQL.h"
 #include "Leases.h"
 #include "VirtualNetworkTemplate.h"
+#include "Clusterable.h"
 
 #include <vector>
 #include <string>
@@ -39,7 +40,7 @@ using namespace std;
  *  leases. One lease is formed by one IP and one MAC address.
  *  MAC address are derived from IP addresses.
  */
-class VirtualNetwork : public PoolObjectSQL
+class VirtualNetwork : public PoolObjectSQL, public Clusterable
 {
 public:
 
@@ -61,7 +62,7 @@ public:
     /**
      *  Factory method for virtual network templates
      */
-    Template * get_new_template()
+    Template * get_new_template() const
     {
         return new VirtualNetworkTemplate;
     }
@@ -135,13 +136,24 @@ public:
     };
 
     /**
-     *    Release previously given lease
+     *  Release previously given lease
      *    @param _ip IP identifying the lease
      *    @return 0 if success
      */
     void release_lease(const string& ip)
     {
         return leases->release(ip);
+    };
+
+    /**
+     *  Check if a VM is the owner of the ip 
+     *    @param ip of the lease to be checked
+     *    @param vid the ID of the VM
+     *    @return true if the ip was already assigned
+     */
+    bool is_owner (const string& ip, int vid)
+    {
+        return leases->is_owner(ip, vid);
     };
 
     /**
@@ -287,6 +299,8 @@ private:
                    int                      gid,
                    const string&            _uname,
                    const string&            _gname,
+                   int                      _cluster_id,
+                   const string&            _cluster_name,
                    VirtualNetworkTemplate * _vn_template = 0);
 
     ~VirtualNetwork();

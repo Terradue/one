@@ -143,7 +143,7 @@ var vnet_actions = {
 
     "Network.delete" : {
         type: "multiple",
-        call: OCCI.Network.delete,
+        call: OCCI.Network.del,
         callback: deleteVNetworkElement,
         elements: vnElements,
         error: onError,
@@ -196,7 +196,7 @@ var vnet_create_panel = {
 }
 
 var vnets_tab = {
-    title: tr("Networks"),
+    title: '<i class="icon-resize-small"></i>'+tr("Networks"),
     content: vnets_tab_content,
     buttons: vnet_buttons
 }
@@ -232,22 +232,6 @@ function vNetworkElementArray(vn_json){
     ];
 };
 
-
-//Adds a listener to show the extended info when clicking on a row
-function vNetworkInfoListener(){
-
-    $('#tbodyvnetworks tr',dataTable_vNetworks).live("click", function(e){
-        if ($(e.target).is('input')) {return true;};
-
-        var aData = dataTable_vNetworks.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Network.showinfo",id);
-        return false;
-    });
-}
 
 //Callback to update a vnet element after an action on it
 function updateVNetworkElement(request, vn_json){
@@ -443,7 +427,7 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_vNetworks);
     tableCheckboxesListener(dataTable_vNetworks);
-    vNetworkInfoListener();
+    infoListener(dataTable_vNetworks,'Network.showinfo');
 
     $('#li_vnets_tab').click(function(){
         popUpVNetDashboard();

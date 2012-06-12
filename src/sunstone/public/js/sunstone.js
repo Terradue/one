@@ -72,7 +72,8 @@ var Sunstone = {
     //Updates the content of an info tab and refreshes the DOM if wanted.
     "updateMainTabContent" : function(tab_id,content_arg,refresh){
         SunstoneCfg["tabs"][tab_id]["content"]=content_arg;
-        if (refresh){ //if not present it won't be updated
+        //if not present it will not be updated
+        if (refresh){ 
             $('div#'+tab_id, main_tabs_context).html(content_arg);
         }
     },
@@ -296,7 +297,7 @@ $(document).ready(function(){
 
     //Insert the tabs in the DOM and their buttons.
     insertTabs();
-    //hideSubTabs();
+//    hideSubTabs();
     insertButtons();
 
     //Enhace the look of select buttons
@@ -373,7 +374,7 @@ $(document).ready(function(){
     });
 
     //Start with the dashboard (supposing we have one).
-    showTab('#dashboard_tab');
+    showTab('dashboard_tab');
 
 });
 
@@ -452,26 +453,42 @@ function insertTabs(){
 //adding the content to the proper div and by adding a list item
 //link to the navigation menu
 function insertTab(tab_name){
-    var tab_info = SunstoneCfg["tabs"][tab_name];
-    var condition = tab_info["condition"];
-    var tabClass = tab_info["tabClass"];
-    var parent = "";
-
-    if (!tabClass) {
-        tabClass="topTab";
-    } else if (tabClass=="subTab") {
-        parent = tab_info["parentTab"];
-    };
+    var tab_info = SunstoneCfg['tabs'][tab_name];
+    var condition = tab_info['condition'];
+    var tabClass = tab_info['tabClass'] ? tab_info['tabClass'] : 'topTab';
+    var parent = tab_info['parentTab'] ? tab_info['parentTab'] : '';
+    var showOnTop = tab_info['showOnTopMenu'];
 
     //skip this tab if we do not meet the condition
     if (condition && !condition()) {return;}
 
-    main_tabs_context.append('<div id="'+tab_name+'" class="tab"></div>');
+    main_tabs_context.append('<div id="'+tab_name+'" class="tab" style="display:none;"></div>');
 
     $('div#'+tab_name,main_tabs_context).html(tab_info.content);
 
-    $('div#menu ul#navigation').append('<li id="li_'+tab_name+'" class="'+tabClass+' '+parent+'"><a href="#'+tab_name+'">'+tab_info.title+'</a></li>');
-}
+    var li_item = '<li id="li_'+tab_name+'" class="'+tabClass+' '+parent+'">'+tab_info.title+'<span class="ui-icon ui-icon-circle-plus plusIcon"></span></li>';
+
+    //if this is a submenu...
+    if (parent.length) {
+        var children = $('div#menu ul#navigation li.'+parent);
+        //if there are other submenus, insert after last of them
+        if (children.length)
+            $(children[children.length-1]).after(li_item);
+        else //instert after parent menu
+            $('div#menu ul#navigation li#li_'+parent).after(li_item);
+    } else { //not a submenu, instert in the end
+        $('div#menu ul#navigation').append(li_item);
+    };
+
+    if (parent){ //this is a subtab
+        $('div#menu li#li_'+tab_name).hide();//hide by default
+        $('div#menu li#li_'+parent+' span').css("display","inline-block");
+    };
+
+    if (showOnTop){
+        $('div#header ul#menutop_ul').append('<li id="top_'+tab_name+'">'+tab_info.title+'</li>');
+    };
+};
 
 function hideSubTabs(){
     for (tab in SunstoneCfg["tabs"]){

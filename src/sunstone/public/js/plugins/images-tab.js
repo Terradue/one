@@ -16,8 +16,9 @@
 
 /*Images tab plugin*/
 
-var images_tab_content =
-'<form id="image_form" action="" action="javascript:alert(\'js error!\');">\
+var images_tab_content = '\
+<h2>'+tr("Images")+'</h2>\
+<form id="image_form" action="" action="javascript:alert(\'js error!\');">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_images" class="display">\
@@ -28,17 +29,25 @@ var images_tab_content =
       <th>'+tr("Owner")+'</th>\
       <th>'+tr("Group")+'</th>\
       <th>'+tr("Name")+'</th>\
+      <th>'+tr("Datastore")+'</th>\
       <th>'+tr("Size")+'</th>\
       <th>'+tr("Type")+'</th>\
       <th>'+tr("Registration time")+'</th>\
       <th>'+tr("Persistent")+'</th>\
       <th>'+tr("Status")+'</th>\
       <th>'+tr("#VMS")+'</th>\
+      <th>'+tr("Target")+'</th>\
     </tr>\
   </thead>\
   <tbody id="tbodyimages">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+  <span>?</span>\
+<p class="legend_p">\
+'+tr("Size and registration time are hidden colums. Note that persistent images can only be used by 1 VM. To change image datastore, please re-register the image.")+'\
+</p>\
+</div>\
 </form>';
 
 var create_image_tmpl =
@@ -61,6 +70,12 @@ var create_image_tmpl =
                  <label for="img_desc">'+tr("Description")+':</label>\
                  <textarea name="img_desc" id="img_desc" style="height:4em"></textarea>\
                <div class="tip">'+tr("Human readable description of the image for other users.")+'</div>\
+               </div>\
+               <div class="img_param">\
+                 <label for="img_datastore">'+tr("Datastore")+':</label>\
+                 <select id="img_datastore" name="img_datastore">\
+                 </select>\
+                 <div class="tip">'+tr("Select the datastore for this image")+'</div>\
                </div>\
              </fieldset>\
              <fieldset>\
@@ -97,10 +112,15 @@ var create_image_tmpl =
                   <input type="text" name="img_driver" id="img_driver" />\
                   <div class="tip">'+tr("Specific image mapping driver. KVM: raw, qcow2. XEN: tap:aio, file:")+'</div>\
                </div>\
+               <div class="img_param">\
+                  <label for="img_target">'+tr("Target")+':</label>\
+                  <input type="text" name="img_target" id="img_target" />\
+                  <div class="tip">'+tr("Target on which the image will be mounted at. For example: hda, sdb...")+'</div>\
+               </div>\
               </fieldset>\
               <fieldset>\
                  <div class="" id="src_path_select">\
-                   <label style="height:4em;">'+tr("Image location")+':</label>\
+                   <label style="height:5em;">'+tr("Image location")+':</label>\
 \
                    <input type="radio" name="src_path" id="path_img" value="path" />\
                    <label style="float:none">'+tr("Provide a path")+'</label><br />\
@@ -168,8 +188,10 @@ var create_image_tmpl =
             <form id="create_image_form_manual" action="">\
                <fieldset style="border-top:none;">\
                  <h3 style="margin-bottom:10px;">'+tr("Write the image template here")+'</h3>\
-                 <textarea id="template" rows="15" style="width:100%;">\
-                 </textarea>\
+                 <label for="img_datastores_raw">'+tr("Datastore")+':</label>\
+                 <select id="img_datastore_raw" name="img_datastore_raw">\
+                 </select>\
+                 <textarea id="template" rows="15" style="width:100%;"></textarea>\
                </fieldset>\
                <fieldset>\
                <div class="form_buttons">\
@@ -316,7 +338,7 @@ var image_actions = {
         type: "single",
         call: OpenNebula.Image.update,
         callback: function() {
-            notifyMessage(tr("Template updated correctly"));
+            notifyMessage(tr("Image updated correctly"));
         },
         error: onError
     },
@@ -367,7 +389,7 @@ var image_actions = {
 
     "Image.delete" : {
         type: "multiple",
-        call: OpenNebula.Image.delete,
+        call: OpenNebula.Image.del,
         callback: deleteImageElement,
         elements: imageElements,
         error: onError,
@@ -378,7 +400,7 @@ var image_actions = {
         type: "multiple",
         call: OpenNebula.Image.chown,
         callback:  function (req) {
-            Sunstone.runAction("Image.show",req.request.data[0]);
+            Sunstone.runAction("Image.show",req.request.data[0][0]);
         },
         elements: imageElements,
         error: onError,
@@ -389,7 +411,7 @@ var image_actions = {
         type: "multiple",
         call: OpenNebula.Image.chgrp,
         callback: function (req) {
-            Sunstone.runAction("Image.show",req.request.data[0]);
+            Sunstone.runAction("Image.show",req.request.data[0][0]);
         },
         elements: imageElements,
         error: onError,
@@ -408,11 +430,18 @@ var image_actions = {
         type: "single",
         call: OpenNebula.Image.chtype,
         callback: function (req) {
-            Sunstone.runAction("Image.show",req.request.data[0]);
+            Sunstone.runAction("Image.show",req.request.data[0][0]);
         },
         elements: imageElements,
         error: onError,
         notify: true
+    },
+    "Image.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#images_tab div.legend_div').slideToggle();
+        }
     }
 };
 
@@ -470,6 +499,11 @@ var image_buttons = {
     "Image.delete" : {
         type: "confirm",
         text: tr("Delete")
+    },
+    "Image.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
 }
 
@@ -489,7 +523,9 @@ var image_info_panel = {
 var images_tab = {
     title: tr("Images"),
     content: images_tab_content,
-    buttons: image_buttons
+    buttons: image_buttons,
+    tabClass: 'subTab',
+    parentTab: 'vres_tab'
 }
 
 Sunstone.addActions(image_actions);
@@ -522,32 +558,16 @@ function imageElementArray(image_json){
         image.UNAME,
         image.GNAME,
         image.NAME,
+        image.DATASTORE,
         image.SIZE,
         '<select class="action_cb" id="select_chtype_image" elem_id="'+image.ID+'" style="width:100px">'+type.html()+'</select>',
         pretty_time(image.REGTIME),
         parseInt(image.PERSISTENT) ? '<input class="action_cb" id="cb_persistent_image" type="checkbox" elem_id="'+image.ID+'" checked="checked"/>'
             : '<input class="action_cb" id="cb_persistent_image" type="checkbox" elem_id="'+image.ID+'"/>',
         OpenNebula.Helper.resource_state("image",image.STATE),
-        image.RUNNING_VMS
+        image.RUNNING_VMS,
+        image.TEMPLATE.TARGET ? image.TEMPLATE.TARGET : '--'
         ];
-}
-
-// Set up the listener on the table TDs to show the info panel
-function imageInfoListener(){
-    $('#tbodyimages tr',dataTable_images).live("click",function(e){
-        var target = $(e.target);
-
-        if (target.is('input') || target.is('select') || target.is('option'))
-            return true;
-
-        var aData = dataTable_images.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Image.showinfo",id);
-        return false;
-    });
 }
 
 // Callback to update an element in the dataTable
@@ -578,6 +598,7 @@ function updateImagesView(request, images_list){
 
     updateView(image_list_array,dataTable_images);
     updateDashboard("images",images_list);
+    updateVResDashboard("images",images_list);
 }
 
 // Callback to update the information panel tabs and pop it up
@@ -598,6 +619,10 @@ function updateImageInfo(request,img){
            <tr>\
               <td class="key_td">'+tr("Name")+'</td>\
               <td class="value_td">'+img_info.NAME+'</td>\
+           </tr>\
+           <tr>\
+              <td class="key_td">'+tr("Datastore")+'</td>\
+              <td class="value_td">'+img_info.DATASTORE+'</td>\
            </tr>\
            <tr>\
               <td class="key_td">'+tr("Owner")+'</td>\
@@ -643,7 +668,7 @@ function updateImageInfo(request,img){
               <td class="key_td">'+tr("Running #VMS")+'</td>\
               <td class="value_td">'+img_info.RUNNING_VMS+'</td>\
            </tr>\
-           <tr><td class="key_td">Permissions</td><td></td></tr>\
+           <tr><td class="key_td">'+tr("Permissions")+'</td><td></td></tr>\
            <tr>\
              <td class="key_td">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'+tr("Owner")+'</td>\
              <td class="value_td" style="font-family:monospace;">'+ownerPermStr(img_info)+'</td>\
@@ -789,6 +814,7 @@ function setupCreateImageDialog(){
         action: 'upload',
         multiple: false,
         params: {},
+        sizeLimit: 0,
         showMessage: function(message){
             //notifyMessage(message);
         },
@@ -798,7 +824,7 @@ function setupCreateImageDialog(){
                 file: fileName
             });
             var pos_top = $(window).height() - 120;
-            var pos_left = 140;
+            var pos_left = 190;
             var pb_dialog = $('<div id="pb_dialog" title="'+
                               tr("Uploading...")+'">'+
                               '<div id="upload-progress"></div>'+
@@ -843,6 +869,13 @@ function setupCreateImageDialog(){
             }
         });
         if (exit) { return false; }
+
+        var ds_id = $('#img_datastore',this).val();
+        if (!ds_id){
+            notifyError(tr("Please select a datastore for this image"));
+            return false;
+        };
+
         var img_json = {};
 
         var name = $('#img_name',this).val();
@@ -869,6 +902,10 @@ function setupCreateImageDialog(){
         var driver = $('#img_driver',this).val();
         if (driver.length)
             img_json["DRIVER"] = driver;
+
+        var target = $('#img_target',this).val();
+        if (target)
+            img_json["TARGET"] = target;
 
         switch ($('#src_path_select input:checked',this).val()){
         case "path":
@@ -897,8 +934,8 @@ function setupCreateImageDialog(){
             img_json[attr_name] = attr_value;
         });
 
-
-        img_obj = { "image" : img_json };
+        img_obj = { "image" : img_json,
+                    "ds_id" : ds_id};
 
         if (upload){
             uploader._onInputChange(file_input);
@@ -912,7 +949,20 @@ function setupCreateImageDialog(){
 
     $('#create_image_form_manual',dialog).submit(function(){
         var template=$('#template',this).val();
-        Sunstone.runAction("Image.create",template);
+        var ds_id = $('#img_datastore_raw',this).val();
+
+        if (!ds_id){
+            notifyError(tr("Please select a datastore for this image"));
+            return false;
+        };
+
+        var img_obj = {
+            "image" : {
+                "image_raw" : template
+            },
+            "ds_id" : ds_id,
+        };
+        Sunstone.runAction("Image.create",img_obj);
         $create_image_dialog.dialog('close');
         return false;
     });
@@ -921,6 +971,9 @@ function setupCreateImageDialog(){
 function popUpCreateImageDialog(){
     $('#file-uploader input',$create_image_dialog).removeAttr("style");
     $('#file-uploader input',$create_image_dialog).attr('style','margin:0;width:256px!important');
+
+    $('#img_datastore',$create_image_dialog).html(datastores_sel());
+    $('#img_datastore_raw',$create_image_dialog).html(datastores_sel());
 
     $create_image_dialog.dialog('open');
 }
@@ -1091,13 +1144,18 @@ $(document).ready(function(){
         "bJQueryUI": true,
         "bSortClasses": false,
         "bAutoWidth":false,
+        "sDom" : '<"H"lfrC>t<"F"ip>',
+        "oColVis": {
+            "aiExclude": [ 0 ]
+        },
         "sPaginationType": "full_numbers",
         "aoColumnDefs": [
             { "bSortable": false, "aTargets": ["check"] },
-            { "sWidth": "60px", "aTargets": [0,2,3,8,9] },
-            { "sWidth": "35px", "aTargets": [1,5,10] },
-            { "sWidth": "100px", "aTargets": [6] },
-            { "sWidth": "150px", "aTargets": [7] }
+            { "sWidth": "60px", "aTargets": [0,2,3,9,10] },
+            { "sWidth": "35px", "aTargets": [1,6,11,12] },
+            { "sWidth": "100px", "aTargets": [5,7] },
+            { "sWidth": "150px", "aTargets": [8] },
+            { "bVisible": false, "aTargets": [6,8,12]}
         ],
         "oLanguage": (datatable_lang != "") ?
             {
@@ -1108,7 +1166,7 @@ $(document).ready(function(){
     dataTable_images.fnClearTable();
     addElement([
         spinner,
-        '','','','','','','','','',''],dataTable_images);
+        '','','','','','','','','','','',''],dataTable_images);
     Sunstone.runAction("Image.list");
 
     setupCreateImageDialog();
@@ -1119,5 +1177,7 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_images);
     tableCheckboxesListener(dataTable_images);
-    imageInfoListener();
+    infoListener(dataTable_images,'Image.showinfo');
+
+    $('div#images_tab div.legend_div').hide();
 });

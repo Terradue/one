@@ -57,6 +57,8 @@ main_env.Append(LIBPATH=[
     cwd+'/src/log',
     cwd+'/src/sql',
     cwd+'/src/host',
+    cwd+'/src/cluster',
+    cwd+'/src/datastore',
     cwd+'/src/group',
     cwd+'/src/mad',
     cwd+'/src/nebula',
@@ -187,6 +189,8 @@ build_scripts=[
     'src/common/SConstruct',
     'src/template/SConstruct',
     'src/host/SConstruct',
+    'src/cluster/SConstruct',
+    'src/datastore/SConstruct',
     'src/group/SConstruct',
     'src/mad/SConstruct',
     'src/mad/utils/SConstruct',
@@ -208,7 +212,9 @@ build_scripts=[
     'src/authm/SConstruct',
     'src/acl/SConstruct',
     'src/xml/SConstruct',
-    'share/man/SConstruct'
+    'share/man/SConstruct',
+    'src/sunstone/locale/languages/SConstruct',
+    'src/cloud/occi/lib/ui/locale/languages/SConstruct'
 ]
 
 # Testing
@@ -236,6 +242,8 @@ if testing=='yes':
         'src/authm/test/SConstruct',
         'src/common/test/SConstruct',
         'src/host/test/SConstruct',
+        'src/cluster/test/SConstruct',
+        'src/datastore/test/SConstruct',
         'src/group/test/SConstruct',
         'src/image/test/SConstruct',
         'src/lcm/test/SConstruct',

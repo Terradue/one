@@ -16,8 +16,9 @@
 
 /*Virtual networks tab plugin*/
 
-var vnets_tab_content =
-'<form id="virtualNetworks_form" action="javascript:alert(\'js error!\');">\
+var vnets_tab_content = '\
+<h2>'+tr("Virtual Networks")+'</h2>\
+<form id="virtualNetworks_form" action="javascript:alert(\'js error!\');">\
   <div class="action_blocks">\
   </div>\
 <table id="datatable_vnetworks" class="display">\
@@ -28,6 +29,7 @@ var vnets_tab_content =
       <th>'+tr("Owner")+'</th>\
       <th>'+tr("Group")+'</th>\
       <th>'+tr("Name")+'</th>\
+      <th>'+tr("Cluster")+'</th>\
       <th>'+tr("Type")+'</th>\
       <th>'+tr("Bridge")+'</th>\
       <th>'+tr("Total Leases")+'</th>\
@@ -36,6 +38,12 @@ var vnets_tab_content =
   <tbody id="tbodyvnetworks">\
   </tbody>\
 </table>\
+<div class="legend_div">\
+  <span>?</span>\
+  <p class="legend_p">\
+'+tr("Tip: edit the leases of a network by clicking on one and going to the lease management tab.")+'\
+  </p>\
+</div>\
 </form>';
 
 var create_vn_tmpl =
@@ -49,13 +57,14 @@ var create_vn_tmpl =
               <fieldset>\
                  <label for="name">'+tr("Name")+':</label>\
                  <input type="text" name="name" id="name" /><br />\
+                 <br />\
               </fieldset>\
               <fieldset>\
                  <label for="network_mode">'+tr("Network mode")+':</label>\
                  <select name="network_mode" id="network_mode">\
                     <option value="default">'+tr("Default")+'</option>\
                     <option value="802.1Q">'+tr("802.1Q")+'</option>\
-                    <option value="etables">'+tr("Etables")+'</option>\
+                    <option value="ebtables">'+tr("ebtables")+'</option>\
                     <option value="openvswitch">'+tr("Open vSwitch")+'</option>\
                     <option value="vmware">'+tr("VMware")+'</option>\
                  </select><br />\
@@ -281,7 +290,7 @@ var vnet_actions = {
 
     "Network.delete" : {
         type: "multiple",
-        call: OpenNebula.Network.delete,
+        call: OpenNebula.Network.del,
         callback: deleteVNetworkElement,
         elements: vnElements,
         error: onError,
@@ -380,6 +389,26 @@ var vnet_actions = {
         error: onError
     },
 
+    "Network.addtocluster" : {
+        type: "multiple",
+        call: function(params){
+            var cluster = params.data.extra_param;
+            var vnet = params.data.id;
+            Sunstone.runAction("Cluster.addvnet",cluster,vnet);
+        },
+        callback: null,
+        elements: vnElements,
+        notify:true,
+    },
+
+    "Network.help" : {
+        type: "custom",
+        call: function() {
+            hideDialog();
+            $('div#vnets_tab div.legend_div').slideToggle();
+        }
+    },
+
 };
 
 
@@ -400,7 +429,13 @@ var vnet_buttons = {
         text: tr("Update properties"),
         alwaysActive: true
     },
-
+    "Network.addtocluster" : {
+        type: "confirm_with_select",
+        text: tr("Select cluster"),
+        select: clusters_sel,
+        tip: tr("Select the destination cluster:"),
+        condition: mustBeAdmin,
+    },
     "Network.chown" : {
         type: "confirm_with_select",
         text: tr("Change owner"),
@@ -420,6 +455,12 @@ var vnet_buttons = {
     "Network.delete" : {
         type: "confirm",
         text: tr("Delete")
+    },
+
+    "Network.help" : {
+        type: "action",
+        text: '?',
+        alwaysActive: true
     }
 }
 
@@ -437,7 +478,10 @@ var vnet_info_panel = {
 var vnets_tab = {
     title: tr("Virtual Networks"),
     content: vnets_tab_content,
-    buttons: vnet_buttons
+    buttons: vnet_buttons,
+    tabClass: "subTab",
+    parentTab: "infra_tab",
+    showOnTopMenu: false,
 }
 
 Sunstone.addActions(vnet_actions);
@@ -450,7 +494,7 @@ function vnElements(){
 }
 
 function vnShow(req){
-    Sunstone.runAction("Network.show",req.request.data[0]);
+    Sunstone.runAction("Network.show",req.request.data[0][0]);
 }
 
 //returns an array with the VNET information fetched from the JSON object
@@ -463,26 +507,10 @@ function vNetworkElementArray(vn_json){
         network.UNAME,
         network.GNAME,
         network.NAME,
+        network.CLUSTER.length ? network.CLUSTER : "-",
         parseInt(network.TYPE) ? "FIXED" : "RANGED",
         network.BRIDGE,
         network.TOTAL_LEASES ];
-}
-
-
-//Adds a listener to show the extended info when clicking on a row
-function vNetworkInfoListener(){
-
-    $('#tbodyvnetworks tr',dataTable_vNetworks).live("click", function(e){
-        if ($(e.target).is('input')) {return true;}
-
-        var aData = dataTable_vNetworks.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Network.showinfo",id);
-        return false;
-    });
 }
 
 //Callback to update a vnet element after an action on it
@@ -491,7 +519,7 @@ function updateVNetworkElement(request, vn_json){
     element = vNetworkElementArray(vn_json);
     updateSingleElement(element,dataTable_vNetworks,'#vnetwork_'+id);
 
-    //we update this too, even if it's not shown.
+    //we update this too, even if it is not shown.
     $('#leases_form').replaceWith(printLeases(vn_json.VNET));
 }
 
@@ -504,7 +532,7 @@ function deleteVNetworkElement(req){
 function addVNetworkElement(request,vn_json){
     var element = vNetworkElementArray(vn_json);
     addElement(element,dataTable_vNetworks);
-    //we update this too, even if it's not shown.
+    //we update this too, even if it is not shown.
     $('#leases_form').replaceWith(printLeases(vn_json.VNET));
 }
 
@@ -519,6 +547,7 @@ function updateVNetworksView(request, network_list){
     updateView(network_list_array,dataTable_vNetworks);
     //dependency with dashboard
     updateDashboard("vnets",network_list);
+    updateInfraDashboard("vnets",network_list);
 
 }
 
@@ -538,6 +567,10 @@ function updateVNetworkInfo(request,vn){
             <tr>\
               <td class="key_td">'+tr("Name")+'</td>\
               <td class="value_td">'+vn_info.NAME+'</td>\
+            </tr>\
+            <tr>\
+              <td class="key_td">'+tr("Cluster")+'</td>\
+              <td class="value_td">'+(vn_info.CLUSTER.length ? vn_info.CLUSTER : "-")+'</td>\
             </tr>\
             <tr>\
               <td class="key_td">'+tr("Owner")+'</td>\
@@ -563,7 +596,7 @@ function updateVNetworkInfo(request,vn){
               <td class="key_td">'+tr("VLAN ID")+'</td>\
               <td class="value_td">'+ (typeof(vn_info.VLAN_ID) == "object" ? "--": vn_info.VLAN_ID) +'</td>\
             </tr>\
-            <tr><td class="key_td">Permissions</td><td></td></tr>\
+            <tr><td class="key_td">'+tr("Permissions")+'</td><td></td></tr>\
             <tr>\
               <td class="key_td">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'+tr("Owner")+'</td>\
               <td class="value_td" style="font-family:monospace;">'+ownerPermStr(vn_info)+'</td>\
@@ -744,7 +777,7 @@ function setupCreateVNetDialog() {
             $('select#vlan,label[for="vlan"]',$create_vn_dialog).show();
             $('input#vlan_id,label[for="vlan_id"]',$create_vn_dialog).show();
             break;
-        case "etables":
+        case "ebtables":
             $('input#bridge,label[for="bridge"]',$create_vn_dialog).show();
             break;
         case "openvswitch":
@@ -770,7 +803,7 @@ function setupCreateVNetDialog() {
         var lease_ip = $('#leaseip',create_form).val();
         var lease_mac = $('#leasemac',create_form).val();
 
-        //We don't add anything to the list if there is nothing to add
+        //We do not add anything to the list if there is nothing to add
         if (lease_ip == null) {
             notifyError(tr("Please provide a lease IP"));
             return false;
@@ -849,6 +882,7 @@ function setupCreateVNetDialog() {
         var phydev = $('#phydev',this).val();
         var vlan = $('#vlan',this).val();
         var vlan_id = $('#vlan_id',this).val();
+
         switch (network_mode) {
         case "default":
             if (!bridge && !phydev){
@@ -870,7 +904,7 @@ function setupCreateVNetDialog() {
                 network_json['vlan_id']=vlan_id;
             };
             break;
-        case "etables":
+        case "ebtables":
             if (!bridge){
                 notifyError("Bridge must be specified");
                 return false;
@@ -948,7 +982,9 @@ function setupCreateVNetDialog() {
 
         //Create the VNetwork.
 
-        network_json = {"vnet" : network_json};
+        network_json = {
+            "vnet" : network_json,
+        };
 
         Sunstone.runAction("Network.create",network_json);
         $create_vn_dialog.dialog('close');
@@ -1142,12 +1178,17 @@ $(document).ready(function(){
         "bJQueryUI": true,
         "bSortClasses": false,
         "bAutoWidth":false,
+        "sDom" : '<"H"lfrC>t<"F"ip>',
+        "oColVis": {
+            "aiExclude": [ 0 ]
+        },
         "sPaginationType": "full_numbers",
         "aoColumnDefs": [
             { "bSortable": false, "aTargets": ["check"] },
-            { "sWidth": "60px", "aTargets": [0,5,6,7] },
+            { "sWidth": "60px", "aTargets": [0,6,7,8] },
             { "sWidth": "35px", "aTargets": [1] },
-            { "sWidth": "100px", "aTargets": [2,3] }
+            { "sWidth": "100px", "aTargets": [2,3,5] },
+            { "bVisible": false, "aTargets": [7]}
         ],
         "oLanguage": (datatable_lang != "") ?
             {
@@ -1158,7 +1199,7 @@ $(document).ready(function(){
     dataTable_vNetworks.fnClearTable();
     addElement([
         spinner,
-        '','','','','','',''],dataTable_vNetworks);
+        '','','','','','','',''],dataTable_vNetworks);
     Sunstone.runAction("Network.list");
 
     setupCreateVNetDialog();
@@ -1168,5 +1209,11 @@ $(document).ready(function(){
 
     initCheckAllBoxes(dataTable_vNetworks);
     tableCheckboxesListener(dataTable_vNetworks);
-    vNetworkInfoListener();
+    infoListener(dataTable_vNetworks,'Network.showinfo');
+
+    $('div#menu li#li_vnets_tab').live('click',function(){
+        dataTable_vNetworks.fnFilter('',5);
+    });
+
+    $('div#vnets_tab div.legend_div').hide();
 });

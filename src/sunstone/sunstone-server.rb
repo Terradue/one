@@ -107,7 +107,6 @@ helpers do
 
     def build_session
         begin
-            settings.cloud_auth.update_userpool_cache
             result = settings.cloud_auth.auth(request.env, params)
         rescue Exception => e
             error 500, ""
@@ -172,6 +171,7 @@ helpers do
 end
 
 before do
+    cache_control :private, :must_revalidate
     unless request.path=='/login' || request.path=='/'
         halt 401 unless authorized?
 
@@ -289,23 +289,17 @@ end
 ##############################################################################
 
 get '/:resource/monitor' do
-    @SunstoneServer.get_monitoring(
-        nil,
+    @SunstoneServer.get_pool_monitoring(
         params[:resource],
-        params[:monitor_resources],
-        :uid => session[:user_id],
-        :gid => session[:user_gid])
+        params[:monitor_resources])
 end
 
 get '/:resource/:id/monitor' do
-    @SunstoneServer.get_monitoring(
+    @SunstoneServer.get_resource_monitoring(
         params[:id],
         params[:resource],
-        params[:monitor_resources],
-        :uid => session[:user_id],
-        :gid => session[:user_gid])
+        params[:monitor_resources])
 end
-
 
 ##############################################################################
 # GET Pool information

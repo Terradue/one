@@ -21,18 +21,16 @@
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool RequestManagerVirtualMachine::vm_authorization(int oid,
-                                                    ImageTemplate *    tmpl,
-                                                    RequestAttributes& att,
-                                                    PoolObjectAuth *   host_perm)
+bool RequestManagerVirtualMachine::vm_authorization(
+        int                    oid,
+        ImageTemplate *        tmpl,
+        RequestAttributes&     att,
+        PoolObjectAuth *       host_perm,
+        PoolObjectAuth *       ds_perm,
+        AuthRequest::Operation op)
 {
     PoolObjectSQL * object;
     PoolObjectAuth vm_perms;
-
-    if ( att.uid == 0 )
-    {
-        return true;
-    }
 
     object = pool->get(oid,true);
 
@@ -45,23 +43,35 @@ bool RequestManagerVirtualMachine::vm_authorization(int oid,
         return false;
     }
 
+    if ( att.uid == 0 )
+    {
+        object->unlock();
+        return true;
+    }
+
     object->get_permissions(vm_perms);
 
     object->unlock();
 
     AuthRequest ar(att.uid, att.gid);
 
-    ar.add_auth(auth_op, vm_perms);
+    ar.add_auth(op, vm_perms);
 
     if (host_perm != 0)
     {
         ar.add_auth(AuthRequest::MANAGE, *host_perm);
     }
-    else if (tmpl != 0)
+
+    if (tmpl != 0)
     {
         string t_xml;
 
         ar.add_create_auth(PoolObjectSQL::IMAGE, tmpl->to_xml(t_xml));
+    }
+
+    if ( ds_perm != 0 )
+    {
+        ar.add_auth(AuthRequest::USE, *ds_perm); 
     }
 
     if (UserPool::authorize(ar) == -1)
@@ -83,7 +93,6 @@ int RequestManagerVirtualMachine::get_host_information(int hid,
                                                 string& name, 
                                                 string& vmm,
                                                 string& vnm,
-                                                string& tm,
                                                 RequestAttributes& att,
                                                 PoolObjectAuth&    host_perms)
 {
@@ -106,7 +115,6 @@ int RequestManagerVirtualMachine::get_host_information(int hid,
     name = host->get_name();
     vmm  = host->get_vmm_mad();
     vnm  = host->get_vnm_mad();
-    tm   = host->get_tm_mad();
 
     host->get_permissions(host_perms);
 
@@ -133,6 +141,7 @@ VirtualMachine * RequestManagerVirtualMachine::get_vm(int id,
 
     return vm;
 }
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
@@ -141,26 +150,21 @@ int RequestManagerVirtualMachine::add_history(VirtualMachine * vm,
                                        const string&    hostname,
                                        const string&    vmm_mad,
                                        const string&    vnm_mad,
-                                       const string&    tm_mad,
                                        RequestAttributes& att)
 {
-    Nebula& nd = Nebula::instance();
     string  vmdir;
-
     int     rc;
 
     VirtualMachinePool * vmpool = static_cast<VirtualMachinePool *>(pool);
 
-    nd.get_configuration_attribute("VM_DIR",vmdir);
-
-    vm->add_history(hid,hostname,vmdir,vmm_mad,vnm_mad,tm_mad);
+    vm->add_history(hid,hostname,vmm_mad,vnm_mad);
 
     rc = vmpool->update_history(vm);
 
     if ( rc != 0 )
     {
         failure_response(INTERNAL,
-                request_error("Can not update virtual machine history",""),
+                request_error("Cannot update virtual machine history",""),
                 att);
 
         return -1;
@@ -173,18 +177,26 @@ int RequestManagerVirtualMachine::add_history(VirtualMachine * vm,
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
+
 void VirtualMachineAction::request_execute(xmlrpc_c::paramList const& paramList,
                                            RequestAttributes& att)
 {
     string action = xmlrpc_c::value_string(paramList.getString(1));
     int    id     = xmlrpc_c::value_int(paramList.getInt(2));
 
-    int    rc;
+    int    rc = -4;
 
     Nebula& nd = Nebula::instance();
     DispatchManager * dm = nd.get_dm();
 
-    if ( vm_authorization(id,0,att,0) == false )
+    AuthRequest::Operation op = auth_op;
+
+    if (action == "resched" || action == "unresched")
+    {
+        op = AuthRequest::ADMIN;
+    }
+
+    if ( vm_authorization(id, 0, att, 0, 0, op) == false )
     {
         return;
     }
@@ -233,6 +245,18 @@ void VirtualMachineAction::request_execute(xmlrpc_c::paramList const& paramList,
     {
         rc = dm->reboot(id);
     }
+    else if (action == "resched")
+    {
+        rc = dm->resched(id, true);
+    }
+    else if (action == "unresched")
+    {
+        rc = dm->resched(id, false);
+    }
+    else if (action == "reset")
+    {
+        rc = dm->reset(id);
+    }
 
     switch (rc)
     {
@@ -278,19 +302,18 @@ void VirtualMachineDeploy::request_execute(xmlrpc_c::paramList const& paramList,
     string hostname;
     string vmm_mad;
     string vnm_mad;
-    string tm_mad;
 
     int id  = xmlrpc_c::value_int(paramList.getInt(1));
     int hid = xmlrpc_c::value_int(paramList.getInt(2));
 
     bool auth = false;
 
-    if (get_host_information(hid,hostname,vmm_mad,vnm_mad,tm_mad, att, host_perms) != 0)
+    if (get_host_information(hid,hostname,vmm_mad,vnm_mad,att, host_perms) != 0)
     {
         return;
     }
 
-    auth = vm_authorization(id,0,att,&host_perms);
+    auth = vm_authorization(id, 0, att, &host_perms, 0, auth_op);
 
     if ( auth == false )
     {
@@ -312,7 +335,7 @@ void VirtualMachineDeploy::request_execute(xmlrpc_c::paramList const& paramList,
         return;
     }
 
-    if ( add_history(vm,hid,hostname,vmm_mad,vnm_mad,tm_mad,att) != 0)
+    if ( add_history(vm,hid,hostname,vmm_mad,vnm_mad,att) != 0)
     {
         vm->unlock();
         return;
@@ -340,7 +363,6 @@ void VirtualMachineMigrate::request_execute(xmlrpc_c::paramList const& paramList
     string hostname;
     string vmm_mad;
     string vnm_mad;
-    string tm_mad;
 
     int  id   = xmlrpc_c::value_int(paramList.getInt(1));
     int  hid  = xmlrpc_c::value_int(paramList.getInt(2));
@@ -348,12 +370,12 @@ void VirtualMachineMigrate::request_execute(xmlrpc_c::paramList const& paramList
 
     bool auth = false;
 
-    if (get_host_information(hid,hostname,vmm_mad,vnm_mad,tm_mad, att, host_perms) != 0)
+    if (get_host_information(hid,hostname,vmm_mad,vnm_mad,att, host_perms) != 0)
     {
         return;
     }
 
-    auth = vm_authorization(id,0,att,&host_perms);
+    auth = vm_authorization(id, 0, att, &host_perms, 0, auth_op);
 
     if ( auth == false )
     {
@@ -377,7 +399,7 @@ void VirtualMachineMigrate::request_execute(xmlrpc_c::paramList const& paramList
         return;
     }
 
-    if ( add_history(vm,hid,hostname,vmm_mad,vnm_mad,tm_mad,att) != 0)
+    if ( add_history(vm,hid,hostname,vmm_mad,vnm_mad,att) != 0)
     {
         vm->unlock();
         return;
@@ -403,8 +425,10 @@ void VirtualMachineMigrate::request_execute(xmlrpc_c::paramList const& paramList
 void VirtualMachineSaveDisk::request_execute(xmlrpc_c::paramList const& paramList,
                                              RequestAttributes& att)
 {
-    Nebula&     nd    = Nebula::instance();
-    ImagePool * ipool = nd.get_ipool();
+    Nebula& nd  = Nebula::instance();
+
+    ImagePool *      ipool = nd.get_ipool();
+    DatastorePool * dspool = nd.get_dspool();
 
     int    id       = xmlrpc_c::value_int(paramList.getInt(1));
     int    disk_id  = xmlrpc_c::value_int(paramList.getInt(2));
@@ -412,24 +436,103 @@ void VirtualMachineSaveDisk::request_execute(xmlrpc_c::paramList const& paramLis
     string img_type = xmlrpc_c::value_string(paramList.getString(4));
 
     VirtualMachine * vm;
-    string           vm_owner;
-
     int              iid;
-    ImageTemplate *  itemplate;
+    int              iid_orig;
+
+    Image         *  img;
+    Datastore     *  ds;
+    Image::DiskType  ds_disk_type;
 
     int           rc;
-    ostringstream oss;
     string        error_str;
 
-    // ------------------ Template for the new image ------------------
+    // -------------------------------------------------------------------------
+    // Prepare and check the VM/DISK to be saved_as
+    // -------------------------------------------------------------------------
+    
+    if ( (vm = get_vm(id, att)) == 0 )
+    {   
+        failure_response(NO_EXISTS,
+                         get_error(object_name(PoolObjectSQL::VM), id), 
+                         att);
+        return;
+    }
 
-    oss << "NAME= \"" << img_name << "\"" << endl;
-    oss << "PUBLIC = NO " << endl;
-    oss << "SOURCE = - " << endl;
-    oss << "SAVED_DISK_ID = " << disk_id << endl;
-    oss << "SAVED_VM_ID = " <<  id << endl;
+    iid_orig = vm->get_image_from_disk(disk_id, error_str);
 
-    if ( img_type != "" )
+    pool->update(vm);
+
+    vm->unlock();
+
+    if ( iid_orig == -1 )
+    {
+        failure_response(INTERNAL, 
+                         request_error("Cannot use selected DISK", error_str),
+                         att);
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Get the data of the Image to be saved
+    // -------------------------------------------------------------------------
+
+    img = ipool->get(iid_orig, true);
+
+    if ( img == 0 )
+    {
+        failure_response(NO_EXISTS,
+                         get_error(object_name(PoolObjectSQL::IMAGE), iid_orig), 
+                         att);
+        return;
+    }
+
+    int    ds_id   = img->get_ds_id();
+    string ds_name = img->get_ds_name();
+    int    size    = img->get_size();
+
+    Image::ImageType type = img->get_type();
+
+    img->unlock();
+
+    if ((ds = dspool->get(ds_id, true)) == 0 )
+    {
+        failure_response(NO_EXISTS,
+                get_error(object_name(PoolObjectSQL::DATASTORE), ds_id),
+                att);
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Get the data of the DataStore for the new image
+    // -------------------------------------------------------------------------
+    string         ds_data;
+    PoolObjectAuth ds_perms;
+
+    ds->get_permissions(ds_perms);
+    ds->to_xml(ds_data);
+    
+    ds_disk_type = ds->get_disk_type();
+
+    ds->unlock();
+
+    // -------------------------------------------------------------------------
+    // Create a template for the new Image
+    // -------------------------------------------------------------------------
+    ImageTemplate *  itemplate;
+    ostringstream    oss;
+
+    oss << "NAME    = \"" << img_name << "\"" << endl;
+    oss << "SIZE    = "   << size << endl;
+
+    oss << "SAVED_IMAGE_ID = " << iid_orig << endl;
+    oss << "SAVED_DISK_ID  = " << disk_id << endl;
+    oss << "SAVED_VM_ID    = " <<  id << endl;
+
+    if ( img_type.empty() )
+    {
+        oss << "TYPE = " << Image::type_to_str(type) << endl;
+    }
+    else
     {
         oss << "TYPE = " << img_type << endl;
     }
@@ -438,18 +541,33 @@ void VirtualMachineSaveDisk::request_execute(xmlrpc_c::paramList const& paramLis
 
     itemplate->parse_str_or_xml(oss.str(), error_str);
 
-    // ------------------ Authorize the operation ------------------
+    itemplate->set_saving();
 
-    if ( vm_authorization(id,itemplate,att,0) == false )
+    // -------------------------------------------------------------------------
+    // Authorize the operation
+    // -------------------------------------------------------------------------
+
+    if ( vm_authorization(id, itemplate, att, 0, &ds_perms, auth_op) == false )
     {
+        delete itemplate;
         return;
     }
 
-    // ------------------ Create the image ------------------
+    // -------------------------------------------------------------------------
+    // Create the image
+    // -------------------------------------------------------------------------
 
-    rc = ipool->allocate(att.uid, att.gid, att.uname, att.gname, itemplate,
-            &iid, error_str);
-
+    rc = ipool->allocate(att.uid, 
+                         att.gid, 
+                         att.uname, 
+                         att.gname, 
+                         itemplate,
+                         ds_id,
+                         ds_name,
+                         ds_disk_type,
+                         ds_data,
+                         &iid,
+                         error_str);
     if (rc < 0)
     {
         failure_response(INTERNAL,
@@ -457,52 +575,40 @@ void VirtualMachineSaveDisk::request_execute(xmlrpc_c::paramList const& paramLis
         return;
     }
 
-    // ------------------ Store image id to save the disk ------------------
-
-    if ( (vm = get_vm(id, att)) == 0 )
-    {
-        Image * img;
-
-        if ( (img = ipool->get(iid,true)) != 0 )
-        {
-            string tmp_error;
-
-            ipool->drop(img, tmp_error);
-            img->unlock();
-        }
-
-        return;
-    }
-
-    rc = vm->save_disk(disk_id, iid, error_str);
-
-    if ( rc == 0 )
-    {
-        pool->update(vm);
-    }
-
-    vm->unlock();
-
-    if ( rc == -1 )
-    {
-        Image * img;
-
-        if ( (img = ipool->get(iid,true)) != 0 )
-        {
-            string tmp_error;
-
-            ipool->drop(img, tmp_error);
-            img->unlock();
-        }
-
-        failure_response(INTERNAL,
-                request_error("Can not save_as disk",error_str),
-                att);
-        return;
-    }
-
     // Return the new allocated Image ID
     success_response(iid, att);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void VirtualMachineMonitoring::request_execute(
+        xmlrpc_c::paramList const&  paramList,
+        RequestAttributes&          att)
+{
+    int  id = xmlrpc_c::value_int(paramList.getInt(1));
+    int  rc;
+
+    ostringstream oss;
+
+    bool auth = vm_authorization(id, 0, att, 0, 0, auth_op);
+
+    if ( auth == false )
+    {
+        return;
+    }
+
+    rc = (static_cast<VirtualMachinePool *>(pool))->dump_monitoring(oss, id);
+
+    if ( rc != 0 )
+    {
+        failure_response(INTERNAL,request_error("Internal Error",""), att);
+        return;
+    }
+
+    success_response(oss.str(), att);
+
+    return;
 }
 
 /* -------------------------------------------------------------------------- */

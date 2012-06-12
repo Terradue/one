@@ -25,10 +25,11 @@
 
 const char * History::table = "history";
 
-const char * History::db_names = "vid, seq, body";
+const char * History::db_names = "vid, seq, body, stime, etime";
 
 const char * History::db_bootstrap = "CREATE TABLE IF NOT EXISTS "
-    "history (vid INTEGER, seq INTEGER, body TEXT, PRIMARY KEY(vid,seq))";
+    "history (vid INTEGER, seq INTEGER, body TEXT, "
+    "stime INTEGER, etime INTEGER,PRIMARY KEY(vid,seq))";
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -40,11 +41,9 @@ History::History(
         oid(_oid),
         seq(_seq),
         hostname(""),
-        vm_dir(""),
         hid(-1),
         vmm_mad_name(""),
         vnm_mad_name(""),
-        tm_mad_name(""),
         stime(0),
         etime(0),
         prolog_stime(0),
@@ -53,7 +52,8 @@ History::History(
         running_etime(0),
         epilog_stime(0),
         epilog_etime(0),
-        reason(NONE){};
+        reason(NONE),
+        vm_info("<VM/>"){};
 
 /* -------------------------------------------------------------------------- */
 
@@ -62,18 +62,15 @@ History::History(
     int	_seq,
     int	_hid,
     const string& _hostname,
-    const string& _vm_dir,
     const string& _vmm,
     const string& _vnm,
-    const string& _tm):
+    const string& _vm_info):
         oid(_oid),
         seq(_seq),
         hostname(_hostname),
-        vm_dir(_vm_dir),
         hid(_hid),
         vmm_mad_name(_vmm),
         vnm_mad_name(_vnm),
-        tm_mad_name(_tm),
         stime(0),
         etime(0),
         prolog_stime(0),
@@ -82,7 +79,8 @@ History::History(
         running_etime(0),
         epilog_stime(0),
         epilog_etime(0),
-        reason(NONE)
+        reason(NONE),
+        vm_info(_vm_info)
 {
     non_persistent_data();
 };
@@ -92,8 +90,13 @@ History::History(
 
 void History::non_persistent_data()
 {
-    ostringstream   os;
-    Nebula& 		nd = Nebula::instance();
+    ostringstream os;
+
+    string vm_lhome;
+    string vm_rhome;
+    string ds_location;
+    
+    Nebula& nd = Nebula::instance();
 
     // ----------- Local Locations ------------
     os.str("");
@@ -116,13 +119,15 @@ void History::non_persistent_data()
     context_file = os.str();
 
     // ----------- Remote Locations ------------
+
     os.str("");
-    os << vm_dir << "/" << oid << "/images";
+
+    nd.get_configuration_attribute("DATASTORE_LOCATION", ds_location);
+    os << ds_location << "/" << DatastorePool::SYSTEM_DS_ID << "/" << oid;
 
     vm_rhome = os.str();
 
     os << "/checkpoint";
-
     checkpoint_file = os.str();
 
     os.str("");
@@ -148,7 +153,7 @@ int History::insert_replace(SqlDB *db, bool replace)
         return 0;
     }
 
-    sql_xml = db->escape_str(to_xml(xml_body).c_str());
+    sql_xml = db->escape_str(to_db_xml(xml_body).c_str());
 
     if ( sql_xml == 0 )
     {
@@ -167,7 +172,9 @@ int History::insert_replace(SqlDB *db, bool replace)
     oss << " INTO " << table << " ("<< db_names <<") VALUES ("
         <<          oid             << ","
         <<          seq             << ","
-        << "'" <<   sql_xml         << "')";
+        << "'" <<   sql_xml         << "',"
+        <<          stime           << ","
+        <<          etime           << ")";
 
     rc = db->exec(oss);
 
@@ -259,26 +266,46 @@ ostream& operator<<(ostream& os, const History& history)
 
 string& History::to_xml(string& xml) const
 {
+    return to_xml(xml, false);
+}
+
+/* -------------------------------------------------------------------------- */
+
+string& History::to_db_xml(string& xml) const
+{
+    return to_xml(xml, true);
+}
+
+/* -------------------------------------------------------------------------- */
+
+string& History::to_xml(string& xml, bool database) const
+{
     ostringstream oss;
 
     oss <<
         "<HISTORY>" <<
-          "<SEQ>"     << seq           << "</SEQ>"   <<
-          "<HOSTNAME>"<< hostname      << "</HOSTNAME>"<<
-          "<VM_DIR>"  << vm_dir        << "</VM_DIR>"<<
-          "<HID>"     << hid           << "</HID>"   <<
-          "<STIME>"   << stime         << "</STIME>" <<
-          "<ETIME>"   << etime         << "</ETIME>" <<
-          "<VMMMAD>"  << vmm_mad_name  << "</VMMMAD>"<<
-          "<VNMMAD>"  << vnm_mad_name  << "</VNMMAD>"<<
-          "<TMMAD>"   << tm_mad_name   << "</TMMAD>" <<
-          "<PSTIME>"  << prolog_stime  << "</PSTIME>"<<
-          "<PETIME>"  << prolog_etime  << "</PETIME>"<<
-          "<RSTIME>"  << running_stime << "</RSTIME>"<<
-          "<RETIME>"  << running_etime << "</RETIME>"<<
-          "<ESTIME>"  << epilog_stime  << "</ESTIME>"<<
-          "<EETIME>"  << epilog_etime  << "</EETIME>"<<
-          "<REASON>"  << reason        << "</REASON>"<<
+          "<OID>"               << oid               << "</OID>"   <<
+          "<SEQ>"               << seq               << "</SEQ>"   <<
+          "<HOSTNAME>"          << hostname          << "</HOSTNAME>"<<
+          "<HID>"               << hid               << "</HID>"   <<
+          "<STIME>"             << stime             << "</STIME>" <<
+          "<ETIME>"             << etime             << "</ETIME>" <<
+          "<VMMMAD>"            << vmm_mad_name      << "</VMMMAD>"<<
+          "<VNMMAD>"            << vnm_mad_name      << "</VNMMAD>"<<
+          "<PSTIME>"            << prolog_stime      << "</PSTIME>"<<
+          "<PETIME>"            << prolog_etime      << "</PETIME>"<<
+          "<RSTIME>"            << running_stime     << "</RSTIME>"<<
+          "<RETIME>"            << running_etime     << "</RETIME>"<<
+          "<ESTIME>"            << epilog_stime      << "</ESTIME>"<<
+          "<EETIME>"            << epilog_etime      << "</EETIME>"<<
+          "<REASON>"            << reason            << "</REASON>";
+
+    if ( database )
+    {
+        oss << vm_info;
+    }
+
+    oss <<
         "</HISTORY>";
 
    xml = oss.str();
@@ -294,22 +321,20 @@ int History::rebuild_attributes()
     int int_reason;
     int rc = 0;
 
-    rc += xpath(seq          , "/HISTORY/SEQ",      -1);
-    rc += xpath(hostname     , "/HISTORY/HOSTNAME", "not_found");
-    rc += xpath(vm_dir       , "/HISTORY/VM_DIR",   "not_found");
-    rc += xpath(hid          , "/HISTORY/HID",      -1);
-    rc += xpath(stime        , "/HISTORY/STIME",    0);
-    rc += xpath(etime        , "/HISTORY/ETIME",    0);
-    rc += xpath(vmm_mad_name , "/HISTORY/VMMMAD",   "not_found");
-          xpath(vnm_mad_name , "/HISTORY/VNMMAD",   "dummy");
-    rc += xpath(tm_mad_name  , "/HISTORY/TMMAD",    "not_found");
-    rc += xpath(prolog_stime , "/HISTORY/PSTIME",   0);
-    rc += xpath(prolog_etime , "/HISTORY/PETIME",   0);
-    rc += xpath(running_stime, "/HISTORY/RSTIME",   0);
-    rc += xpath(running_etime, "/HISTORY/RETIME",   0);
-    rc += xpath(epilog_stime , "/HISTORY/ESTIME",   0);
-    rc += xpath(epilog_etime , "/HISTORY/EETIME",   0);
-    rc += xpath(int_reason   , "/HISTORY/REASON",   0);
+    rc += xpath(seq              , "/HISTORY/SEQ",      -1);
+    rc += xpath(hostname         , "/HISTORY/HOSTNAME", "not_found");
+    rc += xpath(hid              , "/HISTORY/HID",      -1);
+    rc += xpath(stime            , "/HISTORY/STIME",    0);
+    rc += xpath(etime            , "/HISTORY/ETIME",    0);
+    rc += xpath(vmm_mad_name     , "/HISTORY/VMMMAD",   "not_found");
+          xpath(vnm_mad_name     , "/HISTORY/VNMMAD",   "dummy");
+    rc += xpath(prolog_stime     , "/HISTORY/PSTIME",   0);
+    rc += xpath(prolog_etime     , "/HISTORY/PETIME",   0);
+    rc += xpath(running_stime    , "/HISTORY/RSTIME",   0);
+    rc += xpath(running_etime    , "/HISTORY/RETIME",   0);
+    rc += xpath(epilog_stime     , "/HISTORY/ESTIME",   0);
+    rc += xpath(epilog_etime     , "/HISTORY/EETIME",   0);
+    rc += xpath(int_reason       , "/HISTORY/REASON",   0);
 
     reason = static_cast<MigrationReason>(int_reason);
 

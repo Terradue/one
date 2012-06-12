@@ -48,17 +48,19 @@ var oZones = {
             {
                 case "HOST","host":
                     return ["INIT",
-                            "MONITORING",
+                            "MONITORING_MONITORED",
                             "MONITORED",
                             "ERROR",
-                            "DISABLED"][value];
+                            "DISABLED",
+                            "MONITORING_ERROR"][value];
                     break;
                 case "HOST_SIMPLE","host_simple":
-                    return ["ON",
-                            "ON",
+                    return ["INIT",
+                            "UPDATE",
                             "ON",
                             "ERROR",
-                            "OFF"][value];
+                            "OFF",
+                            "RETRY"][value];
                     break;
                 case "VM","vm":
                     return ["INIT",
@@ -223,7 +225,7 @@ var oZones = {
             });
         },
 
-        "delete": function(params,resource){
+        "del": function(params,resource){
             var callback = params.success;
             var callback_error = params.error;
             var id = params.data.id;
@@ -381,8 +383,8 @@ var oZones = {
         "create": function(params){
             oZones.Action.create(params,oZones.Zone.resource);
         },
-        "delete" : function(params){
-            oZones.Action.delete(params,oZones.Zone.resource);
+        "del" : function(params){
+            oZones.Action.del(params,oZones.Zone.resource);
         },
         "list": function(params){
             oZones.Action.list(params,oZones.Zone.resource);
@@ -431,10 +433,15 @@ var oZones = {
         "vnet": function(params){
             oZones.Zone.subresource(params,"vnet");
         },
-
         "group": function(params){
             oZones.Zone.subresource(params,"group");
-        }
+        },
+        "cluster": function(params){
+            oZones.Zone.subresource(params,"cluster");
+        },
+        "datastore": function(params){
+            oZones.Zone.subresource(params,"datastore");
+        },
     },
 
     "VDC": {
@@ -446,8 +453,8 @@ var oZones = {
         "update": function(params){
             oZones.Action.update(params,oZones.VDC.resource);
         },
-        "delete": function(params){
-            oZones.Action.delete(params,oZones.VDC.resource);
+        "del": function(params){
+            oZones.Action.del(params,oZones.VDC.resource);
         },
         "list": function(params){
             oZones.Action.list(params,oZones.VDC.resource);
@@ -497,5 +504,19 @@ var oZones = {
         "list": function(params){
             oZones.Action.list(params,oZones.ZoneImages.resource,"vmtemplate");
         }
-    }
-}
+    },
+
+    "ZoneClusters": {
+        "resource": "ZONE",
+        "list": function(params){
+            oZones.Action.list(params,oZones.ZoneClusters.resource,"cluster");
+        }
+    },
+
+    "ZoneDatastores": {
+        "resource": "ZONE",
+        "list": function(params){
+            oZones.Action.list(params,oZones.ZoneDatastores.resource,"datastore");
+        }
+    },
+};

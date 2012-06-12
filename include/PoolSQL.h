@@ -37,17 +37,16 @@ using namespace std;
 class PoolSQL: public Callbackable, public Hookable
 {
 public:
-
     /**
      * Initializes the oid counter. This function sets lastOID to
      * the last used Object identifier by querying the corresponding database
      * table. This function SHOULD be called before any pool related function.
      *   @param _db a pointer to the database
-     *   @param table the name of the table supporting the pool (to set the oid
+     *   @param _table the name of the table supporting the pool (to set the oid
      *   counter). If null the OID counter is not updated.
-     *   @param with_uid the Pool objects have an owner id (uid)
+     *   @param cache_by_name True if the objects can be retrieved by name
      */
-    PoolSQL(SqlDB * _db, const char * _table);
+    PoolSQL(SqlDB * _db, const char * _table, bool cache_by_name);
 
     virtual ~PoolSQL();
 
@@ -70,17 +69,6 @@ public:
      *   @return a pointer to the object, 0 in case of failure
      */
     PoolObjectSQL * get(int oid, bool lock);
-
-    /**
-     *  Gets an object from the pool (if needed the object is loaded from the
-     *  database).
-     *   @param name of the object
-     *   @param uid id of owner
-     *   @param lock locks the object if true
-     *
-     *   @return a pointer to the object, 0 in case of failure
-     */
-    PoolObjectSQL * get(const string& name, int uid, bool lock);
 
     /**
      * Updates the cache name index. Must be called when the owner of an object
@@ -166,7 +154,59 @@ public:
      */
     virtual int dump(ostringstream& oss, const string& where) = 0;
 
+    // -------------------------------------------------------------------------
+    // Function to generate dump filters
+    // -------------------------------------------------------------------------
+
+    /**
+     *  Creates a filter for those objects (oids) or objects owned by a given 
+     *  group that an user can access based on the ACL rules
+     *    @param uid the user id
+     *    @param gid the group id
+     *    @param auth_object object type
+     *    @param all returns if the user can access all objects
+     *    @param filter the resulting filter string
+     */
+    static void acl_filter(int                       uid, 
+                           int                       gid, 
+                           PoolObjectSQL::ObjectType auth_object,
+                           bool&                     all,
+                           string&                   filter);
+    /**
+     *  Creates a filter for the objects owned by a given user/group
+     *    @param uid the user id
+     *    @param gid the group id
+     *    @param filter_flag query type (ALL, MINE, GROUP)
+     *    @param all user can access all objects
+     *    @param filter the resulting filter string
+     */
+    static void usr_filter(int           uid, 
+                           int           gid, 
+                           int           filter_flag,
+                           bool          all,
+                           const string& acl_str,
+                           string&       filter);
+    /**
+     *  Creates a filter for a given set of objects based on their id
+     *    @param start_id first id
+     *    @param end_id last id
+     *    @param filter the resulting filter string
+     */
+    static void oid_filter(int     start_id,
+                           int     end_id,
+                           string& filter);
 protected:
+
+    /**
+     *  Gets an object from the pool (if needed the object is loaded from the
+     *  database).
+     *   @param name of the object
+     *   @param uid id of owner
+     *   @param lock locks the object if true
+     *
+     *   @return a pointer to the object, 0 in case of failure
+     */
+    PoolObjectSQL * get(const string& name, int uid, bool lock);
 
     /**
      *  Pointer to the database.
@@ -183,8 +223,23 @@ protected:
      *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& elem_name,
-             const char * table, const string& where);
+    int dump(ostringstream& oss, 
+             const string&  elem_name,
+             const char *   table, 
+             const string&  where);
+
+    /**
+     *  Dumps the output of the custom sql query into an xml
+     *
+     *   @param oss The output stream to dump the xml contents
+     *   @param root_elem_name Name of the root xml element name
+     *   @param sql_query The SQL query to execute
+     *
+     *   @return 0 on success
+     */
+    int dump(ostringstream&  oss,
+             const string&   root_elem_name,
+             ostringstream&  sql_query);    
 
     /* ---------------------------------------------------------------------- */
     /* Interface to access the lastOID assigned by the pool                   */
@@ -237,6 +292,11 @@ private:
      *  OID as key.
      */
     map<int,PoolObjectSQL *> pool;
+
+    /**
+     * Whether or not this pool uses the name_pool index
+     */
+    bool uses_name_pool;
 
     /**
      *  This is a name index for the pool map. The key is the name of the object

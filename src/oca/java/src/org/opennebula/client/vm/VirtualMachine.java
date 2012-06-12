@@ -19,7 +19,6 @@ package org.opennebula.client.vm;
 import org.opennebula.client.Client;
 import org.opennebula.client.OneResponse;
 import org.opennebula.client.PoolElement;
-import org.opennebula.client.template.Template;
 import org.w3c.dom.Node;
 
 /**
@@ -37,6 +36,7 @@ public class VirtualMachine extends PoolElement{
     private static final String SAVEDISK = METHOD_PREFIX + "savedisk";
     private static final String CHOWN    = METHOD_PREFIX + "chown";
     private static final String CHMOD    = METHOD_PREFIX + "chmod";
+    private static final String MONITORING = METHOD_PREFIX + "monitoring";
 
     private static final String[] VM_STATES =
     {
@@ -152,7 +152,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the owner/group
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The virtual machine id (vid) of the target instance.
      * @param uid The new owner user ID. Set it to -1 to leave the current one.
@@ -166,7 +166,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the VM permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The VM id of the target VM.
      * @param owner_u 1 to allow, 0 deny, -1 do not change
@@ -193,7 +193,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target object.
      * @param octet Permissions octed , e.g. 640
@@ -206,7 +206,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target object.
      * @param octet Permissions octed , e.g. 640
@@ -215,6 +215,19 @@ public class VirtualMachine extends PoolElement{
     public static OneResponse chmod(Client client, int id, int octet)
     {
         return chmod(client, CHMOD, id, octet);
+    }
+
+    /**
+     * Retrieves the monitoring information of the given VM, in XML
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @return If successful the message contains the string
+     * with the monitoring information returned by OpenNebula.
+     */
+    public static OneResponse monitoring(Client client, int id)
+    {
+        return client.call(MONITORING, id);
     }
 
     // =================================
@@ -317,7 +330,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the owner/group
-     * 
+     *
      * @param uid The new owner user ID. Set it to -1 to leave the current one.
      * @param gid The new group ID. Set it to -1 to leave the current one.
      * @return If an error occurs the error message contains the reason.
@@ -329,7 +342,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the owner
-     * 
+     *
      * @param uid The new owner user ID.
      * @return If an error occurs the error message contains the reason.
      */
@@ -340,7 +353,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the group
-     * 
+     *
      * @param gid The new group ID.
      * @return If an error occurs the error message contains the reason.
      */
@@ -352,7 +365,7 @@ public class VirtualMachine extends PoolElement{
 
     /**
      * Changes the VM permissions
-     * 
+     *
      * @param owner_u 1 to allow, 0 deny, -1 do not change
      * @param owner_m 1 to allow, 0 deny, -1 do not change
      * @param owner_a 1 to allow, 0 deny, -1 do not change
@@ -396,6 +409,17 @@ public class VirtualMachine extends PoolElement{
         return chmod(client, id, octet);
     }
 
+    /**
+     * Retrieves the monitoring information of the given VM, in XML
+     *
+     * @return If successful the message contains the string
+     * with the monitoring information returned by OpenNebula.
+     */
+    public OneResponse monitoring()
+    {
+        return monitoring(client, id);
+    }
+
     // =================================
     // Helpers
     // =================================
@@ -416,6 +440,15 @@ public class VirtualMachine extends PoolElement{
     public OneResponse reboot()
     {
         return action("reboot");
+    }
+
+    /**
+     * Resets a running VM.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse reset()
+    {
+        return action("reset");
     }
 
     /**
@@ -500,6 +533,24 @@ public class VirtualMachine extends PoolElement{
     public OneResponse resubmit()
     {
         return action("resubmit");
+    }
+
+    /**
+     * Sets the re-scheduling flag for the VM
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse resched()
+    {
+        return action("resched");
+    }
+
+    /**
+     * Unsets the re-scheduling flag for the VM
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse unresched()
+    {
+        return action("unresched");
     }
 
     /**

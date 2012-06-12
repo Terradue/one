@@ -24,12 +24,19 @@
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-VirtualMachinePool::VirtualMachinePool(SqlDB *                   db,
-                                       vector<const Attribute *> hook_mads,
-                                       const string& hook_location,
-                                       const string& remotes_location,
-                                       vector<const Attribute *>& restricted_attrs)
-    : PoolSQL(db,VirtualMachine::table)
+time_t VirtualMachinePool::_monitor_expiration;
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+VirtualMachinePool::VirtualMachinePool(
+        SqlDB *                     db,
+        vector<const Attribute *>   hook_mads,
+        const string&               hook_location,
+        const string&               remotes_location,
+        vector<const Attribute *>&  restricted_attrs,
+        time_t                      expire_time)
+    : PoolSQL(db, VirtualMachine::table, false)
 {
     const VectorAttribute * vattr;
 
@@ -41,6 +48,13 @@ VirtualMachinePool::VirtualMachinePool(SqlDB *                   db,
     bool   remote;
 
     bool state_hook = false;
+
+    _monitor_expiration = expire_time;
+
+    if ( _monitor_expiration == 0 )
+    {
+        clean_all_monitoring();
+    }
 
     for (unsigned int i = 0 ; i < hook_mads.size() ; i++ )
     {
@@ -170,7 +184,7 @@ VirtualMachinePool::VirtualMachinePool(SqlDB *                   db,
         {
             ostringstream oss;
 
-            oss << "Unkown VM_HOOK " << on << ". Hook not registered!";
+            oss << "Unknown VM_HOOK " << on << ". Hook not registered!";
             NebulaLog::log("VM",Log::WARNING,oss);
         }
     }
@@ -216,7 +230,7 @@ int VirtualMachinePool::allocate (
     {
         vm->state = VirtualMachine::PENDING;
     }
-
+    
     // ------------------------------------------------------------------------
     // Insert the Object in the pool
     // ------------------------------------------------------------------------
@@ -266,3 +280,100 @@ int VirtualMachinePool::get_pending(
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
+
+int VirtualMachinePool::dump_acct(ostringstream& oss, 
+                                  const string&  where, 
+                                  int            time_start, 
+                                  int            time_end)
+{
+    ostringstream cmd;
+
+    cmd << "SELECT " << History::table << ".body FROM " << History::table
+        << " INNER JOIN " << VirtualMachine::table
+        << " WHERE vid=oid";
+
+    if ( !where.empty() )
+    {
+        cmd << " AND " << where;
+    }
+
+    if ( time_start != -1 || time_end != -1 )
+    {
+        if ( time_start != -1 )
+        {
+            cmd << " AND (etime > " << time_start << " OR  etime = 0)";
+        }
+
+        if ( time_end != -1 )
+        {
+            cmd << " AND stime < " << time_end;
+        }
+    }
+
+    cmd << " GROUP BY vid,seq";
+
+    return PoolSQL::dump(oss, "HISTORY_RECORDS", cmd);
+};
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int VirtualMachinePool::clean_expired_monitoring()
+{
+    if ( _monitor_expiration == 0 )
+    {
+        return 0;
+    }
+
+    time_t          max_last_poll;
+    int             rc;
+    ostringstream   oss;
+
+    max_last_poll = time(0) - _monitor_expiration;
+
+    oss << "DELETE FROM " << VirtualMachine::monit_table
+        << " WHERE last_poll < " << max_last_poll;
+
+    rc = db->exec(oss);
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int VirtualMachinePool::clean_all_monitoring()
+{
+    ostringstream   oss;
+    int             rc;
+
+    oss << "DELETE FROM " << VirtualMachine::monit_table;
+
+    rc = db->exec(oss);
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int VirtualMachinePool::dump_monitoring(
+        ostringstream& oss,
+        const string&  where)
+{
+    ostringstream cmd;
+
+    cmd << "SELECT " << VirtualMachine::monit_table << ".body FROM "
+        << VirtualMachine::monit_table
+        << " INNER JOIN " << VirtualMachine::table
+        << " WHERE vmid = oid";
+
+    if ( !where.empty() )
+    {
+        cmd << " AND " << where;
+    }
+
+    cmd << " ORDER BY vmid, " << VirtualMachine::monit_table << ".last_poll;";
+
+    return PoolSQL::dump(oss, "MONITORING_DATA", cmd);
+}

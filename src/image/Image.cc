@@ -41,13 +41,16 @@ Image::Image(int             _uid,
              ImageTemplate * _image_template):
         PoolObjectSQL(-1,IMAGE,"",_uid,_gid,_uname,_gname,table),
         type(OS),
+        disk_type(FILE),
         regtime(time(0)),
         source(""),
         path(""),
         fs_type(""),
         size_mb(0),
         state(INIT),
-        running_vms(0)
+        running_vms(0),
+        ds_id(-1),
+        ds_name("")
 {
     if (_image_template != 0)
     {
@@ -93,23 +96,9 @@ int Image::insert(SqlDB *db, string& error_str)
     string persistent_attr;
     string dev_prefix;
     string source_attr;
-    string aname;
+    string saved_id;
 
     ostringstream oss;
-
-    // ------------------------------------------------------------------------
-    // Check template for restricted attributes
-    // ------------------------------------------------------------------------
-
-    if ( uid != 0 && gid != GroupPool::ONEADMIN_ID )
-    {
-        ImageTemplate *img_template = static_cast<ImageTemplate *>(obj_template);
-
-        if (img_template->check(aname))
-        {
-            goto error_restricted;
-        }
-    }
 
     // ---------------------------------------------------------------------
     // Check default image attributes
@@ -149,7 +138,6 @@ int Image::insert(SqlDB *db, string& error_str)
     {
         SingleAttribute * dev_att = new SingleAttribute("DEV_PREFIX",
                                           ImagePool::default_dev_prefix());
-
         obj_template->set(dev_att);
     }
 
@@ -158,20 +146,43 @@ int Image::insert(SqlDB *db, string& error_str)
     erase_template_attribute("PATH", path);
     erase_template_attribute("SOURCE", source);
 
-    // The template should contain PATH or SOURCE
-    if ( source.empty() && path.empty() )
+    if (!isSaving()) //Not a saving image
+    {
+        if ( source.empty() && path.empty() )
+        {
+            string        size_attr;
+            istringstream iss;
+
+            erase_template_attribute("SIZE",   size_attr);
+            erase_template_attribute("FSTYPE", fs_type);
+
+            // DATABLOCK image needs SIZE and FSTYPE
+            if (type != DATABLOCK || size_attr.empty() || fs_type.empty())
+            {
+                goto error_no_path;
+            }
+
+            iss.str(size_attr);
+
+            iss >> size_mb;
+
+            if (iss.fail() == true)
+            {
+                goto error_size_format;
+            }
+        }
+        else if ( !source.empty() && !path.empty() )
+        {
+            goto error_path_and_source;
+        }
+    }
+    else
     {
         string        size_attr;
         istringstream iss;
 
+        fs_type = "save_as";
         erase_template_attribute("SIZE",   size_attr);
-        erase_template_attribute("FSTYPE", fs_type);
-
-        // DATABLOCK image needs SIZE and FSTYPE
-        if (type != DATABLOCK || size_attr.empty() || fs_type.empty())
-        {
-            goto error_no_path;
-        }
 
         iss.str(size_attr);
 
@@ -181,10 +192,6 @@ int Image::insert(SqlDB *db, string& error_str)
         {
             goto error_size_format;
         }
-    }
-    else if ( !source.empty() && !path.empty() )
-    {
-        goto error_path_and_source;
     }
 
     state = LOCKED; //LOCKED till the ImageManager copies it to the Repository
@@ -219,11 +226,6 @@ error_size_format:
 
 error_path_and_source:
     error_str = "Template malformed, PATH and SOURCE are mutually exclusive.";
-    goto error_common;
-
-error_restricted:
-    oss << "Template includes a restricted attribute " << aname << ".";
-    error_str = oss.str();
     goto error_common;
 
 error_common:
@@ -344,6 +346,7 @@ string& Image::to_xml(string& xml) const
             "<NAME>"           << name            << "</NAME>"        <<
             perms_to_xml(perms_xml)                                   <<
             "<TYPE>"           << type            << "</TYPE>"        <<
+            "<DISK_TYPE>"      << disk_type       << "</DISK_TYPE>"   <<
             "<PERSISTENT>"     << persistent_img  << "</PERSISTENT>"  <<
             "<REGTIME>"        << regtime         << "</REGTIME>"     <<
             "<SOURCE>"         << source          << "</SOURCE>"      <<
@@ -352,6 +355,8 @@ string& Image::to_xml(string& xml) const
             "<SIZE>"           << size_mb         << "</SIZE>"        <<
             "<STATE>"          << state           << "</STATE>"       <<
             "<RUNNING_VMS>"    << running_vms     << "</RUNNING_VMS>" <<
+            "<DATASTORE_ID>"   << ds_id           << "</DATASTORE_ID>"<<
+            "<DATASTORE>"      << ds_name         << "</DATASTORE>"   <<
             obj_template->to_xml(template_xml)                        <<
         "</IMAGE>";
 
@@ -368,6 +373,7 @@ int Image::from_xml(const string& xml)
     vector<xmlNodePtr> content;
     int int_state;
     int int_type;
+    int int_disk_type;
 
     int rc = 0;
 
@@ -385,6 +391,7 @@ int Image::from_xml(const string& xml)
     rc += xpath(name, "/IMAGE/NAME", "not_found");
 
     rc += xpath(int_type, "/IMAGE/TYPE", 0);
+    rc += xpath(int_disk_type, "/IMAGE/DISK_TYPE", 0);
     rc += xpath(persistent_img, "/IMAGE/PERSISTENT", 0);
     rc += xpath(regtime, "/IMAGE/REGTIME", 0);
 
@@ -393,6 +400,9 @@ int Image::from_xml(const string& xml)
     rc += xpath(int_state, "/IMAGE/STATE", 0);
     rc += xpath(running_vms, "/IMAGE/RUNNING_VMS", -1);
 
+    rc += xpath(ds_id,  "/IMAGE/DATASTORE_ID", -1);
+    rc += xpath(ds_name,"/IMAGE/DATASTORE", "not_found");
+
     // Permissions
     rc += perms_from_xml();
 
@@ -400,8 +410,9 @@ int Image::from_xml(const string& xml)
     xpath(path,"/IMAGE/PATH", "");
     xpath(fs_type,"/IMAGE/FSTYPE","");
 
-    type  = static_cast<ImageType>(int_type);
-    state = static_cast<ImageState>(int_state);
+    type      = static_cast<ImageType>(int_type);
+    disk_type = static_cast<DiskType>(int_disk_type);
+    state     = static_cast<ImageState>(int_state);
 
     // Get associated classes
     ObjectXML::get_nodes("/IMAGE/TEMPLATE", content);
@@ -427,41 +438,40 @@ int Image::from_xml(const string& xml)
 /* ------------------------------------------------------------------------ */
 
 int Image::disk_attribute(  VectorAttribute * disk,
-                            int *             index,
-                            ImageType*        img_type)
+                            ImageType&        img_type,
+                            string&           dev_prefix)
 {
-    string  bus;
-    string  target;
-    string  driver;
+    string bus;
+    string target;
+    string driver;
+    string disk_attr_type;
 
-    ostringstream  iid;
+    ostringstream iid;
 
-    *img_type = type;
-    bus       = disk->vector_value("BUS");
-    target    = disk->vector_value("TARGET");
-    driver    = disk->vector_value("DRIVER");
+    img_type = type;
+    bus      = disk->vector_value("BUS");
+    target   = disk->vector_value("TARGET");
+    driver   = disk->vector_value("DRIVER");
     iid << oid;
 
     string template_bus;
     string template_target;
-    string prefix;
     string template_driver;
 
-    get_template_attribute("BUS", template_bus);
+    get_template_attribute("BUS",    template_bus);
     get_template_attribute("TARGET", template_target);
     get_template_attribute("DRIVER", template_driver);
 
-    get_template_attribute("DEV_PREFIX", prefix);
+    get_template_attribute("DEV_PREFIX", dev_prefix);
 
-    if (prefix.empty())//Removed from image template, get it again from defaults
+    if (dev_prefix.empty())//Removed from image template, get it again from defaults
     {
-        prefix = ImagePool::default_dev_prefix();
+        dev_prefix = ImagePool::default_dev_prefix();
     }
 
    //---------------------------------------------------------------------------
    //                       BASE DISK ATTRIBUTES
    //---------------------------------------------------------------------------
-
     disk->replace("IMAGE",    name);
     disk->replace("IMAGE_ID", iid.str());
     disk->replace("SOURCE",   source);
@@ -479,7 +489,6 @@ int Image::disk_attribute(  VectorAttribute * disk,
    //---------------------------------------------------------------------------
    //   TYPE, READONLY, CLONE, and SAVE attributes
    //---------------------------------------------------------------------------
-
     if ( persistent_img )
     {
         disk->replace("CLONE","NO");
@@ -495,48 +504,27 @@ int Image::disk_attribute(  VectorAttribute * disk,
     switch(type)
     {
         case OS:
-        case DATABLOCK:
-          disk->replace("TYPE","DISK");
+        case DATABLOCK: //Type is FILE or BLOCK as inherited from the DS
+          disk_attr_type = disk_type_to_str(disk_type);
           disk->replace("READONLY","NO");
         break;
 
-        case CDROM:
-          disk->replace("TYPE","CDROM");
+        case CDROM: //Always use CDROM type for these ones
+          disk_attr_type = "CDROM";
           disk->replace("READONLY","YES");
         break;
     }
 
-   //---------------------------------------------------------------------------
-   //   TARGET attribute
-   //---------------------------------------------------------------------------
+    disk->replace("TYPE",disk_attr_type);
 
-    if (target.empty()) //No TARGET in DISK attribute
+    //---------------------------------------------------------------------------
+    //   TARGET attribute
+    //---------------------------------------------------------------------------
+
+    // TARGET defined in the Image template, but not in the DISK attribute
+    if ( target.empty() && !template_target.empty() )
     {
-        if (!template_target.empty())
-        {
-            disk->replace("TARGET", template_target);
-        }
-        else
-        {
-            switch(type)
-            {
-                case OS:
-                    prefix += "a";
-                break;
-
-                case CDROM:
-                    prefix += "c"; // b is for context
-                break;
-
-                case DATABLOCK:
-                    prefix += static_cast<char>(('e'+ *index));
-                    *index  = *index + 1;
-                break;
-
-            }
-
-            disk->replace("TARGET", prefix);
-        }
+        disk->replace("TARGET", template_target);
     }
 
     return 0;

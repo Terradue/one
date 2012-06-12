@@ -35,7 +35,7 @@ EC2_AUTH           = VAR_LOCATION + "/.one/ec2_auth"
 EC2_LOG            = LOG_LOCATION + "/econe-server.log"
 CONFIGURATION_FILE = ETC_LOCATION + "/econe.conf"
 
-TEMPLATE_LOCATION  = ETC_LOCATION + "/econe_templates"
+TEMPLATE_LOCATION  = ETC_LOCATION + "/ec2query_templates"
 VIEWS_LOCATION     = RUBY_LIB_LOCATION + "/cloud/econe/views"
 
 $: << RUBY_LIB_LOCATION
@@ -79,7 +79,14 @@ set :config, conf
 include CloudLogger
 enable_logging EC2_LOG, settings.config[:debug_level].to_i
 
-if CloudServer.is_port_open?(settings.config[:server],
+if settings.config[:server]
+    settings.config[:host] ||= settings.config[:server]
+    warning = "Warning: :server: configuration parameter has been deprecated."
+    warning << " Use :host: instead."
+    settings.logger.warn warning
+end
+
+if CloudServer.is_port_open?(settings.config[:host],
                              settings.config[:port])
     settings.logger.error {
         "Port #{settings.config[:port]} busy, please shutdown " <<
@@ -88,7 +95,7 @@ if CloudServer.is_port_open?(settings.config[:server],
     exit -1
 end
 
-set :bind, settings.config[:server]
+set :bind, settings.config[:host]
 set :port, settings.config[:port]
 
 begin
@@ -108,8 +115,8 @@ if conf[:ssl_server]
     econe_port = uri.port
     econe_path = uri.path
 else
-    econe_host = conf[:server]
-    econe_port = conf[:port]
+    econe_host = settings.config[:host]
+    econe_port = settings.config[:port]
     econe_path = '/'
 end
 
@@ -135,8 +142,9 @@ before do
     if username.nil?
         error 401, error_xml("AuthFailure", 0)
     else
-        client = settings.cloud_auth.client(username)
-        @econe_server = EC2QueryServer.new(client, settings.config, settings.logger)
+        client          = settings.cloud_auth.client(username)
+        oneadmin_client = settings.cloud_auth.client
+        @econe_server = EC2QueryServer.new(client, oneadmin_client, settings.config, settings.logger)
     end
 end
 
@@ -189,6 +197,16 @@ def do_http_request(params)
             result,rc = @econe_server.describe_instances(params)
         when 'TerminateInstances'
             result,rc = @econe_server.terminate_instances(params)
+        when 'AllocateAddress'
+            result,rc = @econe_server.allocate_address(params)
+        when 'AssociateAddress'
+            result,rc = @econe_server.associate_address(params)
+        when 'DisassociateAddress'
+            result,rc = @econe_server.disassociate_address(params)
+        when 'ReleaseAddress'
+            result,rc = @econe_server.release_address(params)
+        when 'DescribeAddresses'
+            result,rc = @econe_server.describe_addresses(params)
     end
 
     if OpenNebula::is_error?(result)

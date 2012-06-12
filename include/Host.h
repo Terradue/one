@@ -20,13 +20,14 @@
 #include "PoolSQL.h"
 #include "HostTemplate.h"
 #include "HostShare.h"
+#include "Clusterable.h"
 
 using namespace std;
 
 /**
  *  The Host class.
  */
-class Host : public PoolObjectSQL
+class Host : public PoolObjectSQL, public Clusterable
 {
 public:
 
@@ -36,11 +37,12 @@ public:
 
     enum HostState
     {
-        INIT       = 0, /**< Initial state for enabled hosts. */
-        MONITORING = 1, /**< The host is being monitored. */
-        MONITORED  = 2, /**< The host has been successfully monitored. */
-        ERROR      = 3, /**< An error ocurrer while monitoring the host. */
-        DISABLED   = 4  /**< The host is disabled won't be monitored. */
+        INIT                 = 0, /**< Initial state for enabled hosts. */
+        MONITORING_MONITORED = 1, /**< Monitoring the host (from monitored). */
+        MONITORED            = 2, /**< The host has been successfully monitored. */
+        ERROR                = 3, /**< An error ocurrer while monitoring the host. */
+        DISABLED             = 4, /**< The host is disabled won't be monitored. */
+        MONITORING_ERROR     = 5  /**< Monitoring the host (from error). */
     };
 
     /**
@@ -65,6 +67,15 @@ public:
      bool isEnabled() const
      {
         return state != DISABLED;
+     }
+
+    /**
+     *  Check if the host is being monitored
+     *    @return true if the host is enabled
+     */
+     bool isMonitoring() const
+     {
+        return ((state == MONITORING_ERROR) || (state==MONITORING_MONITORED));
      }
 
     /**
@@ -113,6 +124,14 @@ public:
     int update_info(string &parse_str);
 
     /**
+     * Inserts the last monitoring, and deletes old monitoring entries.
+     *
+     * @param db pointer to the db
+     * @return 0 on success
+     */
+    int update_monitoring(SqlDB * db);
+
+    /**
      * Retrives host state
      *    @return HostState code number
      */
@@ -140,15 +159,6 @@ public:
     };
 
     /**
-     * Retrives TM mad name
-     *    @return string tm mad name
-     */
-    const string& get_tm_mad() const
-    {
-        return tm_mad_name;
-    };
-
-    /**
      * Retrives IM mad name
      *    @return string im mad name
      */
@@ -167,6 +177,21 @@ public:
     };
 
     /**
+     * Sets the corresponding monitoring state based on the actual host state
+     */
+    void set_monitoring_state()
+    {
+        if ( state == ERROR )
+        {
+            state = MONITORING_ERROR;
+        }
+        else if ( state == MONITORED )
+        {
+            state = MONITORING_MONITORED;
+        }
+    };
+
+    /**
      * Retrives last time the host was monitored
      *    @return time_t last monitored time
      */
@@ -176,13 +201,10 @@ public:
     };
 
     // ------------------------------------------------------------------------
-    // Share functions
+    // Share functions. Returns the value associated with each host share 
+    // metric
     // ------------------------------------------------------------------------
 
-    /**
-     *
-     *
-     */
     int get_share_running_vms()
     {
         return host_share.running_vms;
@@ -289,7 +311,7 @@ public:
     /**
      *  Factory method for host templates
      */
-    Template * get_new_template()
+    Template * get_new_template() const
     {
         return new HostTemplate;
     }
@@ -326,13 +348,8 @@ private:
     string      vnm_mad_name;
 
 	/**
-     *  Name of the TM driver used to transfer file to and from this host
-     */
-	string      tm_mad_name;
-
-	/**
-     *  If Host State= MONITORED  last time it got fully monitored or 1 Jan 1970
-     *     Host State = MONITORING last time it got a signal to be monitored
+     *  If Host State = MONITORED last time it got fully monitored or 1 Jan 1970
+     *     Host State = MONITORING* last time it got a signal to be monitored
      */
     time_t      last_monitored;
 
@@ -348,12 +365,13 @@ private:
     // Constructor
     // *************************************************************************
 
-    Host(int           id=-1,
-         const string& hostname="",
-         const string& im_mad_name="",
-         const string& vmm_mad_name="",
-         const string& vnm_mad_name="",
-         const string& tm_mad_name="");
+    Host(int           id,
+         const string& hostname,
+         const string& im_mad_name,
+         const string& vmm_mad_name,
+         const string& vnm_mad_name,
+         int           cluster_id,
+         const string& cluster_name);
 
     virtual ~Host();
 
@@ -366,6 +384,12 @@ private:
     static const char * db_bootstrap;
 
     static const char * table;
+
+    static const char * monit_db_names;
+
+    static const char * monit_db_bootstrap;
+
+    static const char * monit_table;
 
     /**
      *  Execute an INSERT or REPLACE Sql query.
@@ -382,9 +406,15 @@ private:
      */
     static int bootstrap(SqlDB * db)
     {
-        ostringstream oss_host(Host::db_bootstrap);
+        int rc;
 
-        return db->exec(oss_host);
+        ostringstream oss_host(Host::db_bootstrap);
+        ostringstream oss_monit(Host::monit_db_bootstrap);
+
+        rc =  db->exec(oss_host);
+        rc += db->exec(oss_monit);
+
+        return rc;
     };
 
     /**

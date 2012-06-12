@@ -29,6 +29,9 @@ var config_tab_content =
               <td class="value_td">\
                    <select id="lang_sel" style="width:20em;">\
                        <option value="en_US">'+tr("English")+'</option>\
+                       <option value="fr_FR">'+tr("French")+'</option>\
+                       <option value="it_IT">'+tr("Italian")+'</option>\
+                       <option value="pt_PT">'+tr("Portuguese")+'</option>\
                        <option value="ru">'+tr("Russian")+'</option>\
                    </select>\
               </td>\
@@ -45,7 +48,17 @@ var config_tab_content =
       </div>\
     </td>\
   </tr>\
-</table></form>';
+</table>\
+<div class="legend_div" style="position:relative;left:13px;bottom:5px;">\
+  <span>?</span>\
+  <p class="legend_p">\
+'+tr("These options are stored in your OpenNebula user template.")+'\
+  </p>\
+  <p class="legend_p">\
+'+tr("WSS connection requires additional configuration of Sunstone Server and that the SSL certificate is considered valid by your browser.")+'\
+  </p>\
+</div>\
+</form>';
 
 var config_actions = {
     "Config.list" : {
@@ -58,8 +71,10 @@ var config_actions = {
 
 var config_tab = {
     title: tr("Configuration"),
-    content: config_tab_content
-}
+    content: config_tab_content,
+    tabClass: "subTab",
+    parentTab: "dashboard_tab",
+};
 
 Sunstone.addActions(config_actions);
 Sunstone.addMainTab('config_tab',config_tab);

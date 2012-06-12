@@ -40,17 +40,21 @@ const char * UserPool::DEFAULT_AUTH = "default";
 
 const char * UserPool::SERVER_NAME  = "serveradmin";
 
+const int   UserPool::ONEADMIN_ID   = 0;
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 time_t UserPool::_session_expiration_time;
+
+string UserPool::oneadmin_name;
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 UserPool::UserPool(SqlDB * db,
                    time_t  __session_expiration_time):
-                       PoolSQL(db,User::table)
+                       PoolSQL(db, User::table, true)
 {
     int           one_uid    = -1;
     int           server_uid = -1;
@@ -74,8 +78,13 @@ UserPool::UserPool(SqlDB * db,
 
     _session_expiration_time = __session_expiration_time;
 
-    if (get(0,false) != 0)
+    User * oneadmin_user = get(0, true);
+
+    if (oneadmin_user != 0)
     {
+        oneadmin_name = oneadmin_user->get_name();
+        oneadmin_user->unlock();
+
         return;
     }
 
@@ -121,6 +130,8 @@ UserPool::UserPool(SqlDB * db,
     {
         goto error_token;
     }
+
+    oneadmin_name = one_name;
 
     if ( one_name == SERVER_NAME )
     {
@@ -724,7 +735,7 @@ int UserPool::authorize(AuthRequest& ar)
     AuthManager * authm = nd.get_authm();
     int           rc    = -1;
 
-    if (authm == 0)
+    if (authm == 0 || !authm->is_authz_enabled())
     {
         if (ar.core_authorize())
         {
