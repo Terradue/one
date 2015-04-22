@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -37,14 +37,19 @@ cmd=CommandParser::CmdParser.new(ARGV) do
 
     helper = OneDatastoreHelper.new
 
+    before_proc do
+        helper.set_client(options)
+    end
+
     ########################################################################
     # Global Options
     ########################################################################
-    set :option, CommandParser::OPTIONS
+    set :option, CommandParser::OPTIONS+OpenNebulaHelper::CLIENT_OPTIONS
 
     list_options = CLIHelper::OPTIONS
     list_options << OpenNebulaHelper::XML
     list_options << OpenNebulaHelper::NUMERIC
+    list_options << OpenNebulaHelper::DESCRIBE
 
     ########################################################################
     # Formatters for arguments
@@ -57,7 +62,8 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         helper.list_to_id(arg)
     end
 
-    set :format, :clusterid, OpenNebulaHelper.rname_to_id_desc("CLUSTER") do |arg|
+    set :format, :clusterid,
+            OpenNebulaHelper.rname_to_id_desc("CLUSTER") do |arg|
         OpenNebulaHelper.rname_to_id(arg, "CLUSTER")
     end
 
@@ -77,7 +83,8 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         Creates a new Datastore from the given template file
     EOT
 
-    command :create, create_desc, :file, :options=>[OneClusterHelper::CLUSTER] do
+    command :create, create_desc, :file,
+            :options=>[OneClusterHelper::CLUSTER] do
 
         cid = options[:cluster] || ClusterPool::NONE_CLUSTER_ID
 
@@ -155,10 +162,46 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         be launched to modify the current content.
     EOT
 
-    command :update, update_desc, :datastoreid, [:file, nil] do
+    command :update, update_desc, :datastoreid, [:file, nil],
+    :options=>OpenNebulaHelper::APPEND do
         helper.perform_action(args[0],options,"modified") do |obj|
-            str = OpenNebulaHelper.update_template(args[0], obj, args[1])
-            obj.update(str)
+            if options[:append]
+                str = OpenNebulaHelper.append_template(args[0], obj, args[1])
+            else
+                str = OpenNebulaHelper.update_template(args[0], obj, args[1])
+            end
+
+            obj.update(str, options[:append])
+        end
+    end
+
+    rename_desc = <<-EOT.unindent
+        Renames the Datastore
+    EOT
+
+    command :rename, rename_desc, :datastoreid, :name do
+        helper.perform_action(args[0],options,"renamed") do |o|
+            o.rename(args[1])
+        end
+    end
+
+    enable_desc = <<-EOT.unindent
+        Enables the given Datastore. Only available for System Datastores
+    EOT
+
+    command :enable, enable_desc, [:range,:datastoreid_list] do
+        helper.perform_actions(args[0],options,"enabled") do |obj|
+            obj.enable
+        end
+    end
+
+    disable_desc = <<-EOT.unindent
+        Disables the given Datastore. Only available for System Datastores
+    EOT
+
+    command :disable, disable_desc, [:range,:datastoreid_list] do
+        helper.perform_actions(args[0],options,"disabled") do |obj|
+            obj.disable
         end
     end
 end

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,6 +21,9 @@
 #include <string>
 #include <libxml/tree.h>
 
+#include "PoolObjectSQL.h"
+#include "AuthRequest.h"
+
 using namespace std;
 
 /**
@@ -33,25 +36,29 @@ public:
 
     // ------------------------------------------------------------------------
     static const long long INDIVIDUAL_ID;
-    
+
     static const long long GROUP_ID;
 
     static const long long ALL_ID;
+
+    static const long long CLUSTER_ID;
     // ------------------------------------------------------------------------
 
     /**
      *  Creates an empty ACL rule
      */
-    AclRule():oid(0), user(0), resource(0), rights(0), str("") {};
+    AclRule():oid(0), user(0), resource(0), rights(0), zone(0), str("") {};
 
     /**
      *  Main ACL rule constructor
      */
-    AclRule(int       _oid, 
-            long long _user, 
-            long long _resource, 
-            long long _rights):
-        oid(_oid), user(_user), resource(_resource), rights(_rights)
+    AclRule(int       _oid,
+            long long _user,
+            long long _resource,
+            long long _rights,
+            long long _zone):
+        oid(_oid), user(_user), resource(_resource),
+        rights(_rights), zone(_zone)
     {
         build_str();
     };
@@ -59,16 +66,17 @@ public:
     /**
      *  Set the fields of the ACL, and updates its representation
      */
-
      void set(int       _oid,
-              long long _user, 
-              long long _resource, 
-              long long _rights)
+              long long _user,
+              long long _resource,
+              long long _rights,
+              long long _zone)
     {
         oid      = _oid;
         user     = _user;
         resource = _resource;
         rights   = _rights;
+        zone     = _zone;
 
         build_str();
     };
@@ -80,7 +88,8 @@ public:
     {
         return (user     == other.user &&
                 resource == other.resource &&
-                rights   == other.rights);
+                rights   == other.rights &&
+                zone     == other.zone);
     };
 
     /**
@@ -159,6 +168,16 @@ public:
         return resource & 0xFFFFFFFF00000000LL;
     };
 
+    /**
+     *  Returns the 32 less significant bits of the zone long long attribute
+     *
+     *    @return the zone ID
+     */
+    int zone_id() const
+    {
+        return zone;
+    };
+
     // ------------------------------------------------------------------------
     // Functions needed by the Scheduler ACL engine
     // ------------------------------------------------------------------------
@@ -186,8 +205,8 @@ private:
     int oid;
 
     /**
-     *  64 bit integer holding a user compound:      
-     * 
+     *  64 bit integer holding a user compound:
+     *
      *           32 bits                 32 bits
      *  +-----------------------+-----------------------+
      *  | Type (user,group,all) | user/group ID         |
@@ -197,7 +216,7 @@ private:
 
     /**
      *  64 bit integer holding a resource compound
-     * 
+     *
      *           32 bits                 32 bits
      *  +-----------------------+-----------------------+
      *  | Type (VM, Host...)    | resource ID           |
@@ -216,6 +235,16 @@ private:
     long long rights;
 
     /**
+     *  64 bit integer holding a zone compound:
+     *
+     *           32 bits                 32 bits
+     *  +-----------------------+-----------------------+
+     *  | Type (individual,all) | zone ID               |
+     *  +-----------------------+-----------------------+
+     */
+    long long zone;
+
+    /**
      *  Human readable representation of the rule
      */
     string str;
@@ -224,6 +253,32 @@ private:
      *  Builds the human representation of the ACL
      */
     void build_str();
+
+    /**
+     *  Array of PoolObjectSQL types to iterate over all types
+     */
+    static const int num_pool_objects;
+
+    static const PoolObjectSQL::ObjectType pool_objects[];
+
+    /**
+     *  Array of Auth operation types to iterate over all types
+     */
+    static const int num_auth_operations;
+
+    static const AuthRequest::Operation auth_operations[];
+
+    /**
+     *  Objects that cannot be used with the CLUSTER(%) selector
+     */
+    static const long long INVALID_CLUSTER_OBJECTS;
+
+    /**
+     *  Objects that cannot be used with the GROUP(@) selector
+     */
+    static const long long INVALID_GROUP_OBJECTS;
+
+    static const long long FEDERATED_OBJECTS;
 };
 
 #endif /*ACL_RULE_H*/

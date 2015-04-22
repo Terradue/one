@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -81,7 +81,7 @@ int AclXML::load_rules(const string& xml_str)
 
     for (it = rules.begin(); it != rules.end() ; it++)
     {
-        AclRule * rule = new AclRule(0,0,0,0);
+        AclRule * rule = new AclRule(0,0,0,0,0);
         int       rc   = rule->from_xml(*it);
 
         if ( rc == 0 )

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -32,6 +32,12 @@ public:
     VirtualMachineTemplate():
         Template(false,'=',"TEMPLATE"){};
 
+    VirtualMachineTemplate(
+            bool _replace_mode,
+            const char   _separator,
+            const char * _xml_root):
+        Template(_replace_mode, _separator, _xml_root){};
+
     ~VirtualMachineTemplate(){};
 
     VirtualMachineTemplate(VirtualMachineTemplate& vmt):Template(vmt){};
@@ -45,12 +51,50 @@ public:
     {
         return Template::check(rs_attr, restricted_attributes);
     };
-    
+
+    /**
+     * Deletes all restricted attributes
+     */
+    void remove_restricted()
+    {
+        Template::remove_restricted(restricted_attributes);
+    };
+
+    /**
+     * Deletes all the attributes, except the restricted ones
+     */
+    void remove_all_except_restricted()
+    {
+        Template::remove_all_except_restricted(restricted_attributes);
+    };
+
+    void set_xml_root(const char * _xml_root)
+    {
+        Template::set_xml_root(_xml_root);
+    };
+
+    /**
+     * Replaces the given image from the DISK attribute with a new one
+     *   @param target_id IMAGE_ID the image to be replaced
+     *   @param target_name IMAGE the image to be replaced
+     *   @param target_uname IMAGE_UNAME the image to be replaced
+     *   @param new_name of the new image
+     *   @param new_uname of the owner of the new image
+     */
+    int replace_disk_image(int target_id, const string&
+        target_name, const string& target_uname, const string& new_name,
+        const string& new_uname);
+
 private:
 
     friend class VirtualMachinePool;
 
     static vector<string> restricted_attributes;
+
+    bool has_restricted()
+    {
+        return restricted_attributes.size() > 0;
+    };
 
     /**
      * Stores the attributes as restricted, these attributes will be used in

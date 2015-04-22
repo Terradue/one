@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -37,14 +37,21 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     usage "`oneuser` <command> [<args>] [<options>]"
     version OpenNebulaHelper::ONE_VERSION
 
+    helper = OneUserHelper.new
+
+    before_proc do
+        helper.set_client(options) if @comm_name != :login
+    end
+
     ########################################################################
     # Global Options
     ########################################################################
-    set :option, CommandParser::OPTIONS
+    set :option, CommandParser::OPTIONS+OpenNebulaHelper::CLIENT_OPTIONS
 
     list_options = CLIHelper::OPTIONS
     list_options << OpenNebulaHelper::XML
     list_options << OpenNebulaHelper::NUMERIC
+    list_options << OpenNebulaHelper::DESCRIBE
 
     READ_FILE={
         :name => "read_file",
@@ -56,7 +63,8 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     SHA1={
         :name => "sha1",
         :large => "--sha1",
-        :description => "The password will be hashed using the sha1 algorithm"
+        :description => "The password will be hashed using the sha1\n"<<
+                        " "*31<<"algorithm"
     }
 
     SSH={
@@ -113,7 +121,10 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         :name  => "time",
         :large => "--time x",
         :format => Integer,
-        :description => "Token duration in seconds, defaults to 3600 (1 h)"
+        :description => "Token duration in seconds, defaults to 36000 (10 h). "\
+                        "To reset the token set time to 0." \
+                        "To generate a non-expiring token use -1"\
+                        " (not valid for ssh and x509 tokens). "\
     }
 
     DRIVER={
@@ -123,8 +134,14 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         :description => "Driver to autehnticate this user"
     }
 
+    FORCE = {
+        :name   => "force",
+        :large  => "--force" ,
+        :description => "Force one_auth file rewrite"
+    }
+
     create_options = [READ_FILE, SHA1, SSH, X509, KEY, CERT, DRIVER]
-    login_options  = [SSH, X509, X509_PROXY, KEY, CERT, PROXY, TIME]
+    login_options  = [SSH, X509, X509_PROXY, KEY, CERT, PROXY, TIME, FORCE]
 
     ########################################################################
     # Formatters for arguments
@@ -134,12 +151,10 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     end
 
     set :format, :userid, OneUserHelper.to_id_desc do |arg|
-        helper = OneUserHelper.new
         helper.to_id(arg)
     end
 
     set :format, :userid_list, OneUserHelper.list_to_id_desc do |arg|
-        helper = OneUserHelper.new
         helper.list_to_id(arg)
     end
 
@@ -163,8 +178,6 @@ cmd=CommandParser::CmdParser.new(ARGV) do
 
     command :create, create_desc, :username, [:password, nil],
             :options=>create_options do
-        helper = OneUserHelper.new
-
         if args[1]
             pass = args[1]
         else
@@ -188,24 +201,33 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         be launched to modify the current content.
     EOT
 
-    command :update, update_desc, :userid, [:file, nil] do
-        helper = OneUserHelper.new
+    command :update, update_desc, :userid, [:file, nil],
+    :options=>OpenNebulaHelper::APPEND do
+        helper.perform_action(args[0],options,"modified") do |obj|
+            if options[:append]
+                str = OpenNebulaHelper.append_template(args[0], obj, args[1])
+            else
+                str = OpenNebulaHelper.update_template(args[0], obj, args[1])
+            end
 
-        helper.perform_action(args[0],options,"modified") do |user|
-            str = OpenNebulaHelper.update_template(args[0], user, args[1])
-            user.update(str)
+            obj.update(str, options[:append])
         end
     end
 
     quota_desc = <<-EOT.unindent
-        Set the quota limits for the user. If a path is not provided the editor 
+        Set the quota limits for the user. If a path is not provided the editor
         will be launched to modify the current quotas.
     EOT
 
     command :quota, quota_desc, :userid, [:file, nil] do
-        helper = OneUserHelper.new
-
         helper.perform_action(args[0], options, "modified") do |user|
+            rc = user.info
+
+            if OpenNebula.is_error?(rc)
+                puts rc.message
+                exit -1
+            end
+
             str = OneQuotaHelper.set_quota(user, args[1])
             rc  = user.set_quota(str)
 
@@ -213,31 +235,127 @@ cmd=CommandParser::CmdParser.new(ARGV) do
                 puts rc.message
                 exit -1
             end
+        end
+    end
 
+    batchquota_desc = <<-EOT.unindent
+        Sets the quota limits in batch for various users. If a path is not
+        provided the editor will be launched to create new quotas.
+    EOT
+
+    command :batchquota, batchquota_desc, [:range, :userid_list],
+            [:file, nil] do
+        batch_str = OneQuotaHelper.get_batch_quota(args[1])
+
+        helper.perform_actions(args[0], options, "modified") do |user|
+            str = OneQuotaHelper.merge_quota(user, batch_str)
+
+            if OpenNebula.is_error?(str)
+                str
+            else
+                rc  = user.set_quota(str)
+                rc
+            end
+        end
+    end
+
+    defaultquota_desc = <<-EOT.unindent
+        Sets the default quota limits for the users. If a path is not provided
+        the editor will be launched to modify the current default quotas.
+    EOT
+
+    command :defaultquota, defaultquota_desc, [:file, nil] do
+        system = System.new(OneUserHelper.get_client(options))
+
+        default_quotas = system.get_user_quotas()
+
+        if OpenNebula.is_error?(default_quotas)
+            puts default_quotas.message
+            exit(-1)
+        end
+
+        str = OneQuotaHelper.set_quota(default_quotas, args[0], true)
+
+        rc  = system.set_user_quotas(str)
+
+        if OpenNebula.is_error?(rc)
+            puts rc.message
+            exit(-1)
+        end
+
+        exit 0
+    end
+
+    umask_desc = <<-EOT.unindent
+        Changes the umask used to create the default permissions. In a similar
+        way to the Unix umask command, the expected value is a three-digit
+        base-8 number. Each digit is a mask that disables permissions for the
+        owner, group and other, respectively.
+
+        If mask is not given, or if it is an empty string, the umask will
+        be unset
+    EOT
+
+    command :umask, umask_desc, [:range, :userid_list], [:mask, nil] do
+        helper.perform_actions(args[0],options,
+                "umask changed") do |user|
+
+            rc = user.info
+
+            if OpenNebula.is_error?(rc)
+                puts rc.message
+                exit -1
+            end
+
+            user.delete_element('/USER/TEMPLATE/UMASK')
+
+            tmp_str = user.template_str
+
+            if !args[1].nil? && args[1] != ""
+                tmp_str << "\nUMASK = #{args[1]}"
+            end
+
+            user.update(tmp_str)
         end
     end
 
     login_desc = <<-EOT.unindent
-        Creates the Login token for authentication
-        Examples:
+        Creates the login token for authentication. The token can be used
+        together with any authentication driver. The token will be stored in
+        $HOME/.one/one_auth, and can be used subsequently to authenticate with
+        oned through API, CLI or Sunstone.
+
+        Example, request a valid token for a generic driver (e.g. core auth, LDAP...):
+          oneuser login my_user --time 3600
+
+        Example, generate and set a token for SSH based authentication:
           oneuser login my_user --ssh --key /tmp/id_rsa --time 72000
-          oneuser login my_user --x509 --cert /tmp/my_cert.pem \
+
+        Example, same using X509 certificates:
+          oneuser login my_user --x509 --cert /tmp/my_cert.pem
                                 --key /tmp/my_key.pk --time 72000
-          oneuser login my_user --x509_proxy --proxy /tmp/my_cert.pem \
+
+        Example, now with a X509 proxy certificate
+          oneuser login my_user --x509_proxy --proxy /tmp/my_cert.pem
                                 --time 72000
     EOT
 
     command :login, login_desc, :username, :options=>login_options do
-        OneUserHelper.login(args[0], options)
+
+        options[:time] ||= 36000
+
+        helper.login(args[0], options)
     end
 
     key_desc = <<-EOT.unindent
+        DEPRECATED, use login to generate auth files.
+
         Shows a public key from a private SSH key. Use it as password
         for the SSH authentication mechanism.
     EOT
 
     command :key, key_desc, :options=>[KEY] do
-        require 'ssh_auth'
+        require 'opennebula/ssh_auth'
 
         options[:key] ||= ENV['HOME']+'/.ssh/id_rsa'
 
@@ -247,7 +365,7 @@ cmd=CommandParser::CmdParser.new(ARGV) do
             exit_with_code -1, e.message
         end
 
-        puts sshauth.public_key
+        puts sshauth.password
         exit_with_code 0
     end
 
@@ -257,7 +375,6 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     EOT
 
     command :delete, delete_desc, [:range, :userid_list] do
-        helper = OneUserHelper.new
         helper.perform_actions(args[0], options, "deleted") do |user|
             user.delete
         end
@@ -269,8 +386,6 @@ cmd=CommandParser::CmdParser.new(ARGV) do
 
     command :passwd, passwd_desc, :userid, [:password, nil],
             :options=>create_options do
-        helper = OneUserHelper.new
-
         if args[1]
             pass = args[1]
         else
@@ -288,13 +403,36 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     end
 
     chgrp_desc = <<-EOT.unindent
-        Changes the User's main group
+        Changes the User's primary group
     EOT
 
     command :chgrp, chgrp_desc, [:range, :userid_list], :groupid do
-        helper = OneUserHelper.new
         helper.perform_actions(args[0],options,"Group changed") do |user|
             user.chgrp(args[1].to_i)
+        end
+    end
+
+    addgroup_desc = <<-EOT.unindent
+        Adds the User to a secondary group
+    EOT
+
+    command :addgroup, addgroup_desc, [:range, :userid_list], :groupid do
+        gid = args[1]
+
+        helper.perform_actions(args[0],options,"group added") do |user|
+            user.addgroup( gid )
+        end
+    end
+
+    delgroup_desc = <<-EOT.unindent
+        Removes the User from a secondary group
+    EOT
+
+    command :delgroup, delgroup_desc, [:range, :userid_list], :groupid do
+        gid = args[1]
+
+        helper.perform_actions(args[0],options,"group deleted") do |user|
+            user.delgroup( gid )
         end
     end
 
@@ -319,8 +457,6 @@ cmd=CommandParser::CmdParser.new(ARGV) do
             exit_with_code 0, "An Auth driver should be specified"
         end
 
-        helper = OneUserHelper.new
-
         if args[2]
             pass = args[2]
         else
@@ -344,7 +480,6 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     EOT
 
     command :list, list_desc, :options=>list_options do
-        helper = OneUserHelper.new
         helper.list_pool(options)
     end
 
@@ -355,7 +490,6 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     command :show, show_desc, [:userid, nil],
             :options=>OpenNebulaHelper::XML do
         user=args[0] || OpenNebula::User::SELF
-        helper = OneUserHelper.new
         helper.show_resource(user,options)
     end
 

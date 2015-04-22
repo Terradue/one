@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # ---------------------------------------------------------------------------- #
-# Copyright 2010-2012, C12G Labs S.L                                           #
+# Copyright 2010-2015, C12G Labs S.L                                           #
 #                                                                              #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may      #
 # not use this file except in compliance with the License. You may obtain      #
@@ -28,11 +28,11 @@ end
 $: << RUBY_LIB_LOCATION
 $: << File.dirname(__FILE__)
 
-require 'vmware_driver'
+require 'vi_driver'
 
 deploy_id = ARGV[0]
 host      = ARGV[1]
 
-vmware_drv = VMwareDriver.new(host)
+VIDriver::initialize(host)
 
-puts vmware_drv.poll(deploy_id)
+puts VIDriver::poll_vm(deploy_id)

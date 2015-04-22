@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -21,6 +21,9 @@
 #include "HostTemplate.h"
 #include "HostShare.h"
 #include "Clusterable.h"
+#include "ObjectCollection.h"
+#include "NebulaLog.h"
+#include "NebulaUtil.h"
 
 using namespace std;
 
@@ -42,7 +45,9 @@ public:
         MONITORED            = 2, /**< The host has been successfully monitored. */
         ERROR                = 3, /**< An error ocurrer while monitoring the host. */
         DISABLED             = 4, /**< The host is disabled won't be monitored. */
-        MONITORING_ERROR     = 5  /**< Monitoring the host (from error). */
+        MONITORING_ERROR     = 5, /**< Monitoring the host (from error). */
+        MONITORING_INIT      = 6, /**< Monitoring the host (from init). */
+        MONITORING_DISABLED  = 7  /**< Monitoring the host (from disabled). */
     };
 
     /**
@@ -66,7 +71,7 @@ public:
      */
      bool isEnabled() const
      {
-        return state != DISABLED;
+        return state != DISABLED && state != MONITORING_DISABLED;
      }
 
     /**
@@ -75,38 +80,23 @@ public:
      */
      bool isMonitoring() const
      {
-        return ((state == MONITORING_ERROR) || (state==MONITORING_MONITORED));
+        return ((state == MONITORING_ERROR) ||
+                (state == MONITORING_MONITORED)||
+                (state == MONITORING_INIT)||
+                (state == MONITORING_DISABLED));
      }
 
-    /**
-     *  Updates the Host's last_monitored time stamp.
-     *    @param success if the monitored action was successfully performed
-     */
-    void touch(bool success)
-    {
-        last_monitored = time(0);
-
-        if ( state != DISABLED) //Don't change the state is host is disabled
-        {
-            if (success == true)
-            {
-                state = MONITORED;
-            }
-            else
-            {
-                state = ERROR;
-            }
-        }
-    };
+     /**
+      *  Checks if the host is a remote public cloud
+      *    @return true if the host is a remote public cloud
+      */
+     bool is_public_cloud() const;
 
     /**
      *   Disables the current host, it will not be monitored nor used by the
      *   scheduler
      */
-    void disable()
-    {
-        state = DISABLED;
-    };
+    void disable();
 
     /**
      *   Enables the current host, it will be monitored and could be used by
@@ -117,11 +107,87 @@ public:
         state = INIT;
     };
 
-    /** Update host counters and update the whole host on the DB
+    /**
+     *  Sets the host in error
+     */
+     void set_error()
+     {
+        state = ERROR;
+     }
+
+     /**
+      *  Updates the Host's last_monitored time stamp.
+      *    @param success if the monitored action was successfully performed
+      */
+    void touch(bool success)
+    {
+        last_monitored = time(0);
+
+        switch (state)
+        {
+            case DISABLED:
+            case MONITORING_DISABLED:
+                state = DISABLED;
+            break;
+
+            case INIT:
+            case ERROR:
+            case MONITORED:
+            case MONITORING_ERROR:
+            case MONITORING_INIT:
+            case MONITORING_MONITORED:
+                if (success == true)
+                {
+                    state = MONITORED;
+                }
+                else
+                {
+                    state = ERROR;
+                }
+            break;
+            default:
+            break;
+        }
+    };
+
+    /**
+     * Update host after a successful monitor. It modifies counters, state
+     * and template attributes
      *    @param parse_str string with values to be parsed
+     *    @param with_vm_info if monitoring contains VM information
+     *    @param lost set of VMs that should be in the host and were not found
+     *    @param found VMs running in the host (as expected) and info.
+     *    @param reserved_cpu from cluster defaults
+     *    @param reserved_mem from cluster defaults
      *    @return 0 on success
      **/
-    int update_info(string &parse_str);
+    int update_info(Template        &tmpl,
+                    bool            &with_vm_info,
+                    set<int>        &lost,
+                    map<int,string> &found,
+                    const set<int>  &non_shared_ds,
+                    long long       reserved_cpu,
+                    long long       reserved_mem);
+    /**
+     * Extracts the DS attributes from the given template
+     * @param parse_str string with values to be parsed
+     * @param ds map of DS monitoring information
+     * @param template object parsed from parse_str
+     *
+     * @return 0 on success
+     */
+    int extract_ds_info(
+            string          &parse_str,
+            Template        &tmpl,
+            map<int, const VectorAttribute*> &ds);
+
+    /**
+     * Update host after a failed monitor. It state
+     * and template attributes
+     *    @param message from the driver
+     *    @param vm_ids running on the host
+     */
+    void error_info(const string& message, set<int> &vm_ids);
 
     /**
      * Inserts the last monitoring, and deletes old monitoring entries.
@@ -132,7 +198,7 @@ public:
     int update_monitoring(SqlDB * db);
 
     /**
-     * Retrives host state
+     * Retrieves host state
      *    @return HostState code number
      */
     HostState get_state() const
@@ -141,7 +207,7 @@ public:
     };
 
     /**
-     * Retrives VMM mad name
+     * Retrieves VMM mad name
      *    @return string vmm mad name
      */
     const string& get_vmm_mad() const
@@ -150,7 +216,7 @@ public:
     };
 
     /**
-     * Retrives VNM mad name
+     * Retrieves VNM mad name
      *    @return string vnm mad name
      */
     const string& get_vnm_mad() const
@@ -159,7 +225,7 @@ public:
     };
 
     /**
-     * Retrives IM mad name
+     * Retrieves IM mad name
      *    @return string im mad name
      */
     const string& get_im_mad() const
@@ -168,31 +234,37 @@ public:
     };
 
     /**
-     * Sets host state
-     *    @param HostState state that applies to this host
-     */
-    void set_state(HostState state)
-    {
-        this->state = state;
-    };
-
-    /**
      * Sets the corresponding monitoring state based on the actual host state
      */
     void set_monitoring_state()
     {
-        if ( state == ERROR )
+        last_monitored = time(0); //Needed to expire this monitor action
+
+        switch (state)
         {
-            state = MONITORING_ERROR;
-        }
-        else if ( state == MONITORED )
-        {
-            state = MONITORING_MONITORED;
+            case ERROR:
+                state = MONITORING_ERROR;
+            break;
+
+            case MONITORED:
+                state = MONITORING_MONITORED;
+            break;
+
+            case INIT:
+                state = MONITORING_INIT;
+            break;
+
+            case DISABLED:
+                state = MONITORING_DISABLED;
+            break;
+
+            default:
+            break;
         }
     };
 
     /**
-     * Retrives last time the host was monitored
+     * Retrieves last time the host was monitored
      *    @return time_t last monitored time
      */
     time_t get_last_monitored() const
@@ -200,100 +272,167 @@ public:
         return last_monitored;
     };
 
-    // ------------------------------------------------------------------------
-    // Share functions. Returns the value associated with each host share 
-    // metric
-    // ------------------------------------------------------------------------
+    /**
+     *  Get the reserved capacity for this host. Parameters will be only updated
+     *  if values are defined in the host. Reserved capacity will be subtracted
+     *  from the Host total capacity.
+     *    @param cpu reserved cpu (in percentage)
+     *    @param mem reserved mem (in KB)
+     */
+    void get_reserved_capacity(long long &cpu, long long& mem)
+    {
+        long long tcpu;
+        long long tmem;
 
-    int get_share_running_vms()
+        if (get_template_attribute("RESERVED_CPU", tcpu))
+        {
+            cpu = tcpu;
+        }
+        else
+        {
+            replace_template_attribute("RESERVED_CPU", "");
+        }
+
+        if (get_template_attribute("RESERVED_MEM", tmem))
+        {
+            mem = tmem;
+        }
+        else
+        {
+            replace_template_attribute("RESERVED_MEM", "");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Share functions. Returns the value associated with each host share
+    // metric
+    // -------------------------------------------------------------------------
+    long long get_share_running_vms()
     {
         return host_share.running_vms;
     }
 
-    int get_share_disk_usage()
+    long long get_share_disk_usage()
     {
         return host_share.disk_usage;
     }
 
-    int get_share_mem_usage()
+    long long get_share_mem_usage()
     {
         return host_share.mem_usage;
     }
 
-    int get_share_cpu_usage()
+    long long get_share_cpu_usage()
     {
         return host_share.cpu_usage;
     }
 
-    int get_share_max_disk()
+    long long get_share_max_disk()
     {
         return host_share.max_disk;
     }
 
-    int get_share_max_mem()
+    long long get_share_max_mem()
     {
         return host_share.max_mem;
     }
 
-    int get_share_max_cpu()
+    long long get_share_max_cpu()
     {
         return host_share.max_cpu;
     }
 
-    int get_share_free_disk()
+    long long get_share_free_disk()
     {
         return host_share.free_disk;
     }
 
-    int get_share_free_mem()
+    long long get_share_free_mem()
     {
         return host_share.free_mem;
     }
 
-    int get_share_free_cpu()
+    long long get_share_free_cpu()
     {
         return host_share.free_cpu;
     }
 
-    int get_share_used_disk()
+    long long get_share_used_disk()
     {
         return host_share.used_disk;
     }
 
-    int get_share_used_mem()
+    long long get_share_used_mem()
     {
         return host_share.used_mem;
     }
 
-    int get_share_used_cpu()
+    long long get_share_used_cpu()
     {
         return host_share.used_cpu;
     }
 
     /**
-     *  Adds a new VM to the given share by icrementing the cpu,mem and disk
+     *  Adds a new VM to the given share by incrementing the cpu, mem and disk
      *  counters
+     *    @param vm_id id of the vm to add to the host
      *    @param cpu needed by the VM (percentage)
-     *    @param mem needed by the VM (in Kb)
+     *    @param mem needed by the VM (in KB)
      *    @param disk needed by the VM
      *    @return 0 on success
      */
-    void add_capacity(int cpu, int mem, int disk)
+    void add_capacity(int vm_id, long long cpu, long long mem, long long disk)
     {
-        host_share.add(cpu,mem,disk);
+        if ( vm_collection.add_collection_id(vm_id) == 0 )
+        {
+            host_share.add(cpu,mem,disk);
+        }
+        else
+        {
+            ostringstream oss;
+            oss << "Trying to add VM " << vm_id
+                << ", that it is already associated to host " << oid << ".";
+
+            NebulaLog::log("ONE", Log::ERROR, oss);
+        }
     };
 
     /**
      *  Deletes a new VM from the given share by decrementing the cpu,mem and
      *  disk counters
-     *    @param cpu useded by the VM (percentage)
-     *    @param mem used by the VM (in Kb)
+     *    @param vm_id id of the vm to delete from the host
+     *    @param cpu used by the VM (percentage)
+     *    @param mem used by the VM (in KB)
      *    @param disk used by the VM
      *    @return 0 on success
      */
-    void del_capacity(int cpu, int mem, int disk)
+    void del_capacity(int vm_id, long long cpu, long long mem, long long disk)
     {
-        host_share.del(cpu,mem,disk);
+        if ( vm_collection.del_collection_id(vm_id) == 0 )
+        {
+            host_share.del(cpu,mem,disk);
+        }
+        else
+        {
+            ostringstream oss;
+            oss << "Trying to remove VM " << vm_id
+                << ", that it is not associated to host " << oid << ".";
+
+            NebulaLog::log("ONE", Log::ERROR, oss);
+        }
+    };
+
+    /**
+     *  Updates the capacity used in a host when a VM is resized
+     *  counters
+     *    @param cpu increment of cpu requested by the VM
+     *    @param mem increment of memory requested by the VM
+     *    @param disk not used
+     *    @return 0 on success
+     */
+    void update_capacity(int cpu, int mem, int disk)
+    {
+        host_share.update(cpu,mem,disk);
     };
 
     /**
@@ -303,9 +442,17 @@ public:
      *    @param disk needed by the VM
      *    @return true if the share can host the VM
      */
-    bool test_capacity(int cpu, int mem, int disk)
+    bool test_capacity(long long cpu, long long mem, long long disk)
     {
-        return host_share.test(cpu,mem,disk);
+        return host_share.test(cpu, mem, disk);
+    }
+
+    /**
+     *  Returns a copy of the VM IDs set
+     */
+    set<int> get_vm_ids()
+    {
+        return vm_collection.get_collection_copy();
     }
 
     /**
@@ -315,6 +462,13 @@ public:
     {
         return new HostTemplate;
     }
+
+
+    /**
+     *  Executed after an update operation to process the new template
+     *    - encrypt VCENTER_PASSWORD attribute.
+     */
+    int post_update_template(string& error);
 
 private:
 
@@ -360,6 +514,27 @@ private:
      *  The Share represents the logical capacity associated with the host
      */
     HostShare       host_share;
+
+    /**
+     * Tmp set of lost VM IDs. Used to give lost VMs one grace cycle, in case
+     * they reappear.
+     */
+    set<int>        tmp_lost_vms;
+
+    /**
+     * Tmp set of zombie VM IDs. Used to give zombie VMs one grace cycle, in
+     * case they are cleaned.
+     */
+    set<int>        tmp_zombie_vms;
+
+    // -------------------------------------------------------------------------
+    //  VM Collection
+    // -------------------------------------------------------------------------
+    /**
+     *  Stores a collection with the VMs running in the host
+     */
+    ObjectCollection vm_collection;
+
 
     // *************************************************************************
     // Constructor

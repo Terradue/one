@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,8 +26,8 @@ import org.w3c.dom.Node;
  * It also offers static XML-RPC call wrappers.
  */
 public class VirtualMachine extends PoolElement{
-
     private static final String METHOD_PREFIX = "vm.";
+
     private static final String ALLOCATE = METHOD_PREFIX + "allocate";
     private static final String INFO     = METHOD_PREFIX + "info";
     private static final String DEPLOY   = METHOD_PREFIX + "deploy";
@@ -37,6 +37,17 @@ public class VirtualMachine extends PoolElement{
     private static final String CHOWN    = METHOD_PREFIX + "chown";
     private static final String CHMOD    = METHOD_PREFIX + "chmod";
     private static final String MONITORING = METHOD_PREFIX + "monitoring";
+    private static final String ATTACH  = METHOD_PREFIX + "attach";
+    private static final String DETACH  = METHOD_PREFIX + "detach";
+    private static final String RENAME  = METHOD_PREFIX + "rename";
+    private static final String UPDATE  = METHOD_PREFIX + "update";
+    private static final String RESIZE  = METHOD_PREFIX + "resize";
+    private static final String ATTACHNIC = METHOD_PREFIX + "attachnic";
+    private static final String DETACHNIC = METHOD_PREFIX + "detachnic";
+    private static final String SNAPSHOTCREATE = METHOD_PREFIX + "snapshotcreate";
+    private static final String SNAPSHOTREVERT = METHOD_PREFIX + "snapshotrevert";
+    private static final String SNAPSHOTDELETE = METHOD_PREFIX + "snapshotdelete";
+    private static final String RECOVER = METHOD_PREFIX + "recover";
 
     private static final String[] VM_STATES =
     {
@@ -47,7 +58,9 @@ public class VirtualMachine extends PoolElement{
         "STOPPED",
         "SUSPENDED",
         "DONE",
-        "FAILED" };
+        "FAILED",
+        "POWEROFF",
+        "UNDEPLOYED" };
 
     private static final String[] SHORT_VM_STATES =
     {
@@ -58,7 +71,9 @@ public class VirtualMachine extends PoolElement{
         "stop",
         "susp",
         "done",
-        "fail" };
+        "fail",
+        "poff",
+        "unde" };
 
     private static final String[] LCM_STATE =
     {
@@ -77,28 +92,86 @@ public class VirtualMachine extends PoolElement{
         "SHUTDOWN",
         "CANCEL",
         "FAILURE",
-        "CLEANUP",
-        "UNKNOWN" };
+        "CLEANUP_RESUBMIT",
+        "UNKNOWN",
+        "HOTPLUG",
+        "SHUTDOWN_POWEROFF",
+        "BOOT_UNKNOWN",
+        "BOOT_POWEROFF",
+        "BOOT_SUSPENDED",
+        "BOOT_STOPPED",
+        "CLEANUP_DELETE",
+        "HOTPLUG_SNAPSHOT",
+        "HOTPLUG_NIC",
+        "HOTPLUG_SAVEAS",
+        "HOTPLUG_SAVEAS_POWEROFF",
+        "HOTPLUG_SAVEAS_SUSPENDED",
+        "SHUTDOWN_UNDEPLOY",
+        "EPILOG_UNDEPLOY",
+        "PROLOG_UNDEPLOY",
+        "BOOT_UNDEPLOY",
+        "HOTPLUG_PROLOG_POWEROFF",
+        "HOTPLUG_EPILOG_POWEROFF",
+        "BOOT_MIGRATE",
+        "BOOT_FAILURE",
+        "BOOT_MIGRATE_FAILURE",
+        "PROLOG_MIGRATE_FAILURE",
+        "PROLOG_FAILURE",
+        "EPILOG_FAILURE",
+        "EPILOG_STOP_FAILURE",
+        "EPILOG_UNDEPLOY_FAILURE",
+        "PROLOG_MIGRATE_POWEROFF",
+        "PROLOG_MIGRATE_POWEROFF_FAILURE"
+    };
 
     private static final String[] SHORT_LCM_STATES =
     {
-        null,
-        "prol",
-        "boot",
-        "runn",
-        "migr",
-        "save",
-        "save",
-        "save",
-        "migr",
-        "prol",
-        "epil",
-        "epil",
-        "shut",
-        "shut",
-        "fail",
-        "dele",
-        "unkn" };
+        "",         // LCM_INIT
+        "prol",     // PROLOG
+        "boot",     // BOOT
+        "runn",     // RUNNING
+        "migr",     // MIGRATE
+        "save",     // SAVE_STOP
+        "save",     // SAVE_SUSPEND
+        "save",     // SAVE_MIGRATE
+        "migr",     // PROLOG_MIGRATE
+        "prol",     // PROLOG_RESUME
+        "epil",     // EPILOG_STOP
+        "epil",     // EPILOG
+        "shut",     // SHUTDOWN
+        "shut",     // CANCEL
+        "fail",     // FAILURE
+        "clea",     // CLEANUP_RESUBMIT
+        "unkn",     // UNKNOWN
+        "hotp",     // HOTPLUG
+        "shut",     // SHUTDOWN_POWEROFF
+        "boot",     // BOOT_UNKNOWN
+        "boot",     // BOOT_POWEROFF
+        "boot",     // BOOT_SUSPENDED
+        "boot",     // BOOT_STOPPED
+        "clea",     // CLEANUP_DELETE
+        "snap",     // HOTPLUG_SNAPSHOT
+        "hotp",     // HOTPLUG_NIC
+        "hotp",     // HOTPLUG_SAVEAS
+        "hotp",     // HOTPLUG_SAVEAS_POWEROFF
+        "hotp",     // HOTPLUG_SAVEAS_SUSPENDED
+        "shut",     // SHUTDOWN_UNDEPLOY
+        "epil",     // EPILOG_UNDEPLOY
+        "prol",     // PROLOG_UNDEPLOY
+        "boot",     // BOOT_UNDEPLOY
+        "hotp",     // HOTPLUG_PROLOG_POWEROFF
+        "hotp",     // HOTPLUG_EPILOG_POWEROFF
+        "boot",     // BOOT_MIGRATE
+        "fail",     // BOOT_FAILURE
+        "fail",     // BOOT_MIGRATE_FAILURE
+        "fail",     // PROLOG_MIGRATE_FAILURE
+        "fail",     // PROLOG_FAILURE
+        "fail",     // EPILOG_FAILURE
+        "fail",     // EPILOG_STOP_FAILURE
+        "fail",     // EPILOG_UNDEPLOY_FAILURE
+        "migr",     // PROLOG_MIGRATE_POWEROFF
+        "fail"      // PROLOG_MIGRATE_POWEROFF_FAILURE
+    };   
 
     /**
      * Creates a new VM representation.
@@ -119,7 +192,6 @@ public class VirtualMachine extends PoolElement{
         super(xmlElement, client);
     }
 
-
     // =================================
     // Static XML-RPC methods
     // =================================
@@ -134,7 +206,56 @@ public class VirtualMachine extends PoolElement{
      */
     public static OneResponse allocate(Client client, String description)
     {
-        return client.call(ALLOCATE, description);
+        return allocate(client, description, false);
+    }
+
+    /**
+     * Allocates a new VM in OpenNebula.
+     *
+     * @param client XML-RPC Client.
+     * @param description A string containing the template of the vm.
+     * @param onHold False to create this VM in pending state, true on hold
+     * @return If successful the message contains the associated
+     * id generated for this VM.
+     */
+    public static OneResponse allocate(Client client, String description,
+        boolean onHold)
+    {
+        return client.call(ALLOCATE, description, onHold);
+    }
+
+    /**
+     * Replaces the user template contents for the given VM.
+     *
+     * @param client XML-RPC Client.
+     * @param id The id of the target vm.
+     * @param new_template New template contents
+     * @param append True to append new attributes instead of replace the whole template
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse update(Client client, int id, String new_template,
+        boolean append)
+    {
+        return client.call(UPDATE, id, new_template, append ? 1 : 0);
+    }
+
+    /**
+     * Resizes the VM capacity
+     *
+     * @param client XML-RPC Client.
+     * @param id The id of the target vm.
+     * @param capacityTemplate Template containing the new capacity
+     *   elements CPU, VCPU, MEMORY. If one of them is not present, or its
+     *   value is 0, it will not be resized
+     * @param enforce If it is set to true, the host capacity
+     *   will be checked. This will only affect oneadmin requests, regular users
+     *   resize requests will always be enforced
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse resize(Client client, int id,
+        String capacityTemplate, boolean enforce)
+    {
+        return client.call(RESIZE, id, capacityTemplate, enforce);
     }
 
     /**
@@ -230,6 +351,152 @@ public class VirtualMachine extends PoolElement{
         return client.call(MONITORING, id);
     }
 
+    /**
+     * Attaches a disk to a running VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param diskTemplate Template containing the new DISK definition
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse diskAttach(Client client, int id,
+            String diskTemplate)
+    {
+        return client.call(ATTACH, id, diskTemplate);
+    }
+
+    /**
+     * Detaches a disk from a running VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param diskId The DISK_ID of the disk to detach
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse diskDetach(Client client, int id,
+            int diskId)
+    {
+        return client.call(DETACH, id, diskId);
+    }
+
+
+    /**
+     * Sets the specified vm's disk to be saved in a new image.
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param diskId ID of the disk to be saved.
+     * @param imageName Name of the new Image that will be created.
+     * @param imageType Type of the new image. Set to empty string to use
+     * the default type
+     * @param hot True to save the disk immediately, false will perform
+     * the operation when the VM shuts down
+     * @param doTemplate True to clone also the VM originating template
+     * and replace the disk with the saved image
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse diskSnapshot(Client client, int id,
+        int diskId, String imageName, String imageType,
+        boolean hot, boolean doTemplate)
+    {
+        return client.call(SAVEDISK, id ,diskId, imageName, imageType,
+                            hot, doTemplate);
+    }
+
+    /**
+     * Attaches a NIC to a running VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param nicTemplate Template containing the new NIC definition
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse nicAttach(Client client, int id,
+            String nicTemplate)
+    {
+        return client.call(ATTACHNIC, id, nicTemplate);
+    }
+
+    /**
+     * Detaches a NIC from a running VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param nicId The NIC_ID of the NIC to detach
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse nicDetach(Client client, int id,
+            int nicId)
+    {
+        return client.call(DETACHNIC, id, nicId);
+    }
+
+    /**
+     * Renames this VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The VM id of the target VM.
+     * @param name New name for the VM.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse rename(Client client, int id, String name)
+    {
+        return client.call(RENAME, id, name);
+    }
+
+    /**
+     * Creates a new VM snapshot
+     *
+     * @param client XML-RPC Client.
+     * @param id The VM id of the target VM.
+     * @param name Name for the snapshot.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse snapshotCreate(Client client, int id, String name)
+    {
+        return client.call(SNAPSHOTCREATE, id, name);
+    }
+
+    /**
+     * Reverts to a snapshot
+     *
+     * @param client XML-RPC Client.
+     * @param id The VM id of the target VM.
+     * @param snapId Id of the snapshot
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse snapshotRevert(Client client, int id, int snapId)
+    {
+        return client.call(SNAPSHOTREVERT, id, snapId);
+    }
+
+    /**
+     * Deletes a VM snapshot.
+     *
+     * @param client XML-RPC Client.
+     * @param id The VM id of the target VM.
+     * @param snapId Id of the snapshot
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse snapshotDelete(Client client, int id, int snapId)
+    {
+        return client.call(SNAPSHOTDELETE, id, snapId);
+    }
+
+    /**
+     * Recovers a stuck VM.
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param operation to recover the VM: (0) failure, (1) success or (2)
+     * retry
+     * @return If an error occurs the error message contains the reason.
+     */
+    public static OneResponse recover(Client client, int id, int operation)
+    {
+        return client.call(RECOVER, id, operation);
+    }
+
     // =================================
     // Instanced object XML-RPC methods
     // =================================
@@ -252,11 +519,28 @@ public class VirtualMachine extends PoolElement{
      *
      * @param hostId The host id (hid) of the target host where
      * the VM will be instantiated.
+     * @param enforce If it is set to true, the host capacity
+     * will be checked, and the deployment will fail if the host is
+     * overcommited. Defaults to false
+     * @param dsId The System Datastore where to deploy the VM. To use the
+     * default, set it to -1
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse deploy(int hostId, boolean enforce, int dsId)
+    {
+        return client.call(DEPLOY, id, hostId, enforce, dsId);
+    }
+
+    /**
+     * Initiates the instance of the VM on the target host.
+     *
+     * @param hostId The host id (hid) of the target host where
+     * the VM will be instantiated.
      * @return If an error occurs the error message contains the reason.
      */
     public OneResponse deploy(int hostId)
     {
-        return client.call(DEPLOY, id, hostId);
+        return deploy(hostId, false, -1);
     }
 
     /**
@@ -264,21 +548,25 @@ public class VirtualMachine extends PoolElement{
      * <br/>
      * It is recommended to use the helper methods instead:
      * <ul>
-     * <li>{@link VirtualMachine#shutdown()}</li>
-     * <li>{@link VirtualMachine#reboot()}</li>
-     * <li>{@link VirtualMachine#cancel()}</li>
+     * <li>{@link VirtualMachine#shutdown(boolean)}</li>
+     * <li>{@link VirtualMachine#reboot(boolean)}</li>
      * <li>{@link VirtualMachine#hold()}</li>
      * <li>{@link VirtualMachine#release()}</li>
      * <li>{@link VirtualMachine#stop()}</li>
      * <li>{@link VirtualMachine#suspend()}</li>
      * <li>{@link VirtualMachine#resume()}</li>
-     * <li>{@link VirtualMachine#finalizeVM()}</li>
-     * <li>{@link VirtualMachine#restart()}</li>
+     * <li>{@link VirtualMachine#delete(boolean)}</li>
+     * <li>{@link VirtualMachine#boot()}</li>
+     * <li>{@link VirtualMachine#poweroff()}</li>
+     * <li>{@link VirtualMachine#resched()}</li>
+     * <li>{@link VirtualMachine#unresched()}</li>
+     * <li>{@link VirtualMachine#undeploy(boolean)}</li>
      * </ul>
      *
      * @param action The action name to be performed, can be:<br/>
-     * "shutdown", "reboot", "hold", "release", "stop", "cancel", "suspend",
-     * "resume", "restart", "finalize".
+     * "shutdown", "hold", "release", "stop", "shutdown-hard", "suspend",
+     * "resume", "boot", "delete", "delete-recreate", "reboot", "resched",
+     * "unresched", "reboot-hard", "poweroff", "undeploy", "undeploy-hard"
      * @return If an error occurs the error message contains the reason.
      */
     protected OneResponse action(String action)
@@ -293,39 +581,39 @@ public class VirtualMachine extends PoolElement{
      * the vm.
      * @param live If true we are indicating that we want livemigration,
      * otherwise false.
+     * @param enforce If it is set to true, the host capacity
+     * will be checked, and the deployment will fail if the host is
+     * overcommited. Defaults to false
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse migrate(int hostId, boolean live, boolean enforce)
+    {
+        return client.call(MIGRATE, id, hostId, live, enforce);
+    }
+
+    /**
+     * Migrates the virtual machine to the target host (hid).
+     *
+     * @param hostId The target host id (hid) where we want to migrate
+     * the vm.
+     * @param live If true the migration is done without downtime.
      * @return If an error occurs the error message contains the reason.
      */
     public OneResponse migrate(int hostId, boolean live)
     {
-        return client.call(MIGRATE, id, hostId, live);
+        return migrate(hostId, live, false);
     }
 
     /**
-     * Sets the specified vm's disk to be saved in a new image when the
-     * VirtualMachine shutdowns.
+     * Migrates the virtual machine to the target host (hid).
      *
-     * @param diskId ID of the disk to be saved.
-     * @param imageName Name of the new Image that will be created.
+     * @param hostId The target host id (hid) where we want to migrate
+     * the vm.
      * @return If an error occurs the error message contains the reason.
      */
-    public OneResponse savedisk(int diskId, String imageName)
+    public OneResponse migrate(int hostId)
     {
-        return savedisk(diskId, imageName, "");
-    }
-
-    /**
-     * Sets the specified vm's disk to be saved in a new image when the
-     * VirtualMachine shutdowns.
-     *
-     * @param diskId ID of the disk to be saved.
-     * @param imageName Name of the new Image that will be created.
-     * @param imageType Type of the new image. Set to empty string to use
-     * the default type
-     * @return If an error occurs the error message contains the reason.
-     */
-    public OneResponse savedisk(int diskId, String imageName, String imageType)
-    {
-        return client.call(SAVEDISK, id ,diskId, imageName, imageType);
+        return migrate(hostId, false, false);
     }
 
     /**
@@ -361,7 +649,6 @@ public class VirtualMachine extends PoolElement{
     {
         return chown(-1, gid);
     }
-
 
     /**
      * Changes the VM permissions
@@ -420,17 +707,250 @@ public class VirtualMachine extends PoolElement{
         return monitoring(client, id);
     }
 
+    /**
+     * Attaches a disk to a running VM
+     *
+     * @param diskTemplate Template containing the new DISK definition
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse diskAttach(String diskTemplate)
+    {
+        return diskAttach(client, id, diskTemplate);
+    }
+
+    /**
+     * Detaches a disk from a running VM
+     *
+     * @param diskId The DISK_ID of the disk to detach
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse diskDetach(int diskId)
+    {
+        return detachdisk(client, id, diskId);
+    }
+
+    /**
+     * Sets the specified vm's disk to be saved in a new image.
+     *
+     * @param diskId ID of the disk to be saved.
+     * @param imageName Name of the new Image that will be created.
+     * @param imageType Type of the new image. Set to empty string to use
+     * the default type
+     * @param hot True to save the disk immediately, false will perform
+     * the operation when the VM shuts down
+     * @param doTemplate True to clone also the VM originating template
+     * and replace the disk with the saved image
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse diskSnapshot(int diskId, String imageName,
+        String imageType, boolean hot, boolean doTemplate)
+    {
+        return diskSnapshot(client, id, diskId, imageName, imageType,
+                            hot, doTemplate);
+    }
+
+    /**
+     * Sets the specified vm's disk to be saved in a new image when the
+     * VirtualMachine shuts down.
+     *
+     * @param diskId ID of the disk to be saved.
+     * @param imageName Name of the new Image that will be created.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse diskSnapshot(int diskId, String imageName)
+    {
+        return diskSnapshot(diskId, imageName, "", false, false);
+    }
+
+    /**
+     * Sets the specified vm's disk to be saved in a new image.
+     *
+     * @param diskId ID of the disk to be saved.
+     * @param imageName Name of the new Image that will be created.
+     * @param hot True to save the disk immediately, false will perform
+     * the operation when the VM shuts down
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse diskSnapshot(int diskId, String imageName, boolean hot)
+    {
+        return diskSnapshot(diskId, imageName, "", hot, false);
+    }
+
+    /**
+     * Attaches a NIC to a running VM
+     *
+     * @param nicTemplate Template containing the new NIC definition
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse nicAttach(String nicTemplate)
+    {
+        return nicAttach(client, id, nicTemplate);
+    }
+
+    /**
+     * Detaches a NIC from a running VM
+     *
+     * @param nicId The NIC_ID of the NIC to detach
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse nicDetach(int nicId)
+    {
+        return nicDetach(client, id, nicId);
+    }
+
+    /**
+     * Renames this VM
+     *
+     * @param name New name for the VM.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse rename(String name)
+    {
+        return rename(client, id, name);
+    }
+
+    /**
+     * Replaces this VM's user template contents.
+     *
+     * @param new_template New template contents
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse update(String new_template)
+    {
+        return update(new_template, false);
+    }
+
+    /**
+     * Replaces this VM's user template contents.
+     *
+     * @param new_template New template contents
+     * @param append True to append new attributes instead of replace the whole template
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse update(String new_template, boolean append)
+    {
+        return update(client, id, new_template, append);
+    }
+
+    /**
+     * Resizes this VM's capacity
+     *
+     * @param capacityTemplate Template containing the new capacity
+     *   elements CPU, VCPU, MEMORY. If one of them is not present, or its
+     *   value is 0, it will not be resized
+     * @param enforce If it is set to true, the host capacity
+     *   will be checked. This will only affect oneadmin requests, regular users
+     *   resize requests will always be enforced
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse resize(String capacityTemplate, boolean enforce)
+    {
+        return resize(client, id, capacityTemplate, enforce);
+    }
+
+    /**
+     * Creates a new VM snapshot
+     *
+     * @param name Name for the snapshot.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse snapshotCreate(String name)
+    {
+        return snapshotCreate(client, id, name);
+    }
+
+    /**
+     * Reverts to a snapshot
+     *
+     * @param snapId Id of the snapshot
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse snapshotRevert(int snapId)
+    {
+        return snapshotRevert(client, id, snapId);
+    }
+
+    /**
+     * Deletes a VM snapshot
+     *
+     * @param snapId Id of the snapshot
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse snapshotDelete(int snapId)
+    {
+        return snapshotDelete(client, id, snapId);
+    }
+
+    /**
+     * Recovers a stuck VM.
+     *
+     * @param success recover by succeeding the missing transaction if true.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse recover(boolean success)
+    {
+        return recover(client, id, success);
+    }
+
     // =================================
     // Helpers
     // =================================
 
     /**
-     * Shuts down the already deployed VM.
+     * Gracefully shuts down the already deployed VM.
      * @return If an error occurs the error message contains the reason.
      */
     public OneResponse shutdown()
     {
-        return action("shutdown");
+        return shutdown(false);
+    }
+
+    /**
+     * Shuts down the already deployed VM.
+     * @param hard True to perform a hard (no acpi) shutdown, false for a
+     * graceful shutdown
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse shutdown(boolean hard)
+    {
+        String actionSt = hard ? "shutdown-hard" : "shutdown";
+
+        return action(actionSt);
+    }
+
+    /**
+     * Undeploy a running VM, it preserve its resources and disk modifications.
+     * @param hard True to perform a hard (no acpi) shutdown, false for a
+     * graceful shutdown
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse undeploy(boolean hard)
+    {
+        String actionSt = hard ? "undeploy-hard" : "undeploy";
+
+        return action(actionSt);
+    }
+
+    /**
+     * Powers off a running VM.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse poweroff()
+    {
+        return poweroff(false);
+    }
+
+    /**
+     * Powers off a running VM.
+     * @param hard True to perform a hard (no acpi) shutdown, false for a
+     * graceful shutdown
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse poweroff(boolean hard)
+    {
+        String actionSt = hard ? "poweroff-hard" : "poweroff";
+
+        return action(actionSt);
     }
 
     /**
@@ -443,21 +963,16 @@ public class VirtualMachine extends PoolElement{
     }
 
     /**
-     * Resets a running VM.
+     * Reboots a running VM.
+     * @param hard True to perform a hard (no acpi) reboot, false for a
+     * graceful reboot
      * @return If an error occurs the error message contains the reason.
      */
-    public OneResponse reset()
+    public OneResponse reboot(boolean hard)
     {
-        return action("reset");
-    }
+        String actionSt = hard ? "reboot-hard" : "reboot";
 
-    /**
-     * Cancels the running VM.
-     * @return If an error occurs the error message contains the reason.
-     */
-    public OneResponse cancel()
-    {
-        return action("cancel");
+        return action(actionSt);
     }
 
     /**
@@ -512,27 +1027,30 @@ public class VirtualMachine extends PoolElement{
      * Deletes the VM from the pool and database.
      * @return If an error occurs the error message contains the reason.
      */
-    public OneResponse finalizeVM()
+    public OneResponse delete()
     {
-        return action("finalize");
+        return delete(false);
     }
 
     /**
-     * Forces a re-deployment of a VM in UNKNOWN or BOOT state.
+     * Deletes the VM from the pool and database.
+     * @param recreate True to recreate the VM in the pending state.
      * @return If an error occurs the error message contains the reason.
      */
-    public OneResponse restart()
+    public OneResponse delete(boolean recreate)
     {
-        return action("shutdown");
+        String actionSt = recreate ? "delete-recreate" : "delete";
+
+        return action(actionSt);
     }
 
     /**
-     * Resubmits a VM to PENDING state.
+     * Forces a re-deployment of a VM in UNKNOWN or BOOT states.
      * @return If an error occurs the error message contains the reason.
      */
-    public OneResponse resubmit()
+    public OneResponse boot()
     {
-        return action("resubmit");
+        return action("boot");
     }
 
     /**
@@ -551,37 +1069,6 @@ public class VirtualMachine extends PoolElement{
     public OneResponse unresched()
     {
         return action("unresched");
-    }
-
-    /**
-     * Migrates the virtual machine to the target host (hid).
-     * <br/>
-     * It does the same as {@link VirtualMachine#migrate(int, boolean)}
-     * with live set to false.
-     *
-     * @param hostId The target host id (hid) where we want to migrate
-     * the vm.
-     * @return If an error occurs the error message contains the reason.
-     */
-    public OneResponse migrate(int hostId)
-    {
-        return migrate(hostId, false);
-    }
-
-    /**
-     * Performs a live migration of the virtual machine to the
-     * target host (hid).
-     * <br/>
-     * It does the same as {@link VirtualMachine#migrate(int, boolean)}
-     * with live set to true.
-     *
-     * @param hostId The target host id (hid) where we want to migrate
-     * the vm.
-     * @return If an error occurs the error message contains the reason.
-     */
-    public OneResponse liveMigrate(int hostId)
-    {
-        return migrate(hostId, true);
     }
 
     public int state()
@@ -640,4 +1127,139 @@ public class VirtualMachine extends PoolElement{
         return shortStateStr;
     }
 
+    // =================================
+    // Deprecated methods
+    // =================================
+
+    /**
+     * Attaches a disk to a running VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param diskTemplate Template containing the new DISK definition
+     * @return If an error occurs the error message contains the reason.
+     * @deprecated  Replaced by {@link #diskAttach}
+     */
+    @Deprecated public static OneResponse attachdisk(Client client, int id,
+            String diskTemplate)
+    {
+        return diskAttach(client, id, diskTemplate);
+    }
+
+    /**
+     * Detaches a disk from a running VM
+     *
+     * @param client XML-RPC Client.
+     * @param id The virtual machine id (vid) of the target instance.
+     * @param diskId The DISK_ID of the disk to detach
+     * @return If an error occurs the error message contains the reason.
+     * @deprecated  Replaced by {@link #diskDetach}
+     */
+    @Deprecated public static OneResponse detachdisk(Client client, int id,
+            int diskId)
+    {
+        return diskDetach(client, id, diskId);
+    }
+
+    /**
+     * @deprecated  Replaced by {@link #diskSnapshot(int,String)}
+     */
+    @Deprecated public OneResponse savedisk(int diskId, String imageName)
+    {
+        return diskSnapshot(diskId, imageName);
+    }
+
+    /**
+     * @deprecated  Replaced by {@link #diskSnapshot(int,String,String,boolean,boolean)}
+     */
+    public OneResponse savedisk(int diskId, String imageName, String imageType)
+    {
+        return diskSnapshot(diskId, imageName, imageType, false, false);
+    }
+
+    /**
+     * @deprecated  Replaced by {@link #diskAttach(String)}
+     */
+    @Deprecated public OneResponse attachdisk(String diskTemplate)
+    {
+        return diskAttach(diskTemplate);
+    }
+
+    @Deprecated public OneResponse detachdisk(int diskId)
+    {
+        return diskDetach(diskId);
+    }
+
+    /**
+     * Cancels the running VM.
+     * @return If an error occurs the error message contains the reason.
+     *
+     * @deprecated  Replaced by hard shutdown {@link #shutdown(boolean)}
+     */
+    @Deprecated public OneResponse cancel()
+    {
+        return action("cancel");
+    }
+
+    /**
+     * Resets a running VM.
+     * @return If an error occurs the error message contains the reason.
+     *
+     * @deprecated  Replaced by hard reboot {@link #reboot(boolean)}
+     */
+    @Deprecated public OneResponse reset()
+    {
+        return action("reset");
+    }
+
+    /**
+     * Deletes the VM from the pool and database.
+     * @return If an error occurs the error message contains the reason.
+     *
+     * @deprecated  Replaced by {@link #delete}
+     */
+    @Deprecated public OneResponse finalizeVM()
+    {
+        return action("finalize");
+    }
+
+    /**
+     * Resubmits a VM to PENDING state.
+     * @return If an error occurs the error message contains the reason.
+     *
+     * @deprecated  Replaced by delete and recreate {@link #delete(boolean)}
+     */
+    @Deprecated public OneResponse resubmit()
+    {
+        return action("resubmit");
+    }
+
+    /**
+     * Forces a re-deployment of a VM in UNKNOWN or BOOT states.
+     * @return If an error occurs the error message contains the reason.
+     *
+     * @deprecated  Replaced by {@link #boot}
+     */
+    @Deprecated public OneResponse restart()
+    {
+        return action("restart");
+    }
+
+    /**
+     * Performs a live migration of the virtual machine to the
+     * target host (hid).
+     * <br/>
+     * It does the same as {@link VirtualMachine#migrate(int, boolean)}
+     * with live set to true.
+     *
+     * @param hostId The target host id (hid) where we want to migrate
+     * the vm.
+     * @return If an error occurs the error message contains the reason.
+     *
+     * @deprecated  Replaced by {@link #migrate}
+     */
+    @Deprecated public OneResponse liveMigrate(int hostId)
+    {
+        return migrate(hostId, false);
+    }
 }

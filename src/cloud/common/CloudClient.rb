@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -48,6 +48,10 @@ end
 # Cloud Client
 ###############################################################################
 module CloudClient
+
+    # OpenNebula version
+    VERSION = '4.12.0'
+
     # #########################################################################
     # Default location for the authentication file
     # #########################################################################
@@ -79,7 +83,16 @@ module CloudClient
     # is set if needed.
     # #########################################################################
     def self.http_start(url, timeout, &block)
-        http = Net::HTTP.new(url.host, url.port)
+        host = nil
+        port = nil
+
+        if ENV['http_proxy']
+            uri_proxy  = URI.parse(ENV['http_proxy'])
+            host = uri_proxy.host
+            port = uri_proxy.port
+        end
+
+        http = Net::HTTP::Proxy(host, port).new(url.host, url.port)
 
         if timeout
             http.read_timeout = timeout.to_i
@@ -109,6 +122,12 @@ module CloudClient
             str << "Server: #{url.host}:#{url.port}"
 
             return CloudClient::Error.new(str,"504")
+        rescue SocketError => e
+            str =  "Error timeout while connected to server (#{e.to_s}).\n"
+
+            return CloudClient::Error.new(str,"503")
+        rescue
+            return CloudClient::Error.new($!.to_s,"503")
         end
 
         if res.is_a?(Net::HTTPSuccess)
@@ -152,7 +171,7 @@ module CloudCLI
         begin
             doc = REXML::Document.new(xml_text)
         rescue REXML::ParseException => e
-            return e.message, -1 
+            return e.message, -1
         end
 
         xml = doc.root
@@ -170,19 +189,19 @@ module CloudCLI
         else
             str = xml.to_s
         end
-        
+
         return str, 0
     end
-    
+
     # Returns the command name
     def cmd_name
         File.basename($0)
     end
-    
+
     def version_text
         version=<<EOT
-OpenNebula 3.5.0
-Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+OpenNebula #{CloudClient::VERSION}
+Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License. You may obtain

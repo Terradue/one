@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -29,7 +29,7 @@
 usage() {
  echo
  echo "Usage: install.sh [-u install_user] [-g install_group] [-k keep conf]"
- echo "                  [-d ONE_LOCATION] [-c occi|ec2] [-r] [-h]"
+ echo "                  [-d ONE_LOCATION] [-c cli|ec2] [-r] [-h]"
  echo
  echo "-u: user that will run opennebula, defaults to user executing install.sh"
  echo "-g: group of the user that will run opennebula, defaults to user"
@@ -39,9 +39,10 @@ usage() {
  echo "    OpenNebula for the first time"
  echo "-d: target installation directory, if not defined it'd be root. Must be"
  echo "    an absolute path."
- echo "-c: install client utilities: OpenNebula cli, occi and ec2 client files"
+ echo "-c: install client utilities: OpenNebula cli and ec2 client files"
  echo "-s: install OpenNebula Sunstone"
- echo "-o: install OpenNebula Zones (OZones)"
+ echo "-G: install OpenNebula Gate"
+ echo "-f: install OpenNebula Flow"
  echo "-r: remove Opennebula, only useful if -d was not specified, otherwise"
  echo "    rm -rf \$ONE_LOCATION would do the job"
  echo "-l: creates symlinks instead of copying files, useful for development"
@@ -49,7 +50,13 @@ usage() {
 }
 #-------------------------------------------------------------------------------
 
-TEMP_OPT=`getopt -o hkrlcsou:g:d: -n 'install.sh' -- "$@"`
+PARAMETERS="hkrlcsou:g:d:"
+
+if [ $(getopt --version | tr -d " ") = "--" ]; then
+    TEMP_OPT=`getopt $PARAMETERS "$@"`
+else
+    TEMP_OPT=`getopt -o $PARAMETERS -n 'install.sh' -- "$@"`
+fi
 
 if [ $? != 0 ] ; then
     usage
@@ -62,8 +69,9 @@ INSTALL_ETC="yes"
 UNINSTALL="no"
 LINK="no"
 CLIENT="no"
+ONEGATE="no"
 SUNSTONE="no"
-OZONES="no"
+ONEFLOW="no"
 ONEADMIN_USER=`id -u`
 ONEADMIN_GROUP=`id -g`
 SRC_DIR=$PWD
@@ -75,8 +83,9 @@ while true ; do
         -r) UNINSTALL="yes"   ; shift ;;
         -l) LINK="yes" ; shift ;;
         -c) CLIENT="yes"; INSTALL_ETC="no" ; shift ;;
+        -G) ONEGATE="yes"; shift ;;
         -s) SUNSTONE="yes"; shift ;;
-        -o) OZONES="yes"; shift ;;
+        -f) ONEFLOW="yes"; shift ;;
         -u) ONEADMIN_USER="$2" ; shift 2;;
         -g) ONEADMIN_GROUP="$2"; shift 2;;
         -d) ROOT="$2" ; shift 2 ;;
@@ -97,8 +106,9 @@ if [ -z "$ROOT" ] ; then
     ETC_LOCATION="/etc/one"
     LOG_LOCATION="/var/log/one"
     VAR_LOCATION="/var/lib/one"
+    ONEGATE_LOCATION="$LIB_LOCATION/onegate"
     SUNSTONE_LOCATION="$LIB_LOCATION/sunstone"
-    OZONES_LOCATION="$LIB_LOCATION/ozones"
+    ONEFLOW_LOCATION="$LIB_LOCATION/oneflow"
     SYSTEM_DS_LOCATION="$VAR_LOCATION/datastores/0"
     DEFAULT_DS_LOCATION="$VAR_LOCATION/datastores/1"
     RUN_LOCATION="/var/run/one"
@@ -106,6 +116,8 @@ if [ -z "$ROOT" ] ; then
     INCLUDE_LOCATION="/usr/include"
     SHARE_LOCATION="/usr/share/one"
     MAN_LOCATION="/usr/share/man/man1"
+    VM_LOCATION="/var/lib/one/vms"
+    DOCS_LOCATION="/usr/share/docs/one"
 
     if [ "$CLIENT" = "yes" ]; then
         MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $ETC_LOCATION"
@@ -120,8 +132,15 @@ if [ -z "$ROOT" ] ; then
         DELETE_DIRS="$MAKE_DIRS"
 
         CHOWN_DIRS=""
-    elif [ "$OZONES" = "yes" ]; then
-        MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $VAR_LOCATION $OZONES_LOCATION \
+    elif [ "$ONEGATE" = "yes" ]; then
+        MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $VAR_LOCATION \
+                   $ONEGATE_LOCATION $ETC_LOCATION"
+
+        DELETE_DIRS="$MAKE_DIRS"
+
+        CHOWN_DIRS=""
+    elif [ "$ONEFLOW" = "yes" ]; then
+        MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $VAR_LOCATION $ONEFLOW_LOCATION \
                     $ETC_LOCATION"
 
         DELETE_DIRS="$MAKE_DIRS"
@@ -129,9 +148,10 @@ if [ -z "$ROOT" ] ; then
         CHOWN_DIRS=""
     else
         MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $ETC_LOCATION $VAR_LOCATION \
-                   $INCLUDE_LOCATION $SHARE_LOCATION \
+                   $INCLUDE_LOCATION $SHARE_LOCATION $DOCS_LOCATION \
                    $LOG_LOCATION $RUN_LOCATION $LOCK_LOCATION \
-                   $SYSTEM_DS_LOCATION $DEFAULT_DS_LOCATION $MAN_LOCATION"
+                   $SYSTEM_DS_LOCATION $DEFAULT_DS_LOCATION $MAN_LOCATION \
+                   $VM_LOCATION $ONEGATE_LOCATION $ONEFLOW_LOCATION"
 
         DELETE_DIRS="$LIB_LOCATION $ETC_LOCATION $LOG_LOCATION $VAR_LOCATION \
                      $RUN_LOCATION $SHARE_DIRS"
@@ -144,16 +164,24 @@ else
     LIB_LOCATION="$ROOT/lib"
     ETC_LOCATION="$ROOT/etc"
     VAR_LOCATION="$ROOT/var"
+    ONEGATE_LOCATION="$LIB_LOCATION/onegate"
     SUNSTONE_LOCATION="$LIB_LOCATION/sunstone"
-    OZONES_LOCATION="$LIB_LOCATION/ozones"
+    ONEFLOW_LOCATION="$LIB_LOCATION/oneflow"
     SYSTEM_DS_LOCATION="$VAR_LOCATION/datastores/0"
     DEFAULT_DS_LOCATION="$VAR_LOCATION/datastores/1"
     INCLUDE_LOCATION="$ROOT/include"
     SHARE_LOCATION="$ROOT/share"
     MAN_LOCATION="$ROOT/share/man/man1"
+    VM_LOCATION="$VAR_LOCATION/vms"
+    DOCS_LOCATION="$ROOT/share/docs"
 
     if [ "$CLIENT" = "yes" ]; then
         MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $ETC_LOCATION"
+
+        DELETE_DIRS="$MAKE_DIRS"
+    elif [ "$ONEGATE" = "yes" ]; then
+        MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $VAR_LOCATION \
+                   $ONEGATE_LOCATION $ETC_LOCATION"
 
         DELETE_DIRS="$MAKE_DIRS"
     elif [ "$SUNSTONE" = "yes" ]; then
@@ -161,15 +189,16 @@ else
                    $SUNSTONE_LOCATION $ETC_LOCATION"
 
         DELETE_DIRS="$MAKE_DIRS"
-    elif [ "$OZONES" = "yes" ]; then
-        MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $VAR_LOCATION $OZONES_LOCATION \
+    elif [ "$ONEFLOW" = "yes" ]; then
+        MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $VAR_LOCATION $ONEFLOW_LOCATION \
                    $ETC_LOCATION"
 
         DELETE_DIRS="$MAKE_DIRS"
     else
         MAKE_DIRS="$BIN_LOCATION $LIB_LOCATION $ETC_LOCATION $VAR_LOCATION \
                    $INCLUDE_LOCATION $SHARE_LOCATION $SYSTEM_DS_LOCATION \
-                   $DEFAULT_DS_LOCATION $MAN_LOCATION $OZONES_LOCATION"
+                   $DEFAULT_DS_LOCATION $MAN_LOCATION $DOCS_LOCATION \
+                   $VM_LOCATION $ONEGATE_LOCATION $ONEFLOW_LOCATION"
 
         DELETE_DIRS="$MAKE_DIRS"
 
@@ -179,27 +208,34 @@ else
     CHOWN_DIRS="$ROOT"
 fi
 
-SHARE_DIRS="$SHARE_LOCATION/examples"
+SHARE_DIRS="$SHARE_LOCATION/examples \
+            $SHARE_LOCATION/onegate \
+            $SHARE_LOCATION/websockify"
 
-ETC_DIRS="$ETC_LOCATION/im_ec2 \
-          $ETC_LOCATION/vmm_ec2 \
-          $ETC_LOCATION/vmm_exec \
+ETC_DIRS="$ETC_LOCATION/vmm_exec \
           $ETC_LOCATION/hm \
           $ETC_LOCATION/auth \
           $ETC_LOCATION/auth/certificates \
           $ETC_LOCATION/ec2query_templates \
-          $ETC_LOCATION/occi_templates \
+          $ETC_LOCATION/sunstone-views \
           $ETC_LOCATION/cli"
 
 LIB_DIRS="$LIB_LOCATION/ruby \
-          $LIB_LOCATION/ruby/OpenNebula \
-          $LIB_LOCATION/ruby/zona \
+          $LIB_LOCATION/ruby/opennebula \
           $LIB_LOCATION/ruby/cloud/ \
           $LIB_LOCATION/ruby/cloud/econe \
           $LIB_LOCATION/ruby/cloud/econe/views \
-          $LIB_LOCATION/ruby/cloud/occi \
+          $LIB_LOCATION/ruby/cloud/marketplace \
           $LIB_LOCATION/ruby/cloud/CloudAuth \
           $LIB_LOCATION/ruby/onedb \
+          $LIB_LOCATION/ruby/onedb/shared \
+          $LIB_LOCATION/ruby/onedb/local \
+          $LIB_LOCATION/ruby/vendors \
+          $LIB_LOCATION/ruby/vendors/rbvmomi \
+          $LIB_LOCATION/ruby/vendors/rbvmomi/lib \
+          $LIB_LOCATION/ruby/vendors/rbvmomi/lib/rbvmomi \
+          $LIB_LOCATION/ruby/vendors/rbvmomi/lib/rbvmomi/utils \
+          $LIB_LOCATION/ruby/vendors/rbvmomi/lib/rbvmomi/vim \
           $LIB_LOCATION/mads \
           $LIB_LOCATION/sh \
           $LIB_LOCATION/ruby/cli \
@@ -208,40 +244,53 @@ LIB_DIRS="$LIB_LOCATION/ruby \
 VAR_DIRS="$VAR_LOCATION/remotes \
           $VAR_LOCATION/remotes/im \
           $VAR_LOCATION/remotes/im/kvm.d \
-          $VAR_LOCATION/remotes/im/xen.d \
+          $VAR_LOCATION/remotes/im/xen3.d \
+          $VAR_LOCATION/remotes/im/xen4.d \
+          $VAR_LOCATION/remotes/im/kvm-probes.d \
+          $VAR_LOCATION/remotes/im/xen3-probes.d \
+          $VAR_LOCATION/remotes/im/xen4-probes.d \
           $VAR_LOCATION/remotes/im/vmware.d \
-          $VAR_LOCATION/remotes/im/vsphere.d \
-          $VAR_LOCATION/remotes/im/ganglia.d \
+          $VAR_LOCATION/remotes/im/vcenter.d \
+          $VAR_LOCATION/remotes/im/ec2.d \
+          $VAR_LOCATION/remotes/im/sl.d \
+          $VAR_LOCATION/remotes/im/az.d \
           $VAR_LOCATION/remotes/vmm \
           $VAR_LOCATION/remotes/vmm/kvm \
-          $VAR_LOCATION/remotes/vmm/xen \
+          $VAR_LOCATION/remotes/vmm/xen3 \
+          $VAR_LOCATION/remotes/vmm/xen4 \
           $VAR_LOCATION/remotes/vmm/vmware \
-          $VAR_LOCATION/remotes/vmm/vsphere \
+          $VAR_LOCATION/remotes/vmm/vcenter \
+          $VAR_LOCATION/remotes/vmm/ec2 \
+          $VAR_LOCATION/remotes/vmm/sl \
+          $VAR_LOCATION/remotes/vmm/az \
           $VAR_LOCATION/remotes/vnm \
           $VAR_LOCATION/remotes/vnm/802.1Q \
+          $VAR_LOCATION/remotes/vnm/vxlan \
           $VAR_LOCATION/remotes/vnm/dummy \
           $VAR_LOCATION/remotes/vnm/ebtables \
           $VAR_LOCATION/remotes/vnm/fw \
           $VAR_LOCATION/remotes/vnm/ovswitch \
+          $VAR_LOCATION/remotes/vnm/ovswitch_brcompat \
           $VAR_LOCATION/remotes/vnm/vmware \
-          $VAR_LOCATION/remotes/vnm/vsphere \
           $VAR_LOCATION/remotes/tm/ \
           $VAR_LOCATION/remotes/tm/dummy \
           $VAR_LOCATION/remotes/tm/shared \
+          $VAR_LOCATION/remotes/tm/fs_lvm \
           $VAR_LOCATION/remotes/tm/qcow2 \
           $VAR_LOCATION/remotes/tm/ssh \
-          $VAR_LOCATION/remotes/tm/vmware \
-          $VAR_LOCATION/remotes/tm/iscsi \
+          $VAR_LOCATION/remotes/tm/vmfs \
           $VAR_LOCATION/remotes/tm/lvm \
+          $VAR_LOCATION/remotes/tm/ceph \
+          $VAR_LOCATION/remotes/tm/dev \
           $VAR_LOCATION/remotes/hooks \
           $VAR_LOCATION/remotes/hooks/ft \
           $VAR_LOCATION/remotes/datastore \
           $VAR_LOCATION/remotes/datastore/dummy \
           $VAR_LOCATION/remotes/datastore/fs \
-          $VAR_LOCATION/remotes/datastore/vmware \
-          $VAR_LOCATION/remotes/datastore/vsphere \
-          $VAR_LOCATION/remotes/datastore/iscsi \
+          $VAR_LOCATION/remotes/datastore/vmfs \
           $VAR_LOCATION/remotes/datastore/lvm \
+          $VAR_LOCATION/remotes/datastore/ceph \
+          $VAR_LOCATION/remotes/datastore/dev \
           $VAR_LOCATION/remotes/auth \
           $VAR_LOCATION/remotes/auth/plain \
           $VAR_LOCATION/remotes/auth/ssh \
@@ -251,7 +300,8 @@ VAR_DIRS="$VAR_LOCATION/remotes \
           $VAR_LOCATION/remotes/auth/server_cipher \
           $VAR_LOCATION/remotes/auth/dummy"
 
-SUNSTONE_DIRS="$SUNSTONE_LOCATION/models \
+SUNSTONE_DIRS="$SUNSTONE_LOCATION/routes \
+               $SUNSTONE_LOCATION/models \
                $SUNSTONE_LOCATION/models/OpenNebulaJSON \
                $SUNSTONE_LOCATION/public \
                $SUNSTONE_LOCATION/public/js \
@@ -259,94 +309,64 @@ SUNSTONE_DIRS="$SUNSTONE_LOCATION/models \
                $SUNSTONE_LOCATION/public/js/user-plugins \
                $SUNSTONE_LOCATION/public/css \
                $SUNSTONE_LOCATION/public/locale \
+               $SUNSTONE_LOCATION/public/locale/ca \
+               $SUNSTONE_LOCATION/public/locale/cs_CZ \
+               $SUNSTONE_LOCATION/public/locale/da \
+               $SUNSTONE_LOCATION/public/locale/de \
+               $SUNSTONE_LOCATION/public/locale/el_GR \
                $SUNSTONE_LOCATION/public/locale/en_US \
-               $SUNSTONE_LOCATION/public/locale/ru \
-               $SUNSTONE_LOCATION/public/locale/it_IT \
-               $SUNSTONE_LOCATION/public/locale/pt_PT \
+               $SUNSTONE_LOCATION/public/locale/es_ES \
+               $SUNSTONE_LOCATION/public/locale/da \
+               $SUNSTONE_LOCATION/public/locale/fa_IR \
                $SUNSTONE_LOCATION/public/locale/fr_FR \
+               $SUNSTONE_LOCATION/public/locale/it_IT \
+               $SUNSTONE_LOCATION/public/locale/ja \
+               $SUNSTONE_LOCATION/public/locale/lt_LT \
+               $SUNSTONE_LOCATION/public/locale/nl_NL \
+               $SUNSTONE_LOCATION/public/locale/pl \
+               $SUNSTONE_LOCATION/public/locale/pt_BR \
+               $SUNSTONE_LOCATION/public/locale/pt_PT \
+               $SUNSTONE_LOCATION/public/locale/ru_RU \
+               $SUNSTONE_LOCATION/public/locale/sk_SK \
+               $SUNSTONE_LOCATION/public/locale/zh_TW \
+               $SUNSTONE_LOCATION/public/locale/zh_CN \
                $SUNSTONE_LOCATION/public/vendor \
-               $SUNSTONE_LOCATION/public/vendor/jQueryLayout \
-               $SUNSTONE_LOCATION/public/vendor/dataTables \
-               $SUNSTONE_LOCATION/public/vendor/jQueryUI \
-               $SUNSTONE_LOCATION/public/vendor/jQueryUI/images \
-               $SUNSTONE_LOCATION/public/vendor/jQuery \
-               $SUNSTONE_LOCATION/public/vendor/jGrowl \
-               $SUNSTONE_LOCATION/public/vendor/flot \
-               $SUNSTONE_LOCATION/public/vendor/fileuploader \
-               $SUNSTONE_LOCATION/public/vendor/FontAwesome \
-               $SUNSTONE_LOCATION/public/vendor/FontAwesome/css \
-               $SUNSTONE_LOCATION/public/vendor/FontAwesome/font \
+               $SUNSTONE_LOCATION/public/vendor/crypto-js \
+               $SUNSTONE_LOCATION/public/vendor/spice \
+               $SUNSTONE_LOCATION/public/vendor/noVNC \
+               $SUNSTONE_LOCATION/public/vendor/noVNC/web-socket-js \
+               $SUNSTONE_LOCATION/public/vendor/4.0 \
+               $SUNSTONE_LOCATION/public/vendor/4.0/flot \
+               $SUNSTONE_LOCATION/public/vendor/4.0/datatables \
+               $SUNSTONE_LOCATION/public/vendor/4.0/foundation_datatables \
+               $SUNSTONE_LOCATION/public/vendor/4.0/jquery_layout \
+               $SUNSTONE_LOCATION/public/vendor/4.0/fontawesome \
+               $SUNSTONE_LOCATION/public/vendor/4.0/fontawesome/css \
+               $SUNSTONE_LOCATION/public/vendor/4.0/fontawesome/fonts \
+               $SUNSTONE_LOCATION/public/vendor/4.0/jgrowl \
+               $SUNSTONE_LOCATION/public/vendor/4.0/resumablejs \
+               $SUNSTONE_LOCATION/public/vendor/4.0/foundation \
+               $SUNSTONE_LOCATION/public/vendor/4.0/modernizr \
+               $SUNSTONE_LOCATION/public/vendor/4.0/nouislider \
                $SUNSTONE_LOCATION/public/images \
-               $SUNSTONE_LOCATION/templates \
+               $SUNSTONE_LOCATION/public/images/logos \
                $SUNSTONE_LOCATION/views"
 
-OZONES_DIRS="$OZONES_LOCATION/lib \
-             $OZONES_LOCATION/lib/OZones \
-             $OZONES_LOCATION/models \
-             $OZONES_LOCATION/templates \
-             $OZONES_LOCATION/public \
-             $OZONES_LOCATION/public/vendor \
-             $OZONES_LOCATION/public/vendor/jQuery \
-             $OZONES_LOCATION/public/vendor/jQueryLayout \
-             $OZONES_LOCATION/public/vendor/dataTables \
-             $OZONES_LOCATION/public/vendor/jQueryUI \
-             $OZONES_LOCATION/public/vendor/jQueryUI/images \
-             $OZONES_LOCATION/public/vendor/jGrowl \
-             $OZONES_LOCATION/public/vendor/FontAwesome \
-             $OZONES_LOCATION/public/vendor/FontAwesome/css \
-             $OZONES_LOCATION/public/vendor/FontAwesome/font \
-             $OZONES_LOCATION/public/js \
-             $OZONES_LOCATION/public/js/plugins \
-             $OZONES_LOCATION/public/images \
-             $OZONES_LOCATION/public/css"
-
-SELF_SERVICE_DIRS="\
-                 $LIB_LOCATION/ruby/cloud/occi/ui \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/templates \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/views \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/css \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/customize \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/images \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/js \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/js/plugins \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/locale \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/locale/en_US \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/locale/es_ES \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/locale/fr_FR \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/locale/fr_CA \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQueryLayout \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/dataTables \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQueryUI \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQueryUI/images \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQuery \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jGrowl \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/flot \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/crypto-js \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/fileuploader \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/xml2json \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/FontAwesome \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/FontAwesome/css \
-                 $LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/FontAwesome/font"
-
-OZONES_CLIENT_DIRS="$LIB_LOCATION/ruby \
-                 $LIB_LOCATION/ruby/OpenNebula \
-                 $LIB_LOCATION/ruby/cli \
-                 $LIB_LOCATION/ruby/cli/ozones_helper \
-                 $LIB_LOCATION/ruby/zona"
+ONEFLOW_DIRS="$ONEFLOW_LOCATION/lib \
+              $ONEFLOW_LOCATION/lib/strategy \
+              $ONEFLOW_LOCATION/lib/models"
 
 LIB_ECO_CLIENT_DIRS="$LIB_LOCATION/ruby \
-                 $LIB_LOCATION/ruby/OpenNebula \
+                 $LIB_LOCATION/ruby/opennebula \
                  $LIB_LOCATION/ruby/cloud/ \
                  $LIB_LOCATION/ruby/cloud/econe"
 
-LIB_OCCI_CLIENT_DIRS="$LIB_LOCATION/ruby \
-                 $LIB_LOCATION/ruby/OpenNebula \
-                 $LIB_LOCATION/ruby/cloud/occi"
+LIB_MARKET_CLIENT_DIRS="$LIB_LOCATION/ruby \
+                 $LIB_LOCATION/ruby/opennebula \
+                 $LIB_LOCATION/ruby/cloud/marketplace"
 
 LIB_OCA_CLIENT_DIRS="$LIB_LOCATION/ruby \
-                 $LIB_LOCATION/ruby/OpenNebula"
+                 $LIB_LOCATION/ruby/opennebula"
 
 LIB_CLI_CLIENT_DIRS="$LIB_LOCATION/ruby/cli \
                      $LIB_LOCATION/ruby/cli/one_helper"
@@ -354,16 +374,18 @@ LIB_CLI_CLIENT_DIRS="$LIB_LOCATION/ruby/cli \
 CONF_CLI_DIRS="$ETC_LOCATION/cli"
 
 if [ "$CLIENT" = "yes" ]; then
-    MAKE_DIRS="$MAKE_DIRS $LIB_ECO_CLIENT_DIRS $LIB_OCCI_CLIENT_DIRS \
+    MAKE_DIRS="$MAKE_DIRS $LIB_ECO_CLIENT_DIRS $LIB_MARKET_CLIENT_DIRS \
                $LIB_OCA_CLIENT_DIRS $LIB_CLI_CLIENT_DIRS $CONF_CLI_DIRS \
-               $ETC_LOCATION $OZONES_CLIENT_DIRS $SELF_SERVICE_DIRS"
+               $ETC_LOCATION"
+elif [ "$ONEGATE" = "yes" ]; then
+    MAKE_DIRS="$MAKE_DIRS $LIB_OCA_CLIENT_DIRS"
 elif [ "$SUNSTONE" = "yes" ]; then
     MAKE_DIRS="$MAKE_DIRS $SUNSTONE_DIRS $LIB_OCA_CLIENT_DIRS"
-elif [ "$OZONES" = "yes" ]; then
-    MAKE_DIRS="$MAKE_DIRS $OZONES_DIRS $OZONES_CLIENT_DIRS $LIB_OCA_CLIENT_DIRS"
+elif [ "$ONEFLOW" = "yes" ]; then
+    MAKE_DIRS="$MAKE_DIRS $ONEFLOW_DIRS $LIB_OCA_CLIENT_DIRS"
 else
     MAKE_DIRS="$MAKE_DIRS $SHARE_DIRS $ETC_DIRS $LIB_DIRS $VAR_DIRS \
-                $OZONES_DIRS $OZONES_CLIENT_DIRS $SUNSTONE_DIRS $SELF_SERVICE_DIRS"
+                $SUNSTONE_DIRS $ONEFLOW_DIRS"
 fi
 
 #-------------------------------------------------------------------------------
@@ -376,19 +398,29 @@ INSTALL_FILES=(
     INCLUDE_FILES:$INCLUDE_LOCATION
     LIB_FILES:$LIB_LOCATION
     RUBY_LIB_FILES:$LIB_LOCATION/ruby
-    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/OpenNebula
+    RUBY_AUTH_LIB_FILES:$LIB_LOCATION/ruby/opennebula
+    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/opennebula
     MAD_RUBY_LIB_FILES:$LIB_LOCATION/ruby
     MAD_RUBY_LIB_FILES:$VAR_LOCATION/remotes
     MAD_SH_LIB_FILES:$LIB_LOCATION/sh
     MAD_SH_LIB_FILES:$VAR_LOCATION/remotes
-    ONEDB_MIGRATOR_FILES:$LIB_LOCATION/ruby/onedb
+    ONEDB_FILES:$LIB_LOCATION/ruby/onedb
+    ONEDB_SHARED_MIGRATOR_FILES:$LIB_LOCATION/ruby/onedb/shared
+    ONEDB_LOCAL_MIGRATOR_FILES:$LIB_LOCATION/ruby/onedb/local
     MADS_LIB_FILES:$LIB_LOCATION/mads
     IM_PROBES_FILES:$VAR_LOCATION/remotes/im
     IM_PROBES_KVM_FILES:$VAR_LOCATION/remotes/im/kvm.d
-    IM_PROBES_XEN_FILES:$VAR_LOCATION/remotes/im/xen.d
+    IM_PROBES_KVM_PROBES_FILES:$VAR_LOCATION/remotes/im/kvm-probes.d
+    IM_PROBES_XEN3_FILES:$VAR_LOCATION/remotes/im/xen3.d
+    IM_PROBES_XEN3_PROBES_FILES:$VAR_LOCATION/remotes/im/xen3-probes.d
+    IM_PROBES_XEN4_FILES:$VAR_LOCATION/remotes/im/xen4.d
+    IM_PROBES_XEN4_PROBES_FILES:$VAR_LOCATION/remotes/im/xen4-probes.d
     IM_PROBES_VMWARE_FILES:$VAR_LOCATION/remotes/im/vmware.d
-    IM_PROBES_VMWARE2_FILES:$VAR_LOCATION/remotes/im/vsphere.d
-    IM_PROBES_GANGLIA_FILES:$VAR_LOCATION/remotes/im/ganglia.d
+    IM_PROBES_VCENTER_FILES:$VAR_LOCATION/remotes/im/vcenter.d
+    IM_PROBES_EC2_FILES:$VAR_LOCATION/remotes/im/ec2.d
+    IM_PROBES_SL_FILES:$VAR_LOCATION/remotes/im/sl.d
+    IM_PROBES_AZ_FILES:$VAR_LOCATION/remotes/im/az.d
+    IM_PROBES_VERSION:$VAR_LOCATION/remotes
     AUTH_SSH_FILES:$VAR_LOCATION/remotes/auth/ssh
     AUTH_X509_FILES:$VAR_LOCATION/remotes/auth/x509
     AUTH_LDAP_FILES:$VAR_LOCATION/remotes/auth/ldap
@@ -397,35 +429,42 @@ INSTALL_FILES=(
     AUTH_DUMMY_FILES:$VAR_LOCATION/remotes/auth/dummy
     AUTH_PLAIN_FILES:$VAR_LOCATION/remotes/auth/plain
     VMM_EXEC_KVM_SCRIPTS:$VAR_LOCATION/remotes/vmm/kvm
-    VMM_EXEC_XEN_SCRIPTS:$VAR_LOCATION/remotes/vmm/xen
+    VMM_EXEC_XEN3_SCRIPTS:$VAR_LOCATION/remotes/vmm/xen3
+    VMM_EXEC_XEN4_SCRIPTS:$VAR_LOCATION/remotes/vmm/xen4
     VMM_EXEC_VMWARE_SCRIPTS:$VAR_LOCATION/remotes/vmm/vmware
-    VMM_EXEC_VMWARE2_SCRIPTS:$VAR_LOCATION/remotes/vmm/vsphere
+    VMM_EXEC_VCENTER_SCRIPTS:$VAR_LOCATION/remotes/vmm/vcenter
+    VMM_EXEC_EC2_SCRIPTS:$VAR_LOCATION/remotes/vmm/ec2
+    VMM_EXEC_SL_SCRIPTS:$VAR_LOCATION/remotes/vmm/sl
+    VMM_EXEC_AZ_SCRIPTS:$VAR_LOCATION/remotes/vmm/az
     TM_FILES:$VAR_LOCATION/remotes/tm
     TM_SHARED_FILES:$VAR_LOCATION/remotes/tm/shared
+    TM_FS_LVM_FILES:$VAR_LOCATION/remotes/tm/fs_lvm
     TM_QCOW2_FILES:$VAR_LOCATION/remotes/tm/qcow2
     TM_SSH_FILES:$VAR_LOCATION/remotes/tm/ssh
-    TM_VMWARE_FILES:$VAR_LOCATION/remotes/tm/vmware
-    TM_VSPHERE_FILES:$VAR_LOCATION/remotes/tm/vsphere
-    TM_ISCSI_FILES:$VAR_LOCATION/remotes/tm/iscsi
+    TM_VMFS_FILES:$VAR_LOCATION/remotes/tm/vmfs
     TM_LVM_FILES:$VAR_LOCATION/remotes/tm/lvm
+    TM_CEPH_FILES:$VAR_LOCATION/remotes/tm/ceph
+    TM_DEV_FILES:$VAR_LOCATION/remotes/tm/dev
     TM_DUMMY_FILES:$VAR_LOCATION/remotes/tm/dummy
     DATASTORE_DRIVER_COMMON_SCRIPTS:$VAR_LOCATION/remotes/datastore/
     DATASTORE_DRIVER_DUMMY_SCRIPTS:$VAR_LOCATION/remotes/datastore/dummy
     DATASTORE_DRIVER_FS_SCRIPTS:$VAR_LOCATION/remotes/datastore/fs
-    DATASTORE_DRIVER_VMWARE_SCRIPTS:$VAR_LOCATION/remotes/datastore/vmware
-    DATASTORE_DRIVER_VSPHERE_SCRIPTS:$VAR_LOCATION/remotes/datastore/vsphere
-    DATASTORE_DRIVER_ISCSI_SCRIPTS:$VAR_LOCATION/remotes/datastore/iscsi
+    DATASTORE_DRIVER_VMFS_SCRIPTS:$VAR_LOCATION/remotes/datastore/vmfs
     DATASTORE_DRIVER_LVM_SCRIPTS:$VAR_LOCATION/remotes/datastore/lvm
+    DATASTORE_DRIVER_CEPH_SCRIPTS:$VAR_LOCATION/remotes/datastore/ceph
+    DATASTORE_DRIVER_DEV_SCRIPTS:$VAR_LOCATION/remotes/datastore/dev
     NETWORK_FILES:$VAR_LOCATION/remotes/vnm
     NETWORK_8021Q_FILES:$VAR_LOCATION/remotes/vnm/802.1Q
+    NETWORK_VXLAN_FILES:$VAR_LOCATION/remotes/vnm/vxlan
     NETWORK_DUMMY_FILES:$VAR_LOCATION/remotes/vnm/dummy
     NETWORK_EBTABLES_FILES:$VAR_LOCATION/remotes/vnm/ebtables
     NETWORK_FW_FILES:$VAR_LOCATION/remotes/vnm/fw
     NETWORK_OVSWITCH_FILES:$VAR_LOCATION/remotes/vnm/ovswitch
+    NETWORK_OVSWITCH_BRCOMPAT_FILES:$VAR_LOCATION/remotes/vnm/ovswitch_brcompat
     NETWORK_VMWARE_FILES:$VAR_LOCATION/remotes/vnm/vmware
-    NETWORK_VSPHERE_FILES:$VAR_LOCATION/remotes/vnm/vsphere
     EXAMPLE_SHARE_FILES:$SHARE_LOCATION/examples
-    INSTALL_NOVNC_SHARE_FILE:$SHARE_LOCATION
+    ONEGATE_SHARE_FILES:$SHARE_LOCATION/onegate
+    WEBSOCKIFY_SHARE_FILES:$SHARE_LOCATION/websockify
     INSTALL_GEMS_SHARE_FILE:$SHARE_LOCATION
     HOOK_FT_FILES:$VAR_LOCATION/remotes/hooks/ft
     COMMON_CLOUD_LIB_FILES:$LIB_LOCATION/ruby/cloud
@@ -433,11 +472,17 @@ INSTALL_FILES=(
     ECO_LIB_FILES:$LIB_LOCATION/ruby/cloud/econe
     ECO_LIB_VIEW_FILES:$LIB_LOCATION/ruby/cloud/econe/views
     ECO_BIN_FILES:$BIN_LOCATION
-    OCCI_LIB_FILES:$LIB_LOCATION/ruby/cloud/occi
-    OCCI_BIN_FILES:$BIN_LOCATION
+    MARKET_LIB_FILES:$LIB_LOCATION/ruby/cloud/marketplace
+    MARKET_BIN_FILES:$BIN_LOCATION
     MAN_FILES:$MAN_LOCATION
+    DOCS_FILES:$DOCS_LOCATION
     CLI_LIB_FILES:$LIB_LOCATION/ruby/cli
     ONE_CLI_LIB_FILES:$LIB_LOCATION/ruby/cli/one_helper
+    RBVMOMI_VENDOR_RUBY_FILES:$LIB_LOCATION/ruby/vendors/rbvmomi
+    RBVMOMI_VENDOR_RUBY_LIB_FILES:$LIB_LOCATION/ruby/vendors/rbvmomi/lib
+    RBVMOMI_VENDOR_RUBY_LIB_RBVMOMI_FILES:$LIB_LOCATION/ruby/vendors/rbvmomi/lib/rbvmomi
+    RBVMOMI_VENDOR_RUBY_LIB_RBVMOMI_VIM_FILES:$LIB_LOCATION/ruby/vendors/rbvmomi/lib/rbvmomi/vim
+    RBVMOMI_VENDOR_RUBY_LIB_RBVMOMI_UTILS_FILES:$LIB_LOCATION/ruby/vendors/rbvmomi/lib/rbvmomi/utils
 )
 
 INSTALL_CLIENT_FILES=(
@@ -445,24 +490,19 @@ INSTALL_CLIENT_FILES=(
     ECO_LIB_CLIENT_FILES:$LIB_LOCATION/ruby/cloud/econe
     ECO_BIN_CLIENT_FILES:$BIN_LOCATION
     COMMON_CLOUD_CLIENT_LIB_FILES:$LIB_LOCATION/ruby/cloud
-    OCCI_LIB_CLIENT_FILES:$LIB_LOCATION/ruby/cloud/occi
-    OCCI_BIN_CLIENT_FILES:$BIN_LOCATION
+    MARKET_LIB_CLIENT_FILES:$LIB_LOCATION/ruby/cloud/marketplace
+    MARKET_BIN_CLIENT_FILES:$BIN_LOCATION
     CLI_BIN_FILES:$BIN_LOCATION
     CLI_LIB_FILES:$LIB_LOCATION/ruby/cli
     ONE_CLI_LIB_FILES:$LIB_LOCATION/ruby/cli/one_helper
-    ETC_CLIENT_FILES:$ETC_LOCATION
-    OZONES_BIN_CLIENT_FILES:$BIN_LOCATION
-    OZONES_LIB_CLIENT_CLI_FILES:$LIB_LOCATION/ruby/cli
-    OZONES_LIB_CLIENT_CLI_HELPER_FILES:$LIB_LOCATION/ruby/cli/ozones_helper
-    OZONES_LIB_API_FILES:$LIB_LOCATION/ruby
-    OZONES_LIB_API_ZONA_FILES:$LIB_LOCATION/ruby/zona
     CLI_CONF_FILES:$ETC_LOCATION/cli
     OCA_LIB_FILES:$LIB_LOCATION/ruby
-    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/OpenNebula
+    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/opennebula
+    RUBY_AUTH_LIB_FILES:$LIB_LOCATION/ruby/opennebula
 )
 
 INSTALL_SUNSTONE_RUBY_FILES=(
-    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/OpenNebula
+    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/opennebula
     OCA_LIB_FILES:$LIB_LOCATION/ruby
 )
 
@@ -471,110 +511,88 @@ INSTALL_SUNSTONE_FILES=(
     SUNSTONE_BIN_FILES:$BIN_LOCATION
     SUNSTONE_MODELS_FILES:$SUNSTONE_LOCATION/models
     SUNSTONE_MODELS_JSON_FILES:$SUNSTONE_LOCATION/models/OpenNebulaJSON
-    SUNSTONE_TEMPLATE_FILES:$SUNSTONE_LOCATION/templates
     SUNSTONE_VIEWS_FILES:$SUNSTONE_LOCATION/views
     SUNSTONE_PUBLIC_JS_FILES:$SUNSTONE_LOCATION/public/js
     SUNSTONE_PUBLIC_JS_PLUGINS_FILES:$SUNSTONE_LOCATION/public/js/plugins
+    SUNSTONE_ROUTES_FILES:$SUNSTONE_LOCATION/routes
     SUNSTONE_PUBLIC_CSS_FILES:$SUNSTONE_LOCATION/public/css
-    SUNSTONE_PUBLIC_VENDOR_DATATABLES:$SUNSTONE_LOCATION/public/vendor/dataTables
-    SUNSTONE_PUBLIC_VENDOR_JGROWL:$SUNSTONE_LOCATION/public/vendor/jGrowl
-    SUNSTONE_PUBLIC_VENDOR_JQUERY:$SUNSTONE_LOCATION/public/vendor/jQuery
-    SUNSTONE_PUBLIC_VENDOR_JQUERYUI:$SUNSTONE_LOCATION/public/vendor/jQueryUI
-    SUNSTONE_PUBLIC_VENDOR_JQUERYUIIMAGES:$SUNSTONE_LOCATION/public/vendor/jQueryUI/images
-    SUNSTONE_PUBLIC_VENDOR_JQUERYLAYOUT:$SUNSTONE_LOCATION/public/vendor/jQueryLayout
-    SUNSTONE_PUBLIC_VENDOR_FLOT:$SUNSTONE_LOCATION/public/vendor/flot
-    SUNSTONE_PUBLIC_VENDOR_FILEUPLOADER:$SUNSTONE_LOCATION/public/vendor/fileuploader
-    SUNSTONE_PUBLIC_VENDOR_FONTAWESOME:$SUNSTONE_LOCATION/public/vendor/FontAwesome
-    SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_FONT:$SUNSTONE_LOCATION/public/vendor/FontAwesome/font
-    SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_CSS:$SUNSTONE_LOCATION/public/vendor/FontAwesome/css
+    SUNSTONE_PUBLIC_VENDOR_CRYPTOJS:$SUNSTONE_LOCATION/public/vendor/crypto-js
+    SUNSTONE_PUBLIC_VENDOR_SPICE:$SUNSTONE_LOCATION/public/vendor/spice
+    SUNSTONE_PUBLIC_VENDOR_NOVNC:$SUNSTONE_LOCATION/public/vendor/noVNC
+    SUNSTONE_PUBLIC_VENDOR_NOVNC_WEBSOCKET:$SUNSTONE_LOCATION/public/vendor/noVNC/web-socket-js
+    SUNSTONE_PUBLIC_NEW_VENDOR_FLOT:$SUNSTONE_LOCATION/public/vendor/4.0/flot
+    SUNSTONE_PUBLIC_NEW_VENDOR_DATATABLES:$SUNSTONE_LOCATION/public/vendor/4.0/datatables
+    SUNSTONE_PUBLIC_NEW_VENDOR_FOUNDATION_DATATABLES:$SUNSTONE_LOCATION/public/vendor/4.0/foundation_datatables
+    SUNSTONE_PUBLIC_NEW_VENDOR_JGROWL:$SUNSTONE_LOCATION/public/vendor/4.0/jgrowl
+    SUNSTONE_PUBLIC_NEW_VENDOR_RESUMABLEJS:$SUNSTONE_LOCATION/public/vendor/4.0/resumablejs
+    SUNSTONE_PUBLIC_NEW_VENDOR_JQUERY:$SUNSTONE_LOCATION/public/vendor/4.0/
+    SUNSTONE_PUBLIC_NEW_VENDOR_FOUNDATION:$SUNSTONE_LOCATION/public/vendor/4.0/foundation
+    SUNSTONE_PUBLIC_NEW_VENDOR_MODERNIZR:$SUNSTONE_LOCATION/public/vendor/4.0/modernizr
+    SUNSTONE_PUBLIC_NEW_VENDOR_FONTAWESOME:$SUNSTONE_LOCATION/public/vendor/4.0/fontawesome
+    SUNSTONE_PUBLIC_NEW_VENDOR_FONTAWESOME_FONT:$SUNSTONE_LOCATION/public/vendor/4.0/fontawesome/fonts
+    SUNSTONE_PUBLIC_NEW_VENDOR_FONTAWESOME_CSS:$SUNSTONE_LOCATION/public/vendor/4.0/fontawesome/css
+    SUNSTONE_PUBLIC_NEW_VENDOR_NOUISLIDER:$SUNSTONE_LOCATION/public/vendor/4.0/nouislider
     SUNSTONE_PUBLIC_IMAGES_FILES:$SUNSTONE_LOCATION/public/images
+    SUNSTONE_PUBLIC_LOGOS_FILES:$SUNSTONE_LOCATION/public/images/logos
+    SUNSTONE_PUBLIC_LOCALE_CA:$SUNSTONE_LOCATION/public/locale/ca
+    SUNSTONE_PUBLIC_LOCALE_CS_CZ:$SUNSTONE_LOCATION/public/locale/cs_CZ
+    SUNSTONE_PUBLIC_LOCALE_DE:$SUNSTONE_LOCATION/public/locale/de
+    SUNSTONE_PUBLIC_LOCALE_DA:$SUNSTONE_LOCATION/public/locale/da
+    SUNSTONE_PUBLIC_LOCALE_EL_GR:$SUNSTONE_LOCATION/public/locale/el_GR
     SUNSTONE_PUBLIC_LOCALE_EN_US:$SUNSTONE_LOCATION/public/locale/en_US
-    SUNSTONE_PUBLIC_LOCALE_RU:$SUNSTONE_LOCATION/public/locale/ru
+    SUNSTONE_PUBLIC_LOCALE_ES_ES:$SUNSTONE_LOCATION/public/locale/es_ES
+    SUNSTONE_PUBLIC_LOCALE_FA_IR:$SUNSTONE_LOCATION/public/locale/fa_IR
+    SUNSTONE_PUBLIC_LOCALE_FR_FR:$SUNSTONE_LOCATION/public/locale/fr_FR
     SUNSTONE_PUBLIC_LOCALE_IT_IT:$SUNSTONE_LOCATION/public/locale/it_IT
+    SUNSTONE_PUBLIC_LOCALE_JA:$SUNSTONE_LOCATION/public/locale/ja
+    SUNSTONE_PUBLIC_LOCALE_LT_LT:$SUNSTONE_LOCATION/public/locale/lt_LT
+    SUNSTONE_PUBLIC_LOCALE_NL_NL:$SUNSTONE_LOCATION/public/locale/nl_NL
+    SUNSTONE_PUBLIC_LOCALE_PL:$SUNSTONE_LOCATION/public/locale/pl
     SUNSTONE_PUBLIC_LOCALE_PT_PT:$SUNSTONE_LOCATION/public/locale/pt_PT
-    SUNSTONE_PUBLIC_LOCALE_PT_PT:$SUNSTONE_LOCATION/public/locale/fr_FR
+    SUNSTONE_PUBLIC_LOCALE_PT_BR:$SUNSTONE_LOCATION/public/locale/pt_BR
+    SUNSTONE_PUBLIC_LOCALE_RU_RU:$SUNSTONE_LOCATION/public/locale/ru_RU
+    SUNSTONE_PUBLIC_LOCALE_SK_SK:$SUNSTONE_LOCATION/public/locale/sk_SK
+    SUNSTONE_PUBLIC_LOCALE_ZH_CN:$SUNSTONE_LOCATION/public/locale/zh_CN
+    SUNSTONE_PUBLIC_LOCALE_ZH_TW:$SUNSTONE_LOCATION/public/locale/zh_TW
 )
 
 INSTALL_SUNSTONE_ETC_FILES=(
     SUNSTONE_ETC_FILES:$ETC_LOCATION
+    SUNSTONE_ETC_VIEW_FILES:$ETC_LOCATION/sunstone-views
 )
 
-INSTALL_OZONES_RUBY_FILES=(
-    OZONES_RUBY_LIB_FILES:$LIB_LOCATION/ruby
-    RUBY_OPENNEBULA_LIB_FILES:$LIB_LOCATION/ruby/OpenNebula
+INSTALL_ONEGATE_FILES=(
+    ONEGATE_FILES:$ONEGATE_LOCATION
+    ONEGATE_BIN_FILES:$BIN_LOCATION
 )
 
-INSTALL_OZONES_FILES=(
-    OZONES_FILES:$OZONES_LOCATION
-    OZONES_BIN_FILES:$BIN_LOCATION
-    OZONES_MODELS_FILES:$OZONES_LOCATION/models
-    OZONES_TEMPLATE_FILES:$OZONES_LOCATION/templates
-    OZONES_LIB_FILES:$OZONES_LOCATION/lib
-    OZONES_LIB_ZONE_FILES:$OZONES_LOCATION/lib/OZones
-    OZONES_PUBLIC_VENDOR_JQUERY:$OZONES_LOCATION/public/vendor/jQuery
-    OZONES_PUBLIC_VENDOR_DATATABLES:$OZONES_LOCATION/public/vendor/dataTables
-    OZONES_PUBLIC_VENDOR_JGROWL:$OZONES_LOCATION/public/vendor/jGrowl
-    OZONES_PUBLIC_VENDOR_JQUERYUI:$OZONES_LOCATION/public/vendor/jQueryUI
-    OZONES_PUBLIC_VENDOR_JQUERYUIIMAGES:$OZONES_LOCATION/public/vendor/jQueryUI/images
-    OZONES_PUBLIC_VENDOR_JQUERYLAYOUT:$OZONES_LOCATION/public/vendor/jQueryLayout
-    OZONES_PUBLIC_VENDOR_FONTAWESOME:$OZONES_LOCATION/public/vendor/FontAwesome
-    OZONES_PUBLIC_VENDOR_FONTAWESOME_FONT:$OZONES_LOCATION/public/vendor/FontAwesome/font
-    OZONES_PUBLIC_VENDOR_FONTAWESOME_CSS:$OZONES_LOCATION/public/vendor/FontAwesome/css
-    OZONES_PUBLIC_JS_FILES:$OZONES_LOCATION/public/js
-    OZONES_PUBLIC_IMAGES_FILES:$OZONES_LOCATION/public/images
-    OZONES_PUBLIC_CSS_FILES:$OZONES_LOCATION/public/css
-    OZONES_PUBLIC_JS_PLUGINS_FILES:$OZONES_LOCATION/public/js/plugins
-    OZONES_BIN_CLIENT_FILES:$BIN_LOCATION
-    OZONES_LIB_CLIENT_CLI_FILES:$LIB_LOCATION/ruby/cli
-    OZONES_LIB_CLIENT_CLI_HELPER_FILES:$LIB_LOCATION/ruby/cli/ozones_helper
-    OZONES_LIB_API_FILES:$LIB_LOCATION/ruby
-    OZONES_LIB_API_ZONA_FILES:$LIB_LOCATION/ruby/zona
+INSTALL_ONEGATE_ETC_FILES=(
+    ONEGATE_ETC_FILES:$ETC_LOCATION
 )
 
-INSTALL_OZONES_ETC_FILES=(
-    OZONES_ETC_FILES:$ETC_LOCATION
+INSTALL_ONEFLOW_FILES=(
+    ONEFLOW_FILES:$ONEFLOW_LOCATION
+    ONEFLOW_BIN_FILES:$BIN_LOCATION
+    ONEFLOW_LIB_FILES:$ONEFLOW_LOCATION/lib
+    ONEFLOW_LIB_STRATEGY_FILES:$ONEFLOW_LOCATION/lib/strategy
+    ONEFLOW_LIB_MODELS_FILES:$ONEFLOW_LOCATION/lib/models
 )
 
-INSTALL_SELF_SERVICE_FILES=(
-    SELF_SERVICE_TEMPLATE_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/templates
-    SELF_SERVICE_VIEWS_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/views
-    SELF_SERVICE_PUBLIC_JS_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/public/js
-    SELF_SERVICE_PUBLIC_JS_PLUGINS_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/public/js/plugins
-    SELF_SERVICE_PUBLIC_CSS_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/public/css
-    SELF_SERVICE_PUBLIC_CUSTOMIZE_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/public/customize
-    SELF_SERVICE_PUBLIC_VENDOR_DATATABLES:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/dataTables
-    SELF_SERVICE_PUBLIC_VENDOR_JGROWL:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jGrowl
-    SELF_SERVICE_PUBLIC_VENDOR_JQUERY:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQuery
-    SELF_SERVICE_PUBLIC_VENDOR_JQUERYUI:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQueryUI
-    SELF_SERVICE_PUBLIC_VENDOR_JQUERYUIIMAGES:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQueryUI/images
-    SELF_SERVICE_PUBLIC_VENDOR_JQUERYLAYOUT:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/jQueryLayout
-    SELF_SERVICE_PUBLIC_VENDOR_FLOT:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/flot
-    SELF_SERVICE_PUBLIC_VENDOR_CRYPTOJS:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/crypto-js
-    SELF_SERVICE_PUBLIC_VENDOR_FILEUPLOADER:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/fileuploader
-    SELF_SERVICE_PUBLIC_VENDOR_XML2JSON:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/xml2json
-    SELF_SERVICE_PUBLIC_VENDOR_FONTAWESOME:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/FontAwesome
-    SELF_SERVICE_PUBLIC_VENDOR_FONTAWESOME_CSS:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/FontAwesome/css
-    SELF_SERVICE_PUBLIC_VENDOR_FONTAWESOME_FONT:$LIB_LOCATION/ruby/cloud/occi/ui/public/vendor/FontAwesome/font
-    SELF_SERVICE_PUBLIC_IMAGES_FILES:$LIB_LOCATION/ruby/cloud/occi/ui/public/images
-    SELF_SERVICE_PUBLIC_LOCALE_EN_US:$LIB_LOCATION/ruby/cloud/occi/ui/public/locale/en_US
-    SELF_SERVICE_PUBLIC_LOCALE_ES_ES:$LIB_LOCATION/ruby/cloud/occi/ui/public/locale/es_ES
-    SELF_SERVICE_PUBLIC_LOCALE_FR_FR:$LIB_LOCATION/ruby/cloud/occi/ui/public/locale/fr_FR
-    SELF_SERVICE_PUBLIC_LOCALE_FR_CA:$LIB_LOCATION/ruby/cloud/occi/ui/public/locale/fr_CA
+INSTALL_ONEFLOW_ETC_FILES=(
+    ONEFLOW_ETC_FILES:$ETC_LOCATION
 )
 
 INSTALL_ETC_FILES=(
     ETC_FILES:$ETC_LOCATION
     VMWARE_ETC_FILES:$ETC_LOCATION
-    VSPHERE_ETC_FILES:$ETC_LOCATION
-    VMM_EC2_ETC_FILES:$ETC_LOCATION/vmm_ec2
+    EC2_ETC_FILES:$ETC_LOCATION
+    SL_ETC_FILES:$ETC_LOCATION
+    AZ_ETC_FILES:$ETC_LOCATION
     VMM_EXEC_ETC_FILES:$ETC_LOCATION/vmm_exec
-    IM_EC2_ETC_FILES:$ETC_LOCATION/im_ec2
     HM_ETC_FILES:$ETC_LOCATION/hm
     AUTH_ETC_FILES:$ETC_LOCATION/auth
     ECO_ETC_FILES:$ETC_LOCATION
     ECO_ETC_TEMPLATE_FILES:$ETC_LOCATION/ec2query_templates
-    OCCI_ETC_FILES:$ETC_LOCATION
-    OCCI_ETC_TEMPLATE_FILES:$ETC_LOCATION/occi_templates
     CLI_CONF_FILES:$ETC_LOCATION/cli
 )
 
@@ -586,6 +604,7 @@ BIN_FILES="src/nebula/oned \
            src/scheduler/src/sched/mm_sched \
            src/cli/onevm \
            src/cli/oneacct \
+           src/cli/oneshowback \
            src/cli/onehost \
            src/cli/onevnet \
            src/cli/oneuser \
@@ -595,8 +614,13 @@ BIN_FILES="src/nebula/oned \
            src/cli/oneacl \
            src/cli/onedatastore \
            src/cli/onecluster \
+           src/cli/onezone \
+           src/cli/oneflow \
+           src/cli/oneflow-template \
+           src/cli/onesecgroup \
+           src/cli/onevdc \
+           src/cli/onevcenter \
            src/onedb/onedb \
-           src/onedb/onezonedb/onezonedb \
            src/mad/utils/tty_expect \
            share/scripts/one"
 
@@ -620,9 +644,16 @@ RUBY_LIB_FILES="src/mad/ruby/ActionManager.rb \
                 src/mad/ruby/DriverExecHelper.rb \
                 src/mad/ruby/ssh_stream.rb \
                 src/vnm_mad/one_vnm.rb \
-                src/mad/ruby/Ganglia.rb \
-                src/oca/ruby/OpenNebula.rb \
-                src/authm_mad/remotes/ssh/ssh_auth.rb \
+                src/oca/ruby/deprecated/OpenNebula.rb \
+                src/oca/ruby/opennebula.rb \
+                src/sunstone/OpenNebulaVNC.rb \
+                src/vmm_mad/remotes/vcenter/vcenter_driver.rb"
+
+#-------------------------------------------------------------------------------
+# Ruby auth library files, to be installed under $LIB_LOCATION/ruby/opennebula
+#-------------------------------------------------------------------------------
+
+RUBY_AUTH_LIB_FILES="src/authm_mad/remotes/ssh/ssh_auth.rb \
                 src/authm_mad/remotes/server_x509/server_x509_auth.rb \
                 src/authm_mad/remotes/server_cipher/server_cipher_auth.rb \
                 src/authm_mad/remotes/ldap/ldap_auth.rb \
@@ -645,18 +676,15 @@ MADS_LIB_FILES="src/mad/sh/madcommon.sh \
               src/vmm_mad/exec/one_vmm_exec \
               src/vmm_mad/exec/one_vmm_sh \
               src/vmm_mad/exec/one_vmm_ssh \
-              src/vmm_mad/ec2/one_vmm_ec2.rb \
-              src/vmm_mad/ec2/one_vmm_ec2 \
               src/vmm_mad/dummy/one_vmm_dummy.rb \
               src/vmm_mad/dummy/one_vmm_dummy \
               src/im_mad/im_exec/one_im_exec.rb \
               src/im_mad/im_exec/one_im_exec \
               src/im_mad/im_exec/one_im_ssh \
               src/im_mad/im_exec/one_im_sh \
-              src/im_mad/ec2/one_im_ec2.rb \
-              src/im_mad/ec2/one_im_ec2 \
               src/im_mad/dummy/one_im_dummy.rb \
               src/im_mad/dummy/one_im_dummy \
+              src/im_mad/collectd/collectd \
               src/tm_mad/one_tm \
               src/tm_mad/one_tm.rb \
               src/hm_mad/one_hm.rb \
@@ -680,30 +708,67 @@ VMM_EXEC_KVM_SCRIPTS="src/vmm_mad/remotes/kvm/cancel \
                     src/vmm_mad/remotes/kvm/reset \
                     src/vmm_mad/remotes/kvm/save \
                     src/vmm_mad/remotes/kvm/poll \
-                    src/vmm_mad/remotes/kvm/poll_ganglia \
+                    src/vmm_mad/remotes/kvm/attach_disk \
+                    src/vmm_mad/remotes/kvm/detach_disk \
+                    src/vmm_mad/remotes/kvm/attach_nic \
+                    src/vmm_mad/remotes/kvm/detach_nic \
+                    src/vmm_mad/remotes/kvm/snapshot_create \
+                    src/vmm_mad/remotes/kvm/snapshot_revert \
+                    src/vmm_mad/remotes/kvm/snapshot_delete \
                     src/vmm_mad/remotes/kvm/shutdown"
 
 #-------------------------------------------------------------------------------
 # VMM SH Driver Xen scripts, to be installed under $REMOTES_LOCATION/vmm/xen
 #-------------------------------------------------------------------------------
 
-VMM_EXEC_XEN_SCRIPTS="src/vmm_mad/remotes/xen/cancel \
+VMM_EXEC_XEN3_SCRIPTS="src/vmm_mad/remotes/xen/cancel \
                     src/vmm_mad/remotes/xen/deploy \
-                    src/vmm_mad/remotes/xen/xenrc \
-                    src/vmm_mad/remotes/xen/migrate \
+                    src/vmm_mad/remotes/xen/xen3/xenrc \
+                    src/vmm_mad/remotes/xen/xen3/migrate \
                     src/vmm_mad/remotes/xen/restore \
                     src/vmm_mad/remotes/xen/reboot \
-                    src/vmm_mad/remotes/xen/reset \
+                    src/vmm_mad/remotes/xen/xen3/reset \
                     src/vmm_mad/remotes/xen/save \
                     src/vmm_mad/remotes/xen/poll \
-                    src/vmm_mad/remotes/xen/poll_ganglia \
+                    src/vmm_mad/remotes/xen/attach_disk \
+                    src/vmm_mad/remotes/xen/detach_disk \
+                    src/vmm_mad/remotes/xen/attach_nic \
+                    src/vmm_mad/remotes/xen/detach_nic \
+                    src/vmm_mad/remotes/xen/snapshot_create \
+                    src/vmm_mad/remotes/xen/snapshot_revert \
+                    src/vmm_mad/remotes/xen/snapshot_delete \
                     src/vmm_mad/remotes/xen/shutdown"
 
+VMM_EXEC_XEN4_SCRIPTS="src/vmm_mad/remotes/xen/cancel \
+                    src/vmm_mad/remotes/xen/deploy \
+                    src/vmm_mad/remotes/xen/xen4/xenrc \
+                    src/vmm_mad/remotes/xen/xen4/migrate \
+                    src/vmm_mad/remotes/xen/restore \
+                    src/vmm_mad/remotes/xen/reboot \
+                    src/vmm_mad/remotes/xen/xen4/reset \
+                    src/vmm_mad/remotes/xen/save \
+                    src/vmm_mad/remotes/xen/poll \
+                    src/vmm_mad/remotes/xen/attach_disk \
+                    src/vmm_mad/remotes/xen/detach_disk \
+                    src/vmm_mad/remotes/xen/attach_nic \
+                    src/vmm_mad/remotes/xen/detach_nic \
+                    src/vmm_mad/remotes/xen/snapshot_create \
+                    src/vmm_mad/remotes/xen/snapshot_revert \
+                    src/vmm_mad/remotes/xen/snapshot_delete \
+                    src/vmm_mad/remotes/xen/shutdown"
 #-------------------------------------------------------------------------------
 # VMM Driver VMWARE scripts, to be installed under $REMOTES_LOCATION/vmm/vmware
 #-------------------------------------------------------------------------------
 
 VMM_EXEC_VMWARE_SCRIPTS="src/vmm_mad/remotes/vmware/cancel \
+                         src/vmm_mad/remotes/vmware/attach_disk \
+                         src/vmm_mad/remotes/vmware/detach_disk \
+                         src/vmm_mad/remotes/vmware/attach_nic \
+                         src/vmm_mad/remotes/vmware/detach_nic \
+                         src/vmm_mad/remotes/vmware/snapshot_create \
+                         src/vmm_mad/remotes/vmware/snapshot_revert \
+                         src/vmm_mad/remotes/vmware/snapshot_delete \
+                         src/vmm_mad/remotes/vmware/scripts_common_sh.sh \
                          src/vmm_mad/remotes/vmware/deploy \
                          src/vmm_mad/remotes/vmware/migrate \
                          src/vmm_mad/remotes/vmware/restore \
@@ -713,43 +778,149 @@ VMM_EXEC_VMWARE_SCRIPTS="src/vmm_mad/remotes/vmware/cancel \
                          src/vmm_mad/remotes/vmware/poll \
                          src/vmm_mad/remotes/vmware/checkpoint \
                          src/vmm_mad/remotes/vmware/shutdown \
-                         src/vmm_mad/remotes/vmware/vmware_driver.rb"
-                        
-#--------------------------------------------------------------------------------
-# VMM Driver vSphere scripts, to be installed under $REMOTES_LOCATION/vmm/vsphere
-#--------------------------------------------------------------------------------
+                         src/vmm_mad/remotes/vmware/vmware_driver.rb \
+                         src/vmm_mad/remotes/vmware/vi_driver.rb"
 
-VMM_EXEC_VSPHERE_SCRIPTS="src/vmm_mad/remotes/vsphere/cancel \
-                          src/vmm_mad/remotes/vsphere/deploy \
-                          src/vmm_mad/remotes/vsphere/migrate \
-                          src/vmm_mad/remotes/vsphere/restore \
-                          src/vmm_mad/remotes/vsphere/reboot \
-                          src/vmm_mad/remotes/vsphere/save \
-                          src/vmm_mad/remotes/vsphere/poll \
-                          src/vmm_mad/remotes/vsphere/checkpoint \
-                          src/vmm_mad/remotes/vsphere/shutdown \
-                          src/vmm_mad/remotes/vsphere/vsphere_driver.rb"
+#-------------------------------------------------------------------------------
+# VMM Driver vCenter scripts, installed under $REMOTES_LOCATION/vmm/vcenter
+#-------------------------------------------------------------------------------
+
+VMM_EXEC_VCENTER_SCRIPTS="src/vmm_mad/remotes/vcenter/cancel \
+                         src/vmm_mad/remotes/vcenter/attach_disk \
+                         src/vmm_mad/remotes/vcenter/detach_disk \
+                         src/vmm_mad/remotes/vcenter/attach_nic \
+                         src/vmm_mad/remotes/vcenter/detach_nic \
+                         src/vmm_mad/remotes/vcenter/snapshot_create \
+                         src/vmm_mad/remotes/vcenter/snapshot_revert \
+                         src/vmm_mad/remotes/vcenter/snapshot_delete \
+                         src/vmm_mad/remotes/vcenter/deploy \
+                         src/vmm_mad/remotes/vcenter/migrate \
+                         src/vmm_mad/remotes/vcenter/restore \
+                         src/vmm_mad/remotes/vcenter/reboot \
+                         src/vmm_mad/remotes/vcenter/reset \
+                         src/vmm_mad/remotes/vcenter/save \
+                         src/vmm_mad/remotes/vcenter/poll \
+                         src/vmm_mad/remotes/vcenter/shutdown"
+
+#------------------------------------------------------------------------------
+# VMM Driver EC2 scripts, to be installed under $REMOTES_LOCATION/vmm/ec2
+#------------------------------------------------------------------------------
+
+VMM_EXEC_EC2_SCRIPTS="src/vmm_mad/remotes/ec2/cancel \
+                      src/vmm_mad/remotes/ec2/attach_disk \
+                      src/vmm_mad/remotes/ec2/detach_disk \
+                      src/vmm_mad/remotes/ec2/attach_nic \
+                      src/vmm_mad/remotes/ec2/detach_nic \
+                      src/vmm_mad/remotes/ec2/snapshot_create \
+                      src/vmm_mad/remotes/ec2/snapshot_revert \
+                      src/vmm_mad/remotes/ec2/snapshot_delete \
+                      src/vmm_mad/remotes/ec2/deploy \
+                      src/vmm_mad/remotes/ec2/migrate \
+                      src/vmm_mad/remotes/ec2/restore \
+                      src/vmm_mad/remotes/ec2/reboot \
+                      src/vmm_mad/remotes/ec2/reset \
+                      src/vmm_mad/remotes/ec2/save \
+                      src/vmm_mad/remotes/ec2/poll \
+                      src/vmm_mad/remotes/ec2/shutdown \
+                      src/vmm_mad/remotes/ec2/ec2_driver.rb"
+
+#------------------------------------------------------------------------------
+# VMM Driver SoftLayer scripts, to be installed under $REMOTES_LOCATION/vmm/sl
+#------------------------------------------------------------------------------
+
+VMM_EXEC_SL_SCRIPTS="src/vmm_mad/remotes/sl/cancel \
+                     src/vmm_mad/remotes/sl/attach_disk \
+                     src/vmm_mad/remotes/sl/detach_disk \
+                     src/vmm_mad/remotes/sl/attach_nic \
+                     src/vmm_mad/remotes/sl/detach_nic \
+                     src/vmm_mad/remotes/sl/snapshot_create \
+                     src/vmm_mad/remotes/sl/snapshot_revert \
+                     src/vmm_mad/remotes/sl/snapshot_delete \
+                     src/vmm_mad/remotes/sl/deploy \
+                     src/vmm_mad/remotes/sl/migrate \
+                     src/vmm_mad/remotes/sl/restore \
+                     src/vmm_mad/remotes/sl/reboot \
+                     src/vmm_mad/remotes/sl/reset \
+                     src/vmm_mad/remotes/sl/save \
+                     src/vmm_mad/remotes/sl/poll \
+                     src/vmm_mad/remotes/sl/shutdown \
+                     src/vmm_mad/remotes/sl/sl_driver.rb"
+
+#------------------------------------------------------------------------------
+# VMM Driver Azure scripts, to be installed under $REMOTES_LOCATION/vmm/az
+#------------------------------------------------------------------------------
+
+VMM_EXEC_AZ_SCRIPTS="src/vmm_mad/remotes/az/cancel \
+                     src/vmm_mad/remotes/az/attach_disk \
+                     src/vmm_mad/remotes/az/detach_disk \
+                     src/vmm_mad/remotes/az/attach_nic \
+                     src/vmm_mad/remotes/az/detach_nic \
+                     src/vmm_mad/remotes/az/snapshot_create \
+                     src/vmm_mad/remotes/az/snapshot_revert \
+                     src/vmm_mad/remotes/az/snapshot_delete \
+                     src/vmm_mad/remotes/az/deploy \
+                     src/vmm_mad/remotes/az/migrate \
+                     src/vmm_mad/remotes/az/restore \
+                     src/vmm_mad/remotes/az/reboot \
+                     src/vmm_mad/remotes/az/reset \
+                     src/vmm_mad/remotes/az/save \
+                     src/vmm_mad/remotes/az/poll \
+                     src/vmm_mad/remotes/az/shutdown \
+                     src/vmm_mad/remotes/az/az_driver.rb"
 
 #-------------------------------------------------------------------------------
 # Information Manager Probes, to be installed under $REMOTES_LOCATION/im
 #-------------------------------------------------------------------------------
 
-IM_PROBES_FILES="src/im_mad/remotes/run_probes"
+IM_PROBES_FILES="src/im_mad/remotes/run_probes \
+                 src/im_mad/remotes/stop_probes"
 
-IM_PROBES_KVM_FILES="src/im_mad/remotes/kvm.d/kvm.rb \
-                     src/im_mad/remotes/kvm.d/architecture.sh \
-                     src/im_mad/remotes/kvm.d/cpu.sh \
-                     src/im_mad/remotes/kvm.d/name.sh"
+IM_PROBES_KVM_FILES="src/im_mad/remotes/kvm.d/collectd-client_control.sh \
+                     src/im_mad/remotes/kvm.d/collectd-client.rb"
 
-IM_PROBES_XEN_FILES="src/im_mad/remotes/xen.d/xen.rb \
-                     src/im_mad/remotes/xen.d/architecture.sh \
-                     src/im_mad/remotes/xen.d/cpu.sh \
-                     src/im_mad/remotes/xen.d/name.sh"
+IM_PROBES_KVM_PROBES_FILES="src/im_mad/remotes/kvm-probes.d/kvm.rb \
+                     src/im_mad/remotes/kvm-probes.d/architecture.sh \
+                     src/im_mad/remotes/kvm-probes.d/cpu.sh \
+                     src/im_mad/remotes/kvm-probes.d/poll.sh \
+                     src/im_mad/remotes/kvm-probes.d/name.sh \
+                     src/im_mad/remotes/common.d/monitor_ds.sh \
+                     src/im_mad/remotes/common.d/version.sh \
+                     src/im_mad/remotes/common.d/collectd-client-shepherd.sh"
+
+IM_PROBES_XEN3_FILES="src/im_mad/remotes/xen.d/collectd-client_control.sh \
+                      src/im_mad/remotes/xen.d/collectd-client.rb"
+
+IM_PROBES_XEN3_PROBES_FILES="src/im_mad/remotes/xen-probes.d/xen.rb \
+                      src/im_mad/remotes/xen-probes.d/architecture.sh \
+                      src/im_mad/remotes/xen-probes.d/cpu.sh \
+                      src/im_mad/remotes/xen-probes.d/poll3.sh \
+                      src/im_mad/remotes/xen-probes.d/name.sh
+                      src/im_mad/remotes/common.d/monitor_ds.sh \
+                      src/im_mad/remotes/common.d/version.sh \
+                      src/im_mad/remotes/common.d/collectd-client-shepherd.sh"
+
+IM_PROBES_XEN4_FILES="src/im_mad/remotes/xen.d/collectd-client_control.sh \
+                      src/im_mad/remotes/xen.d/collectd-client.rb"
+
+IM_PROBES_XEN4_PROBES_FILES="src/im_mad/remotes/xen-probes.d/xen.rb \
+                      src/im_mad/remotes/xen-probes.d/architecture.sh \
+                      src/im_mad/remotes/xen-probes.d/cpu.sh \
+                      src/im_mad/remotes/xen-probes.d/poll4.sh \
+                      src/im_mad/remotes/xen-probes.d/name.sh \
+                      src/im_mad/remotes/common.d/monitor_ds.sh \
+                      src/im_mad/remotes/common.d/version.sh \
+                      src/im_mad/remotes/common.d/collectd-client-shepherd.sh"
 
 IM_PROBES_VMWARE_FILES="src/im_mad/remotes/vmware.d/vmware.rb"
-IM_PROBES_VSPHERE_FILES="src/im_mad/remotes/vsphere.d/vsphere.rb"
 
-IM_PROBES_GANGLIA_FILES="src/im_mad/remotes/ganglia.d/ganglia_probe"
+IM_PROBES_VCENTER_FILES="src/im_mad/remotes/vcenter.d/vcenter.rb"
+
+IM_PROBES_EC2_FILES="src/im_mad/remotes/ec2.d/poll"
+
+IM_PROBES_SL_FILES="src/im_mad/remotes/sl.d/poll"
+IM_PROBES_AZ_FILES="src/im_mad/remotes/az.d/poll"
+
+IM_PROBES_VERSION="src/im_mad/remotes/VERSION"
 
 #-------------------------------------------------------------------------------
 # Auth Manager drivers to be installed under $REMOTES_LOCATION/auth
@@ -773,14 +944,29 @@ AUTH_PLAIN_FILES="src/authm_mad/remotes/plain/authenticate"
 # Virtual Network Manager drivers to be installed under $REMOTES_LOCATION/vnm
 #-------------------------------------------------------------------------------
 
-NETWORK_FILES="src/vnm_mad/remotes/OpenNebulaNetwork.rb \
-               src/vnm_mad/remotes/Firewall.rb \
-               src/vnm_mad/remotes/OpenNebulaNic.rb"
+NETWORK_FILES="src/vnm_mad/remotes/lib/vnm_driver.rb \
+               src/vnm_mad/remotes/lib/vnmmad.rb \
+               src/vnm_mad/remotes/OpenNebulaNetwork.conf \
+               src/vnm_mad/remotes/lib/fw_driver.rb \
+               src/vnm_mad/remotes/lib/sg_driver.rb \
+               src/vnm_mad/remotes/lib/address.rb \
+               src/vnm_mad/remotes/lib/command.rb \
+               src/vnm_mad/remotes/lib/vm.rb \
+               src/vnm_mad/remotes/lib/vlan.rb \
+               src/vnm_mad/remotes/lib/security_groups.rb \
+               src/vnm_mad/remotes/lib/security_groups_iptables.rb \
+               src/vnm_mad/remotes/lib/nic.rb"
 
 NETWORK_8021Q_FILES="src/vnm_mad/remotes/802.1Q/clean \
                     src/vnm_mad/remotes/802.1Q/post \
                     src/vnm_mad/remotes/802.1Q/pre \
-                    src/vnm_mad/remotes/802.1Q/HostManaged.rb"
+                    src/vnm_mad/remotes/802.1Q/vlan_tag_driver.rb"
+
+NETWORK_VXLAN_FILES="src/vnm_mad/remotes/vxlan/clean \
+                    src/vnm_mad/remotes/vxlan/post \
+                    src/vnm_mad/remotes/vxlan/pre \
+                    src/vnm_mad/remotes/vxlan/vxlan_driver.rb"
+
 
 NETWORK_DUMMY_FILES="src/vnm_mad/remotes/dummy/clean \
                     src/vnm_mad/remotes/dummy/post \
@@ -800,25 +986,27 @@ NETWORK_OVSWITCH_FILES="src/vnm_mad/remotes/ovswitch/clean \
                     src/vnm_mad/remotes/ovswitch/pre \
                     src/vnm_mad/remotes/ovswitch/OpenvSwitch.rb"
 
+NETWORK_OVSWITCH_BRCOMPAT_FILES="src/vnm_mad/remotes/ovswitch_brcompat/clean \
+                    src/vnm_mad/remotes/ovswitch_brcompat/post \
+                    src/vnm_mad/remotes/ovswitch_brcompat/pre \
+                    src/vnm_mad/remotes/ovswitch_brcompat/OpenvSwitch.rb"
+
 NETWORK_VMWARE_FILES="src/vnm_mad/remotes/vmware/clean \
                     src/vnm_mad/remotes/vmware/post \
                     src/vnm_mad/remotes/vmware/pre \
                     src/vnm_mad/remotes/vmware/VMware.rb"
-                    
-NETWORK_VSPHERE_FILES="src/vnm_mad/remotes/vsphere/clean \
-                    src/vnm_mad/remotes/vsphere/post \
-                    src/vnm_mad/remotes/vsphere/pre \
-                    src/vnm_mad/remotes/vsphere/VSphere.rb"
 
 #-------------------------------------------------------------------------------
 # Transfer Manager commands, to be installed under $LIB_LOCATION/tm_commands
 #   - SHARED TM, $VAR_LOCATION/tm/shared
+#   - FS_LVM TM, $VAR_LOCATION/tm/fs_lvm
 #   - QCOW2 TM, $VAR_LOCATION/tm/qcow2
 #   - SSH TM, $VAR_LOCATION/tm/ssh
 #   - DUMMY TM, $VAR_LOCATION/tm/dummy
 #   - VMWARE TM, $VAR_LOCATION/tm/vmware
-#   - ISCSI TM, $VAR_LOCATION/tm/iscsi
 #   - LVM TM, $VAR_LOCATION/tm/lvm
+#   - CEPH TM, $VAR_LOCATION/tm/ceph
+#   - DEV TM, $VAR_LOCATION/tm/dev
 #-------------------------------------------------------------------------------
 
 TM_FILES="src/tm_mad/tm_common.sh"
@@ -830,7 +1018,19 @@ TM_SHARED_FILES="src/tm_mad/shared/clone \
                  src/tm_mad/shared/mkimage \
                  src/tm_mad/shared/mv \
                  src/tm_mad/shared/context \
-                 src/tm_mad/shared/mvds"
+                 src/tm_mad/shared/premigrate \
+                 src/tm_mad/shared/postmigrate \
+                 src/tm_mad/shared/mvds \
+                 src/tm_mad/shared/cpds"
+
+TM_FS_LVM_FILES="src/tm_mad/fs_lvm/clone \
+                 src/tm_mad/fs_lvm/ln \
+                 src/tm_mad/fs_lvm/mv \
+                 src/tm_mad/fs_lvm/mvds \
+                 src/tm_mad/fs_lvm/cpds \
+                 src/tm_mad/fs_lvm/premigrate \
+                 src/tm_mad/fs_lvm/postmigrate \
+                 src/tm_mad/fs_lvm/delete"
 
 TM_QCOW2_FILES="src/tm_mad/qcow2/clone \
                  src/tm_mad/qcow2/delete \
@@ -839,7 +1039,10 @@ TM_QCOW2_FILES="src/tm_mad/qcow2/clone \
                  src/tm_mad/qcow2/mkimage \
                  src/tm_mad/qcow2/mv \
                  src/tm_mad/qcow2/context \
-                 src/tm_mad/qcow2/mvds"
+                 src/tm_mad/qcow2/premigrate \
+                 src/tm_mad/qcow2/postmigrate \
+                 src/tm_mad/qcow2/mvds \
+                 src/tm_mad/qcow2/cpds"
 
 TM_SSH_FILES="src/tm_mad/ssh/clone \
               src/tm_mad/ssh/delete \
@@ -848,7 +1051,10 @@ TM_SSH_FILES="src/tm_mad/ssh/clone \
               src/tm_mad/ssh/mkimage \
               src/tm_mad/ssh/mv \
               src/tm_mad/ssh/context \
-              src/tm_mad/ssh/mvds"
+              src/tm_mad/ssh/premigrate \
+              src/tm_mad/ssh/postmigrate \
+              src/tm_mad/ssh/mvds \
+              src/tm_mad/ssh/cpds"
 
 TM_DUMMY_FILES="src/tm_mad/dummy/clone \
               src/tm_mad/dummy/delete \
@@ -857,95 +1063,157 @@ TM_DUMMY_FILES="src/tm_mad/dummy/clone \
               src/tm_mad/dummy/mkimage \
               src/tm_mad/dummy/mv \
               src/tm_mad/dummy/context \
-              src/tm_mad/dummy/mvds"
+              src/tm_mad/dummy/premigrate \
+              src/tm_mad/dummy/postmigrate \
+              src/tm_mad/dummy/mvds \
+              src/tm_mad/dummy/cpds"
 
-TM_VMWARE_FILES="src/tm_mad/vmware/clone \
-                 src/tm_mad/vmware/delete
-                 src/tm_mad/vmware/ln \
-                 src/tm_mad/vmware/mkswap \
-                 src/tm_mad/vmware/mkimage \
-                 src/tm_mad/vmware/mv \
-                 src/tm_mad/vmware/context \
-                 src/tm_mad/vmware/mvds"
-                 
-TM_VSPHERE_FILES="src/tm_mad/vsphere/clone \
-                  src/tm_mad/vsphere/delete
-                  src/tm_mad/vsphere/ln \
-                  src/tm_mad/vsphere/mkswap \
-                  src/tm_mad/vsphere/mkimage \
-                  src/tm_mad/vsphere/mv \
-                  src/tm_mad/vsphere/context \
-                  src/tm_mad/vsphere/mvds"
-
-TM_ISCSI_FILES="src/tm_mad/iscsi/clone \
-                 src/tm_mad/iscsi/ln \
-                 src/tm_mad/iscsi/mv \
-                 src/tm_mad/iscsi/mvds \
-                 src/tm_mad/iscsi/delete"
+TM_VMFS_FILES="src/tm_mad/vmfs/clone \
+                 src/tm_mad/vmfs/delete
+                 src/tm_mad/vmfs/ln \
+                 src/tm_mad/vmfs/mkswap \
+                 src/tm_mad/vmfs/mkimage \
+                 src/tm_mad/vmfs/mv \
+                 src/tm_mad/vmfs/context \
+                 src/tm_mad/vmfs/mvds \
+                 src/tm_mad/vmfs/cpds \
+                 src/tm_mad/vmfs/postmigrate \
+                 src/tm_mad/vmfs/premigrate"
 
 TM_LVM_FILES="src/tm_mad/lvm/clone \
                  src/tm_mad/lvm/ln \
                  src/tm_mad/lvm/mv \
                  src/tm_mad/lvm/mvds \
+                 src/tm_mad/lvm/cpds \
+                 src/tm_mad/lvm/premigrate \
+                 src/tm_mad/lvm/postmigrate \
                  src/tm_mad/lvm/delete"
+
+TM_CEPH_FILES="src/tm_mad/ceph/clone \
+                 src/tm_mad/ceph/ln \
+                 src/tm_mad/ceph/mv \
+                 src/tm_mad/ceph/mvds \
+                 src/tm_mad/ceph/cpds \
+                 src/tm_mad/ceph/premigrate \
+                 src/tm_mad/ceph/postmigrate \
+                 src/tm_mad/ceph/delete"
+
+TM_DEV_FILES="src/tm_mad/dev/clone \
+                 src/tm_mad/dev/ln \
+                 src/tm_mad/dev/mv \
+                 src/tm_mad/dev/mvds \
+                 src/tm_mad/dev/cpds \
+                 src/tm_mad/dev/premigrate \
+                 src/tm_mad/dev/postmigrate \
+                 src/tm_mad/dev/delete"
 
 #-------------------------------------------------------------------------------
 # Datastore drivers, to be installed under $REMOTES_LOCATION/datastore
 #   - Dummy Image Repository, $REMOTES_LOCATION/datastore/dummy
 #   - FS based Image Repository, $REMOTES_LOCATION/datastore/fs
-#   - VMware based Image Repository, $REMOTES_LOCATION/datastore/vmware
-#   - iSCSI based Image Repository, $REMOTES_LOCATION/datastore/iscsi
+#   - VMFS based Image Repository, $REMOTES_LOCATION/datastore/vmfs
 #   - LVM based Image Repository, $REMOTES_LOCATION/datastore/lvm
 #-------------------------------------------------------------------------------
 
 DATASTORE_DRIVER_COMMON_SCRIPTS="src/datastore_mad/remotes/xpath.rb \
+                             src/datastore_mad/remotes/downloader.sh \
                              src/datastore_mad/remotes/libfs.sh"
 
 DATASTORE_DRIVER_DUMMY_SCRIPTS="src/datastore_mad/remotes/dummy/cp \
                          src/datastore_mad/remotes/dummy/mkfs \
                          src/datastore_mad/remotes/dummy/stat \
+                         src/datastore_mad/remotes/dummy/clone \
+                         src/datastore_mad/remotes/dummy/monitor \
                          src/datastore_mad/remotes/dummy/rm"
 
 DATASTORE_DRIVER_FS_SCRIPTS="src/datastore_mad/remotes/fs/cp \
                          src/datastore_mad/remotes/fs/mkfs \
                          src/datastore_mad/remotes/fs/stat \
+                         src/datastore_mad/remotes/fs/clone \
+                         src/datastore_mad/remotes/fs/monitor \
                          src/datastore_mad/remotes/fs/rm"
 
-DATASTORE_DRIVER_VMWARE_SCRIPTS="src/datastore_mad/remotes/vmware/cp \
-                         src/datastore_mad/remotes/vmware/mkfs \
-                         src/datastore_mad/remotes/vmware/stat \
-                         src/datastore_mad/remotes/vmware/rm"
-
-DATASTORE_DRIVER_ISCSI_SCRIPTS="src/datastore_mad/remotes/iscsi/cp \
-                         src/datastore_mad/remotes/iscsi/mkfs \
-                         src/datastore_mad/remotes/iscsi/stat \
-                         src/datastore_mad/remotes/iscsi/rm \
-                         src/datastore_mad/remotes/iscsi/iscsi.conf"
+DATASTORE_DRIVER_VMFS_SCRIPTS="src/datastore_mad/remotes/vmfs/cp \
+                         src/datastore_mad/remotes/vmfs/mkfs \
+                         src/datastore_mad/remotes/vmfs/stat \
+                         src/datastore_mad/remotes/vmfs/clone \
+                         src/datastore_mad/remotes/vmfs/monitor \
+                         src/datastore_mad/remotes/vmfs/rm \
+                         src/datastore_mad/remotes/vmfs/vmfs.conf"
 
 DATASTORE_DRIVER_LVM_SCRIPTS="src/datastore_mad/remotes/lvm/cp \
                          src/datastore_mad/remotes/lvm/mkfs \
                          src/datastore_mad/remotes/lvm/stat \
                          src/datastore_mad/remotes/lvm/rm \
+                         src/datastore_mad/remotes/lvm/monitor \
+                         src/datastore_mad/remotes/lvm/clone \
                          src/datastore_mad/remotes/lvm/lvm.conf"
+
+DATASTORE_DRIVER_CEPH_SCRIPTS="src/datastore_mad/remotes/ceph/cp \
+                         src/datastore_mad/remotes/ceph/mkfs \
+                         src/datastore_mad/remotes/ceph/stat \
+                         src/datastore_mad/remotes/ceph/rm \
+                         src/datastore_mad/remotes/ceph/monitor \
+                         src/datastore_mad/remotes/ceph/clone \
+                         src/datastore_mad/remotes/ceph/ceph.conf"
+
+DATASTORE_DRIVER_DEV_SCRIPTS="src/datastore_mad/remotes/dev/cp \
+                         src/datastore_mad/remotes/dev/mkfs \
+                         src/datastore_mad/remotes/dev/stat \
+                         src/datastore_mad/remotes/dev/rm \
+                         src/datastore_mad/remotes/dev/monitor \
+                         src/datastore_mad/remotes/dev/clone"
 
 #-------------------------------------------------------------------------------
 # Migration scripts for onedb command, to be installed under $LIB_LOCATION
 #-------------------------------------------------------------------------------
-ONEDB_MIGRATOR_FILES="src/onedb/2.0_to_2.9.80.rb \
-                      src/onedb/2.9.80_to_2.9.85.rb \
-                      src/onedb/2.9.85_to_2.9.90.rb \
-                      src/onedb/2.9.90_to_3.0.0.rb \
-                      src/onedb/3.0.0_to_3.1.0.rb \
-                      src/onedb/3.1.0_to_3.1.80.rb \
-                      src/onedb/3.1.80_to_3.2.0.rb \
-                      src/onedb/3.2.0_to_3.2.1.rb \
-                      src/onedb/3.2.1_to_3.3.0.rb \
-                      src/onedb/3.3.0_to_3.3.80.rb \
-                      src/onedb/3.3.80_to_3.4.0.rb \
-                      src/onedb/3.4.0_to_3.4.1.rb \
-                      src/onedb/3.4.1_to_3.5.80.rb \
-                      src/onedb/onedb.rb \
-                      src/onedb/onedb_backend.rb"
+
+
+ONEDB_FILES="src/onedb/fsck.rb \
+            src/onedb/import_slave.rb \
+            src/onedb/onedb.rb \
+            src/onedb/onedb_backend.rb"
+
+ONEDB_SHARED_MIGRATOR_FILES="src/onedb/shared/2.0_to_2.9.80.rb \
+                             src/onedb/shared/2.9.80_to_2.9.85.rb \
+                             src/onedb/shared/2.9.85_to_2.9.90.rb \
+                             src/onedb/shared/2.9.90_to_3.0.0.rb \
+                             src/onedb/shared/3.0.0_to_3.1.0.rb \
+                             src/onedb/shared/3.1.0_to_3.1.80.rb \
+                             src/onedb/shared/3.1.80_to_3.2.0.rb \
+                             src/onedb/shared/3.2.0_to_3.2.1.rb \
+                             src/onedb/shared/3.2.1_to_3.3.0.rb \
+                             src/onedb/shared/3.3.0_to_3.3.80.rb \
+                             src/onedb/shared/3.3.80_to_3.4.0.rb \
+                             src/onedb/shared/3.4.0_to_3.4.1.rb \
+                             src/onedb/shared/3.4.1_to_3.5.80.rb \
+                             src/onedb/shared/3.5.80_to_3.6.0.rb \
+                             src/onedb/shared/3.6.0_to_3.7.80.rb \
+                             src/onedb/shared/3.7.80_to_3.8.0.rb \
+                             src/onedb/shared/3.8.0_to_3.8.1.rb \
+                             src/onedb/shared/3.8.1_to_3.8.2.rb \
+                             src/onedb/shared/3.8.2_to_3.8.3.rb \
+                             src/onedb/shared/3.8.3_to_3.8.4.rb \
+                             src/onedb/shared/3.8.4_to_3.8.5.rb \
+                             src/onedb/shared/3.8.5_to_3.9.80.rb \
+                             src/onedb/shared/3.9.80_to_3.9.90.rb \
+                             src/onedb/shared/3.9.90_to_4.0.0.rb \
+                             src/onedb/shared/4.0.0_to_4.0.1.rb \
+                             src/onedb/shared/4.0.1_to_4.1.80.rb \
+                             src/onedb/shared/4.1.80_to_4.2.0.rb \
+                             src/onedb/shared/4.2.0_to_4.3.80.rb \
+                             src/onedb/shared/4.3.80_to_4.3.85.rb \
+                             src/onedb/shared/4.3.85_to_4.3.90.rb \
+                             src/onedb/shared/4.3.90_to_4.4.0.rb \
+                             src/onedb/shared/4.4.0_to_4.4.1.rb \
+                             src/onedb/shared/4.4.1_to_4.5.80.rb\
+                             src/onedb/shared/4.5.80_to_4.6.0.rb \
+                             src/onedb/shared/4.6.0_to_4.11.80.rb"
+
+ONEDB_LOCAL_MIGRATOR_FILES="src/onedb/local/4.5.80_to_4.7.80.rb \
+                            src/onedb/local/4.7.80_to_4.9.80.rb \
+                            src/onedb/local/4.9.80_to_4.10.3.rb \
+                            src/onedb/local/4.10.3_to_4.11.80.rb"
 
 #-------------------------------------------------------------------------------
 # Configuration files for OpenNebula, to be installed under $ETC_LOCATION
@@ -953,35 +1221,32 @@ ONEDB_MIGRATOR_FILES="src/onedb/2.0_to_2.9.80.rb \
 
 ETC_FILES="share/etc/oned.conf \
            share/etc/defaultrc \
-           src/scheduler/etc/sched.conf \
-           src/cli/etc/group.default"
+           src/scheduler/etc/sched.conf"
 
 VMWARE_ETC_FILES="src/vmm_mad/remotes/vmware/vmwarerc"
 
-VSPHERE_ETC_FILES="src/vmm_mad/remotes/vsphere/vsphererc"
+EC2_ETC_FILES="src/vmm_mad/remotes/ec2/ec2_driver.conf \
+               src/vmm_mad/remotes/ec2/ec2_driver.default"
+
+SL_ETC_FILES="src/vmm_mad/remotes/sl/sl_driver.conf \
+              src/vmm_mad/remotes/sl/sl_driver.default"
+
+AZ_ETC_FILES="src/vmm_mad/remotes/az/az_driver.conf \
+              src/vmm_mad/remotes/az/az_driver.default"
+
 
 #-------------------------------------------------------------------------------
 # Virtualization drivers config. files, to be installed under $ETC_LOCATION
-#   - ec2, $ETC_LOCATION/vmm_ec2
 #   - ssh, $ETC_LOCATION/vmm_exec
 #-------------------------------------------------------------------------------
 
-VMM_EC2_ETC_FILES="src/vmm_mad/ec2/vmm_ec2rc \
-                   src/vmm_mad/ec2/vmm_ec2.conf"
 
 VMM_EXEC_ETC_FILES="src/vmm_mad/exec/vmm_execrc \
                   src/vmm_mad/exec/vmm_exec_kvm.conf \
-                  src/vmm_mad/exec/vmm_exec_xen.conf \
+                  src/vmm_mad/exec/vmm_exec_xen3.conf \
+                  src/vmm_mad/exec/vmm_exec_xen4.conf \
                   src/vmm_mad/exec/vmm_exec_vmware.conf \
-                  src/vmm_mad/exec/vmm_exec_vsphere.conf"
-
-#-------------------------------------------------------------------------------
-# Information drivers config. files, to be installed under $ETC_LOCATION
-#   - ec2, $ETC_LOCATION/im_ec2
-#-------------------------------------------------------------------------------
-
-IM_EC2_ETC_FILES="src/im_mad/ec2/im_ec2rc \
-                  src/im_mad/ec2/im_ec2.conf"
+                  src/vmm_mad/exec/vmm_exec_vcenter.conf"
 
 #-------------------------------------------------------------------------------
 # Hook Manager driver config. files, to be installed under $ETC_LOCATION/hm
@@ -1006,6 +1271,21 @@ EXAMPLE_SHARE_FILES="share/examples/vm.template \
                      share/examples/public.net"
 
 #-------------------------------------------------------------------------------
+# OneGate CLI for guests $SHARE_LOCATION/onegate
+#-------------------------------------------------------------------------------
+
+ONEGATE_SHARE_FILES="share/onegate/init.sh \
+                     share/onegate/onegate"
+
+#-------------------------------------------------------------------------------
+# Files required to interact with the websockify server
+#-------------------------------------------------------------------------------
+
+WEBSOCKIFY_SHARE_FILES="share/websockify/websocketproxy.py \
+                        share/websockify/websocket.py \
+                        share/websockify/websockify"
+
+#-------------------------------------------------------------------------------
 # HOOK scripts, to be installed under $VAR_LOCATION/remotes/hooks
 #-------------------------------------------------------------------------------
 
@@ -1015,36 +1295,52 @@ HOOK_FT_FILES="share/hooks/host_error.rb"
 # Installation scripts, to be installed under $SHARE_LOCATION
 #-------------------------------------------------------------------------------
 
-INSTALL_NOVNC_SHARE_FILE="share/install_novnc.sh"
 INSTALL_GEMS_SHARE_FILE="share/install_gems/install_gems"
 
 #-------------------------------------------------------------------------------
 # OCA Files
 #-------------------------------------------------------------------------------
-OCA_LIB_FILES="src/oca/ruby/OpenNebula.rb"
+OCA_LIB_FILES="src/oca/ruby/opennebula.rb"
 
-RUBY_OPENNEBULA_LIB_FILES="src/oca/ruby/OpenNebula/Host.rb \
-                           src/oca/ruby/OpenNebula/HostPool.rb \
-                           src/oca/ruby/OpenNebula/Pool.rb \
-                           src/oca/ruby/OpenNebula/User.rb \
-                           src/oca/ruby/OpenNebula/UserPool.rb \
-                           src/oca/ruby/OpenNebula/VirtualMachine.rb \
-                           src/oca/ruby/OpenNebula/VirtualMachinePool.rb \
-                           src/oca/ruby/OpenNebula/VirtualNetwork.rb \
-                           src/oca/ruby/OpenNebula/VirtualNetworkPool.rb \
-                           src/oca/ruby/OpenNebula/Image.rb \
-                           src/oca/ruby/OpenNebula/ImagePool.rb \
-                           src/oca/ruby/OpenNebula/Template.rb \
-                           src/oca/ruby/OpenNebula/TemplatePool.rb \
-                           src/oca/ruby/OpenNebula/Group.rb \
-                           src/oca/ruby/OpenNebula/GroupPool.rb \
-                           src/oca/ruby/OpenNebula/Acl.rb \
-                           src/oca/ruby/OpenNebula/AclPool.rb \
-                           src/oca/ruby/OpenNebula/Datastore.rb \
-                           src/oca/ruby/OpenNebula/DatastorePool.rb \
-                           src/oca/ruby/OpenNebula/Cluster.rb \
-                           src/oca/ruby/OpenNebula/ClusterPool.rb \
-                           src/oca/ruby/OpenNebula/XMLUtils.rb"
+RUBY_OPENNEBULA_LIB_FILES="src/oca/ruby/opennebula/acl_pool.rb \
+                            src/oca/ruby/opennebula/acl.rb \
+                            src/oca/ruby/opennebula/client.rb \
+                            src/oca/ruby/opennebula/cluster_pool.rb \
+                            src/oca/ruby/opennebula/cluster.rb \
+                            src/oca/ruby/opennebula/datastore_pool.rb \
+                            src/oca/ruby/opennebula/datastore.rb \
+                            src/oca/ruby/opennebula/document_json.rb \
+                            src/oca/ruby/opennebula/document_pool_json.rb \
+                            src/oca/ruby/opennebula/document_pool.rb \
+                            src/oca/ruby/opennebula/document.rb \
+                            src/oca/ruby/opennebula/error.rb \
+                            src/oca/ruby/opennebula/group_pool.rb \
+                            src/oca/ruby/opennebula/group.rb \
+                            src/oca/ruby/opennebula/host_pool.rb \
+                            src/oca/ruby/opennebula/host.rb \
+                            src/oca/ruby/opennebula/image_pool.rb \
+                            src/oca/ruby/opennebula/image.rb \
+                            src/oca/ruby/opennebula/oneflow_client.rb \
+                            src/oca/ruby/opennebula/pool_element.rb \
+                            src/oca/ruby/opennebula/pool.rb \
+                            src/oca/ruby/opennebula/security_group_pool.rb \
+                            src/oca/ruby/opennebula/security_group.rb \
+                            src/oca/ruby/opennebula/system.rb \
+                            src/oca/ruby/opennebula/template_pool.rb \
+                            src/oca/ruby/opennebula/template.rb \
+                            src/oca/ruby/opennebula/user_pool.rb \
+                            src/oca/ruby/opennebula/user.rb \
+                            src/oca/ruby/opennebula/vdc_pool.rb \
+                            src/oca/ruby/opennebula/vdc.rb \
+                            src/oca/ruby/opennebula/virtual_machine_pool.rb \
+                            src/oca/ruby/opennebula/virtual_machine.rb \
+                            src/oca/ruby/opennebula/virtual_network_pool.rb \
+                            src/oca/ruby/opennebula/virtual_network.rb \
+                            src/oca/ruby/opennebula/xml_element.rb \
+                            src/oca/ruby/opennebula/xml_pool.rb \
+                            src/oca/ruby/opennebula/xml_utils.rb \
+                            src/oca/ruby/opennebula/zone_pool.rb \
+                            src/oca/ruby/opennebula/zone.rb"
 
 #-------------------------------------------------------------------------------
 # Common Cloud Files
@@ -1056,10 +1352,10 @@ COMMON_CLOUD_LIB_FILES="src/cloud/common/CloudServer.rb \
 
 COMMON_CLOUD_CLIENT_LIB_FILES="src/cloud/common/CloudClient.rb"
 
-CLOUD_AUTH_LIB_FILES="src/cloud/common/CloudAuth/OCCICloudAuth.rb \
-                      src/cloud/common/CloudAuth/SunstoneCloudAuth.rb \
+CLOUD_AUTH_LIB_FILES="src/cloud/common/CloudAuth/SunstoneCloudAuth.rb \
                       src/cloud/common/CloudAuth/EC2CloudAuth.rb \
                       src/cloud/common/CloudAuth/X509CloudAuth.rb \
+                      src/cloud/common/CloudAuth/OneGateCloudAuth.rb \
                       src/cloud/common/CloudAuth/OpenNebulaCloudAuth.rb"
 
 #-------------------------------------------------------------------------------
@@ -1070,12 +1366,32 @@ ECO_LIB_FILES="src/cloud/ec2/lib/EC2QueryClient.rb \
                src/cloud/ec2/lib/EC2QueryServer.rb \
                src/cloud/ec2/lib/ImageEC2.rb \
                src/cloud/ec2/lib/elastic_ip.rb \
+               src/cloud/ec2/lib/ebs.rb \
+               src/cloud/ec2/lib/tags.rb \
+               src/cloud/ec2/lib/instance.rb \
+               src/cloud/ec2/lib/keypair.rb \
+               src/cloud/ec2/lib/net_ssh_replacement.rb \
+               src/cloud/ec2/lib/econe_application.rb \
                src/cloud/ec2/lib/econe-server.rb"
 
 ECO_LIB_CLIENT_FILES="src/cloud/ec2/lib/EC2QueryClient.rb"
 
 ECO_LIB_VIEW_FILES="src/cloud/ec2/lib/views/describe_images.erb \
                     src/cloud/ec2/lib/views/describe_instances.erb \
+                    src/cloud/ec2/lib/views/describe_regions.erb \
+                    src/cloud/ec2/lib/views/describe_availability_zones.erb \
+                    src/cloud/ec2/lib/views/create_tags.erb \
+                    src/cloud/ec2/lib/views/delete_tags.erb \
+                    src/cloud/ec2/lib/views/describe_tags.erb \
+                    src/cloud/ec2/lib/views/create_volume.erb \
+                    src/cloud/ec2/lib/views/create_snapshot.erb \
+                    src/cloud/ec2/lib/views/delete_snapshot.erb \
+                    src/cloud/ec2/lib/views/describe_snapshots.erb \
+                    src/cloud/ec2/lib/views/create_image.erb \
+                    src/cloud/ec2/lib/views/describe_volumes.erb \
+                    src/cloud/ec2/lib/views/attach_volume.erb \
+                    src/cloud/ec2/lib/views/detach_volume.erb \
+                    src/cloud/ec2/lib/views/delete_volume.erb \
                     src/cloud/ec2/lib/views/register_image.erb \
                     src/cloud/ec2/lib/views/run_instances.erb \
                     src/cloud/ec2/lib/views/allocate_address.erb \
@@ -1083,14 +1399,31 @@ ECO_LIB_VIEW_FILES="src/cloud/ec2/lib/views/describe_images.erb \
                     src/cloud/ec2/lib/views/disassociate_address.erb \
                     src/cloud/ec2/lib/views/describe_addresses.erb \
                     src/cloud/ec2/lib/views/release_address.erb \
-                    src/cloud/ec2/lib/views/terminate_instances.erb"
+                    src/cloud/ec2/lib/views/create_keypair.erb \
+                    src/cloud/ec2/lib/views/delete_keypair.erb \
+                    src/cloud/ec2/lib/views/describe_keypairs.erb \
+                    src/cloud/ec2/lib/views/terminate_instances.erb \
+                    src/cloud/ec2/lib/views/stop_instances.erb \
+                    src/cloud/ec2/lib/views/reboot_instances.erb \
+                    src/cloud/ec2/lib/views/start_instances.erb"
 
 ECO_BIN_FILES="src/cloud/ec2/bin/econe-server \
                src/cloud/ec2/bin/econe-describe-images \
+               src/cloud/ec2/bin/econe-describe-volumes \
                src/cloud/ec2/bin/econe-describe-instances \
+               src/cloud/ec2/bin/econe-describe-keypairs \
                src/cloud/ec2/bin/econe-register \
+               src/cloud/ec2/bin/econe-attach-volume \
+               src/cloud/ec2/bin/econe-detach-volume \
+               src/cloud/ec2/bin/econe-delete-volume \
+               src/cloud/ec2/bin/econe-delete-keypair \
+               src/cloud/ec2/bin/econe-create-volume \
+               src/cloud/ec2/bin/econe-create-keypair \
                src/cloud/ec2/bin/econe-run-instances \
                src/cloud/ec2/bin/econe-terminate-instances \
+               src/cloud/ec2/bin/econe-start-instances \
+               src/cloud/ec2/bin/econe-stop-instances \
+               src/cloud/ec2/bin/econe-reboot-instances \
                src/cloud/ec2/bin/econe-describe-addresses \
                src/cloud/ec2/bin/econe-allocate-address \
                src/cloud/ec2/bin/econe-release-address \
@@ -1100,9 +1433,17 @@ ECO_BIN_FILES="src/cloud/ec2/bin/econe-server \
 
 ECO_BIN_CLIENT_FILES="src/cloud/ec2/bin/econe-describe-images \
                src/cloud/ec2/bin/econe-describe-instances \
+               src/cloud/ec2/bin/econe-describe-volumes \
                src/cloud/ec2/bin/econe-register \
+               src/cloud/ec2/bin/econe-attach-volume \
+               src/cloud/ec2/bin/econe-detach-volume \
+               src/cloud/ec2/bin/econe-delete-volume \
+               src/cloud/ec2/bin/econe-create-volume \
                src/cloud/ec2/bin/econe-run-instances \
                src/cloud/ec2/bin/econe-terminate-instances \
+               src/cloud/ec2/bin/econe-start-instances \
+               src/cloud/ec2/bin/econe-stop-instances \
+               src/cloud/ec2/bin/econe-reboot-instances \
                src/cloud/ec2/bin/econe-describe-addresses \
                src/cloud/ec2/bin/econe-allocate-address \
                src/cloud/ec2/bin/econe-release-address \
@@ -1114,44 +1455,18 @@ ECO_ETC_FILES="src/cloud/ec2/etc/econe.conf"
 
 ECO_ETC_TEMPLATE_FILES="src/cloud/ec2/etc/templates/m1.small.erb"
 
-#-----------------------------------------------------------------------------
-# OCCI files
-#-----------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# Marketplace Client
+#-------------------------------------------------------------------------------
 
-OCCI_LIB_FILES="src/cloud/occi/lib/OCCIServer.rb \
-                src/cloud/occi/lib/occi-server.rb \
-                src/cloud/occi/lib/OCCIClient.rb \
-                src/cloud/occi/lib/VirtualMachineOCCI.rb \
-                src/cloud/occi/lib/VirtualMachinePoolOCCI.rb \
-                src/cloud/occi/lib/VirtualNetworkOCCI.rb \
-                src/cloud/occi/lib/VirtualNetworkPoolOCCI.rb \
-                src/cloud/occi/lib/UserOCCI.rb \
-                src/cloud/occi/lib/UserPoolOCCI.rb \
-                src/cloud/occi/lib/ImageOCCI.rb \
-                src/cloud/occi/lib/ImagePoolOCCI.rb \
-                src/sunstone/OpenNebulaVNC.rb"
+MARKET_LIB_FILES="src/cloud/marketplace/lib/marketplace_client.rb"
 
-OCCI_LIB_CLIENT_FILES="src/cloud/occi/lib/OCCIClient.rb"
+MARKET_LIB_CLIENT_FILES="src/cloud/marketplace/lib/marketplace_client.rb"
 
-OCCI_BIN_FILES="src/cloud/occi/bin/occi-server \
-               src/cloud/occi/bin/occi-compute \
-               src/cloud/occi/bin/occi-network \
-               src/cloud/occi/bin/occi-instance-type \
-               src/cloud/occi/bin/occi-storage"
+MARKET_BIN_FILES="src/cloud/marketplace/bin/onemarket"
 
-OCCI_BIN_CLIENT_FILES="src/cloud/occi/bin/occi-compute \
-               src/cloud/occi/bin/occi-network \
-               src/cloud/occi/bin/occi-instance-type \
-               src/cloud/occi/bin/occi-storage"
+MARKET_BIN_CLIENT_FILES="src/cloud/marketplace/bin/onemarket"
 
-OCCI_ETC_FILES="src/cloud/occi/etc/occi-server.conf"
-
-OCCI_ETC_TEMPLATE_FILES="src/cloud/occi/etc/templates/common.erb \
-                    src/cloud/occi/etc/templates/custom.erb \
-                    src/cloud/occi/etc/templates/small.erb \
-                    src/cloud/occi/etc/templates/medium.erb \
-                    src/cloud/occi/etc/templates/network.erb \
-                    src/cloud/occi/etc/templates/large.erb"
 
 #-----------------------------------------------------------------------------
 # CLI files
@@ -1171,7 +1486,11 @@ ONE_CLI_LIB_FILES="src/cli/one_helper/onegroup_helper.rb \
                    src/cli/one_helper/onevnet_helper.rb \
                    src/cli/one_helper/oneacl_helper.rb \
                    src/cli/one_helper/onedatastore_helper.rb \
-                   src/cli/one_helper/onecluster_helper.rb"
+                   src/cli/one_helper/onecluster_helper.rb \
+                   src/cli/one_helper/onezone_helper.rb \
+                   src/cli/one_helper/onevdc_helper.rb \
+                   src/cli/one_helper/oneacct_helper.rb \
+                   src/cli/one_helper/onesecgroup_helper.rb"
 
 CLI_BIN_FILES="src/cli/onevm \
                src/cli/onehost \
@@ -1182,7 +1501,14 @@ CLI_BIN_FILES="src/cli/onevm \
                src/cli/onegroup \
                src/cli/oneacl \
                src/cli/onedatastore \
-               src/cli/onecluster"
+               src/cli/onecluster \
+               src/cli/onezone \
+               src/cli/oneflow \
+               src/cli/oneflow-template \
+               src/cli/oneacct \
+               src/cli/onesecgroup \
+               src/cli/oneshowback \
+               src/cli/onevdc"
 
 CLI_CONF_FILES="src/cli/etc/onegroup.yaml \
                 src/cli/etc/onehost.yaml \
@@ -1194,25 +1520,37 @@ CLI_CONF_FILES="src/cli/etc/onegroup.yaml \
                 src/cli/etc/oneacl.yaml \
                 src/cli/etc/onedatastore.yaml \
                 src/cli/etc/onecluster.yaml \
-                src/cli/etc/oneacct.yaml"
-
-ETC_CLIENT_FILES="src/cli/etc/group.default"
+                src/cli/etc/onezone.yaml \
+                src/cli/etc/oneacct.yaml \
+                src/cli/etc/onesecgroup.yaml \
+                src/cli/etc/oneshowback.yaml \
+                src/cli/etc/onevdc.yaml"
 
 #-----------------------------------------------------------------------------
 # Sunstone files
 #-----------------------------------------------------------------------------
 
 SUNSTONE_FILES="src/sunstone/sunstone-server.rb \
-                src/sunstone/OpenNebulaVNC.rb"
+                src/sunstone/config.ru"
 
-SUNSTONE_BIN_FILES="src/sunstone/bin/sunstone-server"
+SUNSTONE_BIN_FILES="src/sunstone/bin/sunstone-server \
+                    src/sunstone/bin/novnc-server"
 
 SUNSTONE_ETC_FILES="src/sunstone/etc/sunstone-server.conf \
-                    src/sunstone/etc/sunstone-plugins.yaml"
+                    src/sunstone/etc/sunstone-views.yaml"
+
+SUNSTONE_ETC_VIEW_FILES="src/sunstone/etc/sunstone-views/admin.yaml \
+                    src/sunstone/etc/sunstone-views/user.yaml \
+                    src/sunstone/etc/sunstone-views/cloud.yaml \
+                    src/sunstone/etc/sunstone-views/cloud_vcenter.yaml \
+                    src/sunstone/etc/sunstone-views/groupadmin.yaml \
+                    src/sunstone/etc/sunstone-views/groupadmin_vcenter.yaml \
+                    src/sunstone/etc/sunstone-views/admin_vcenter.yaml"
 
 SUNSTONE_MODELS_FILES="src/sunstone/models/OpenNebulaJSON.rb \
                        src/sunstone/models/SunstoneServer.rb \
-                       src/sunstone/models/SunstonePlugins.rb"
+                       src/sunstone/models/SunstoneMarketplace.rb \
+                       src/sunstone/models/SunstoneViews.rb"
 
 SUNSTONE_MODELS_JSON_FILES="src/sunstone/models/OpenNebulaJSON/HostJSON.rb \
                     src/sunstone/models/OpenNebulaJSON/ImageJSON.rb \
@@ -1225,24 +1563,25 @@ SUNSTONE_MODELS_JSON_FILES="src/sunstone/models/OpenNebulaJSON/HostJSON.rb \
                     src/sunstone/models/OpenNebulaJSON/AclJSON.rb \
                     src/sunstone/models/OpenNebulaJSON/ClusterJSON.rb \
                     src/sunstone/models/OpenNebulaJSON/DatastoreJSON.rb \
-                    src/sunstone/models/OpenNebulaJSON/VirtualNetworkJSON.rb"
+                    src/sunstone/models/OpenNebulaJSON/VirtualNetworkJSON.rb \
+                    src/sunstone/models/OpenNebulaJSON/ZoneJSON.rb \
+                    src/sunstone/models/OpenNebulaJSON/SecurityGroupJSON.rb \
+                    src/sunstone/models/OpenNebulaJSON/VdcJSON.rb"
 
-SUNSTONE_TEMPLATE_FILES="src/sunstone/templates/login.html \
-                         src/sunstone/templates/login_x509.html"
+SUNSTONE_VIEWS_FILES="src/sunstone/views/index.erb \
+                      src/sunstone/views/login.erb \
+                      src/sunstone/views/vnc.erb \
+                      src/sunstone/views/spice.erb \
+                      src/sunstone/views/_login_standard.erb \
+                      src/sunstone/views/_login_x509.erb"
 
-SUNSTONE_VIEWS_FILES="src/sunstone/views/index.erb"
-
-SUNSTONE_PUBLIC_JS_FILES="src/sunstone/public/js/layout.js \
-                        src/sunstone/public/js/login.js \
+SUNSTONE_PUBLIC_JS_FILES="src/sunstone/public/js/login.js \
                         src/sunstone/public/js/sunstone.js \
-                        src/sunstone/public/js/sunstone-util.js \
                         src/sunstone/public/js/opennebula.js \
-                        src/sunstone/public/js/monitoring.js \
                         src/sunstone/public/js/locale.js"
 
 SUNSTONE_PUBLIC_JS_PLUGINS_FILES="\
                         src/sunstone/public/js/plugins/dashboard-tab.js \
-                        src/sunstone/public/js/plugins/dashboard-users-tab.js \
                         src/sunstone/public/js/plugins/hosts-tab.js \
                         src/sunstone/public/js/plugins/clusters-tab.js \
                         src/sunstone/public/js/plugins/datastores-tab.js \
@@ -1251,106 +1590,169 @@ SUNSTONE_PUBLIC_JS_PLUGINS_FILES="\
                         src/sunstone/public/js/plugins/infra-tab.js \
                         src/sunstone/public/js/plugins/groups-tab.js \
                         src/sunstone/public/js/plugins/images-tab.js \
+                        src/sunstone/public/js/plugins/files-tab.js \
                         src/sunstone/public/js/plugins/templates-tab.js \
                         src/sunstone/public/js/plugins/users-tab.js \
                         src/sunstone/public/js/plugins/vms-tab.js \
                         src/sunstone/public/js/plugins/acls-tab.js \
                         src/sunstone/public/js/plugins/vnets-tab.js \
-                        src/sunstone/public/js/plugins/config-tab.js"
+                        src/sunstone/public/js/plugins/marketplace-tab.js \
+                        src/sunstone/public/js/plugins/provision-tab.js \
+                        src/sunstone/public/js/plugins/config-tab.js \
+                        src/sunstone/public/js/plugins/oneflow-dashboard.js \
+                        src/sunstone/public/js/plugins/oneflow-services.js \
+                        src/sunstone/public/js/plugins/oneflow-templates.js \
+                        src/sunstone/public/js/plugins/support-tab.js \
+                        src/sunstone/public/js/plugins/zones-tab.js \
+                        src/sunstone/public/js/plugins/secgroups-tab.js \
+                        src/sunstone/public/js/plugins/vdcs-tab.js"
 
-SUNSTONE_PUBLIC_CSS_FILES="src/sunstone/public/css/application.css \
-                           src/sunstone/public/css/layout.css \
-                           src/sunstone/public/css/login.css"
+SUNSTONE_ROUTES_FILES="src/sunstone/routes/oneflow.rb \
+  src/sunstone/routes/vcenter.rb \
+  src/sunstone/routes/support.rb"
 
-SUNSTONE_PUBLIC_VENDOR_DATATABLES="\
-                src/sunstone/public/vendor/dataTables/jquery.dataTables.min.js \
-                src/sunstone/public/vendor/dataTables/ColVis.min.js \
-                src/sunstone/public/vendor/dataTables/ColReorderWithResize.js \
-                src/sunstone/public/vendor/dataTables/demo_table_jui.css \
-                src/sunstone/public/vendor/dataTables/ColVis.css \
-                src/sunstone/public/vendor/dataTables/BSD-LICENSE.txt \
-                src/sunstone/public/vendor/dataTables/NOTICE"
+# begin bower
 
-SUNSTONE_PUBLIC_VENDOR_JGROWL="\
-                src/sunstone/public/vendor/jGrowl/jquery.jgrowl_minimized.js \
-                src/sunstone/public/vendor/jGrowl/jquery.jgrowl.css \
-                src/sunstone/public/vendor/jGrowl/NOTICE"
 
-SUNSTONE_PUBLIC_VENDOR_JQUERY="\
-                        src/sunstone/public/vendor/jQuery/jquery-1.7.2.min.js \
-                        src/sunstone/public/vendor/jQuery/MIT-LICENSE.txt \
-                        src/sunstone/public/vendor/jQuery/NOTICE"
+SUNSTONE_PUBLIC_NEW_VENDOR_JQUERY="\
+    src/sunstone/public/bower_components/jquery/dist/jquery.min.js \
+    src/sunstone/public/bower_components/jquery/dist/jquery.min.map \
+    src/sunstone/public/bower_components/jquery-migrate/jquery-migrate.min.js"
 
-SUNSTONE_PUBLIC_VENDOR_JQUERYUI="\
-src/sunstone/public/vendor/jQueryUI/jquery-ui-1.8.16.custom.css \
-src/sunstone/public/vendor/jQueryUI/MIT-LICENSE.txt \
-src/sunstone/public/vendor/jQueryUI/jquery-ui-1.8.16.custom.min.js \
-src/sunstone/public/vendor/jQueryUI/NOTICE \
-"
+SUNSTONE_PUBLIC_NEW_VENDOR_DATATABLES="\
+    src/sunstone/public/bower_components/datatables/media/js/jquery.dataTables.min.js"
 
-SUNSTONE_PUBLIC_VENDOR_JQUERYUIIMAGES="\
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_flat_0_aaaaaa_40x100.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_flat_75_ffffff_40x100.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_glass_55_fbf9ee_1x400.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_glass_65_ffffff_1x400.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_glass_75_dadada_1x400.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_glass_75_e6e6e6_1x400.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_glass_95_fef1ec_1x400.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-bg_highlight-soft_75_cccccc_1x100.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-icons_222222_256x240.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-icons_2e83ff_256x240.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-icons_454545_256x240.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-icons_888888_256x240.png  \
-src/sunstone/public/vendor/jQueryUI/images/ui-icons_cd0a0a_256x240.png  \
-"
+SUNSTONE_PUBLIC_NEW_VENDOR_MODERNIZR="\
+    src/sunstone/public/bower_components/modernizr/modernizr.js"
 
-SUNSTONE_PUBLIC_VENDOR_JQUERYLAYOUT="\
-            src/sunstone/public/vendor/jQueryLayout/layout-default-latest.css \
-            src/sunstone/public/vendor/jQueryLayout/jquery.layout-latest.min.js \
-            src/sunstone/public/vendor/jQueryLayout/NOTICE"
+SUNSTONE_PUBLIC_NEW_VENDOR_FOUNDATION="\
+    src/sunstone/public/bower_components/foundation/js/foundation.min.js"
 
-SUNSTONE_PUBLIC_VENDOR_FLOT="\
-src/sunstone/public/vendor/flot/jquery.flot.min.js \
-src/sunstone/public/vendor/flot/jquery.flot.navigate.min.js \
-src/sunstone/public/vendor/flot/jquery.flot.pie.min.js \
-src/sunstone/public/vendor/flot/LICENSE.txt \
-src/sunstone/public/vendor/flot/NOTICE \
-src/sunstone/public/vendor/flot/README.txt"
+
+SUNSTONE_PUBLIC_NEW_VENDOR_JGROWL="\
+    src/sunstone/public/bower_components/jgrowl/jquery.jgrowl.min.js \
+    src/sunstone/public/bower_components/jgrowl/jquery.jgrowl.map \
+    src/sunstone/public/bower_components/jgrowl/jquery.jgrowl.min.css"
+
+
+SUNSTONE_PUBLIC_NEW_VENDOR_RESUMABLEJS="\
+    src/sunstone/public/bower_components/resumablejs/resumable.js"
+
+SUNSTONE_PUBLIC_NEW_VENDOR_FOUNDATION_DATATABLES="\
+    src/sunstone/public/bower_components/foundation-datatables/integration/foundation/dataTables.foundation.js"
+
+SUNSTONE_PUBLIC_NEW_VENDOR_FLOT="\
+    src/sunstone/public/bower_components/flot/jquery.flot.js \
+    src/sunstone/public/bower_components/flot/excanvas.min.js \
+    src/sunstone/public/bower_components/flot/jquery.flot.time.js \
+    src/sunstone/public/bower_components/flot/jquery.flot.resize.js \
+    src/sunstone/public/bower_components/flot.tooltip/js/jquery.flot.tooltip.min.js \
+    src/sunstone/public/bower_components/flot/jquery.flot.stack.js"
+
+SUNSTONE_PUBLIC_NEW_VENDOR_FONTAWESOME_CSS="\
+    src/sunstone/public/bower_components/fontawesome/css/font-awesome.min.css"
+
+SUNSTONE_PUBLIC_NEW_VENDOR_FONTAWESOME_FONT="\
+    src/sunstone/public/bower_components/fontawesome/fonts/fontawesome-webfont.eot \
+    src/sunstone/public/bower_components/fontawesome/fonts/fontawesome-webfont.woff \
+    src/sunstone/public/bower_components/fontawesome/fonts/fontawesome-webfont.woff2 \
+    src/sunstone/public/bower_components/fontawesome/fonts/fontawesome-webfont.ttf \
+    src/sunstone/public/bower_components/fontawesome/fonts/fontawesome-webfont.svg \
+    src/sunstone/public/bower_components/fontawesome/fonts/FontAwesome.otf"
+
+SUNSTONE_PUBLIC_VENDOR_NOVNC="\
+    src/sunstone/public/bower_components/no-vnc/include/novnc-custom.css \
+    src/sunstone/public/bower_components/no-vnc/include/base64.js \
+    src/sunstone/public/bower_components/no-vnc/include/black.css \
+    src/sunstone/public/bower_components/no-vnc/include/blue.css \
+    src/sunstone/public/bower_components/no-vnc/include/des.js \
+    src/sunstone/public/bower_components/no-vnc/include/display.js \
+    src/sunstone/public/bower_components/no-vnc/include/input.js \
+    src/sunstone/public/bower_components/no-vnc/include/jsunzip.js \
+    src/sunstone/public/bower_components/no-vnc/include/keyboard.js \
+    src/sunstone/public/bower_components/no-vnc/include/keysymdef.js \
+    src/sunstone/public/bower_components/no-vnc/include/keysym.js \
+    src/sunstone/public/bower_components/no-vnc/include/logo.js \
+    src/sunstone/public/bower_components/no-vnc/include/Orbitron700.ttf \
+    src/sunstone/public/bower_components/no-vnc/include/Orbitron700.woff \
+    src/sunstone/public/bower_components/no-vnc/include/playback.js \
+    src/sunstone/public/bower_components/no-vnc/include/rfb.js \
+    src/sunstone/public/bower_components/no-vnc/include/ui.js \
+    src/sunstone/public/bower_components/no-vnc/include/util.js \
+    src/sunstone/public/bower_components/no-vnc/include/websock.js \
+    src/sunstone/public/bower_components/no-vnc/include/webutil.js"
+
+SUNSTONE_PUBLIC_VENDOR_NOVNC_WEBSOCKET="\
+    src/sunstone/public/bower_components/no-vnc/include/web-socket-js/web_socket.js \
+    src/sunstone/public/bower_components/no-vnc/include/web-socket-js/swfobject.js \
+    src/sunstone/public/bower_components/no-vnc/include/web-socket-js/WebSocketMain.swf"
+
+SUNSTONE_PUBLIC_VENDOR_SPICE="\
+    src/sunstone/public/bower_components/spice-html5/spicearraybuffer.js \
+    src/sunstone/public/bower_components/spice-html5/enums.js \
+    src/sunstone/public/bower_components/spice-html5/atKeynames.js \
+    src/sunstone/public/bower_components/spice-html5/utils.js \
+    src/sunstone/public/bower_components/spice-html5/png.js \
+    src/sunstone/public/bower_components/spice-html5/lz.js \
+    src/sunstone/public/bower_components/spice-html5/quic.js \
+    src/sunstone/public/bower_components/spice-html5/bitmap.js \
+    src/sunstone/public/bower_components/spice-html5/spicedataview.js \
+    src/sunstone/public/bower_components/spice-html5/spicetype.js \
+    src/sunstone/public/bower_components/spice-html5/spicemsg.js \
+    src/sunstone/public/bower_components/spice-html5/wire.js \
+    src/sunstone/public/bower_components/spice-html5/spiceconn.js \
+    src/sunstone/public/bower_components/spice-html5/display.js \
+    src/sunstone/public/bower_components/spice-html5/main.js \
+    src/sunstone/public/bower_components/spice-html5/inputs.js \
+    src/sunstone/public/bower_components/spice-html5/webm.js \
+    src/sunstone/public/bower_components/spice-html5/playback.js \
+    src/sunstone/public/bower_components/spice-html5/simulatecursor.js \
+    src/sunstone/public/bower_components/spice-html5/cursor.js \
+    src/sunstone/public/bower_components/spice-html5/thirdparty/jsbn.js \
+    src/sunstone/public/bower_components/spice-html5/thirdparty/rsa.js \
+    src/sunstone/public/bower_components/spice-html5/thirdparty/prng4.js \
+    src/sunstone/public/bower_components/spice-html5/thirdparty/rng.js \
+    src/sunstone/public/bower_components/spice-html5/thirdparty/sha1.js \
+    src/sunstone/public/bower_components/spice-html5/ticket.js \
+    src/sunstone/public/bower_components/spice-html5/resize.js \
+    src/sunstone/public/bower_components/spice-html5/filexfer.js \
+    src/sunstone/public/bower_components/spice-html5/spice-custom.css"
+
+# end bower
+
+
+SUNSTONE_PUBLIC_CSS_FILES="src/sunstone/public/css/app.css \
+                src/sunstone/public/css/opensans.woff \
+                src/sunstone/public/css/login.css"
+
 
 SUNSTONE_PUBLIC_VENDOR_CRYPTOJS="\
 src/sunstone/public/vendor/crypto-js/NOTICE \
-src/sunstone/public/vendor/crypto-js/2.3.0-crypto-sha1.js \
+src/sunstone/public/vendor/crypto-js/sha1-min.js \
+src/sunstone/public/vendor/crypto-js/core-min.js \
+src/sunstone/public/vendor/crypto-js/enc-base64-min.js \
 src/sunstone/public/vendor/crypto-js/NEW-BSD-LICENSE.txt"
-
-SUNSTONE_PUBLIC_VENDOR_FILEUPLOADER="\
-src/sunstone/public/vendor/fileuploader/NOTICE \
-src/sunstone/public/vendor/fileuploader/fileuploader.js"
 
 SUNSTONE_PUBLIC_VENDOR_XML2JSON="\
 src/sunstone/public/vendor/xml2json/NOTICE \
 src/sunstone/public/vendor/xml2json/jquery.xml2json.pack.js"
 
-SUNSTONE_PUBLIC_VENDOR_FONTAWESOME="\
-src/sunstone/public/vendor/FontAwesome/NOTICE \
-"
-
-SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_CSS="\
-src/sunstone/public/vendor/FontAwesome/css/font-awesome.css \
-"
-
-SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_FONT="\
-src/sunstone/public/vendor/FontAwesome/font/fontawesome-webfont.eot \
-src/sunstone/public/vendor/FontAwesome/font/fontawesome-webfont.woff \
-src/sunstone/public/vendor/FontAwesome/font/fontawesome-webfont.ttf \
-src/sunstone/public/vendor/FontAwesome/font/fontawesome-webfont.svgz \
-src/sunstone/public/vendor/FontAwesome/font/fontawesome-webfont.svg \
-"
+SUNSTONE_PUBLIC_NEW_VENDOR_NOUISLIDER="\
+                src/sunstone/public/vendor/4.0/nouislider/jquery.nouislider.min.js \
+                src/sunstone/public/vendor/4.0/nouislider/nouislider.css"
 
 SUNSTONE_PUBLIC_IMAGES_FILES="src/sunstone/public/images/ajax-loader.gif \
+                        src/sunstone/public/images/favicon.ico \
                         src/sunstone/public/images/login_over.png \
                         src/sunstone/public/images/login.png \
+                        src/sunstone/public/images/advanced_layout.png \
+                        src/sunstone/public/images/cloud_layout.png \
+                        src/sunstone/public/images/vcenter_layout.png \
                         src/sunstone/public/images/opennebula-sunstone-big.png \
                         src/sunstone/public/images/opennebula-sunstone-small.png \
+                        src/sunstone/public/images/opennebula-sunstone-v4.0.png \
+                        src/sunstone/public/images/opennebula-sunstone-v4.0-small.png \
+                        src/sunstone/public/images/one_small_logo.png \
                         src/sunstone/public/images/panel.png \
                         src/sunstone/public/images/panel_short.png \
                         src/sunstone/public/images/pbar.gif \
@@ -1362,205 +1764,151 @@ SUNSTONE_PUBLIC_IMAGES_FILES="src/sunstone/public/images/ajax-loader.gif \
                         src/sunstone/public/images/vnc_on.png \
                         src/sunstone/public/images/network_icon.png \
                         src/sunstone/public/images/system_icon.png \
-                        src/sunstone/public/images/server_icon.png \
+                        src/sunstone/public/images/server_icon.png  \
+                        src/sunstone/public/images/sort_asc.png \
+                        src/sunstone/public/images/sort_asc_disabled.png \
+                        src/sunstone/public/images/sort_both.png \
+                        src/sunstone/public/images/sort_desc.png \
+                        src/sunstone/public/images/sort_desc_disabled.png\
 "
+
+SUNSTONE_PUBLIC_LOGOS_FILES="src/sunstone/public/images/logos/arch.png \
+                        src/sunstone/public/images/logos/centos.png \
+                        src/sunstone/public/images/logos/debian.png \
+                        src/sunstone/public/images/logos/fedora.png \
+                        src/sunstone/public/images/logos/linux.png \
+                        src/sunstone/public/images/logos/redhat.png \
+                        src/sunstone/public/images/logos/ubuntu.png \
+                        src/sunstone/public/images/logos/windowsxp.png \
+                        src/sunstone/public/images/logos/windows8.png \
+"
+
+SUNSTONE_PUBLIC_LOCALE_CA="\
+src/sunstone/locale/languages/ca.js \
+src/sunstone/locale/languages/ca_datatable.txt"
+
+SUNSTONE_PUBLIC_LOCALE_CS_CZ="\
+src/sunstone/locale/languages/cs_CZ.js \
+src/sunstone/locale/languages/cs_datatable.txt"
+
+SUNSTONE_PUBLIC_LOCALE_DE="\
+src/sunstone/locale/languages/de.js \
+src/sunstone/locale/languages/de_datatable.txt"
+
+SUNSTONE_PUBLIC_LOCALE_DA="\
+src/sunstone/locale/languages/da.js \
+src/sunstone/locale/languages/da_datatable.txt"
+
+SUNSTONE_PUBLIC_LOCALE_EL_GR="\
+src/sunstone/locale/languages/el_GR.js \
+src/sunstone/locale/languages/el_datatable.txt"
 
 SUNSTONE_PUBLIC_LOCALE_EN_US="\
 src/sunstone/locale/languages/en_US.js \
-src/sunstone/locale/languages/en_datatable.txt \
-"
+src/sunstone/locale/languages/en_datatable.txt"
 
-SUNSTONE_PUBLIC_LOCALE_RU="
-src/sunstone/locale/languages/ru.js \
-src/sunstone/locale/languages/ru_datatable.txt"
+SUNSTONE_PUBLIC_LOCALE_ES_ES="\
+src/sunstone/locale/languages/es_ES.js \
+src/sunstone/locale/languages/es_datatable.txt"
 
-SUNSTONE_PUBLIC_LOCALE_IT_IT="
-src/sunstone/locale/languages/it_IT.js \
-src/sunstone/locale/languages/it_datatable.txt"
+SUNSTONE_PUBLIC_LOCALE_FA_IR="\
+src/sunstone/locale/languages/fa_IR.js \
+src/sunstone/locale/languages/fa_datatable.txt"
 
-SUNSTONE_PUBLIC_LOCALE_PT_PT="
-src/sunstone/locale/languages/pt_PT.js \
-src/sunstone/locale/languages/pt_datatable.txt"
-
-SUNSTONE_PUBLIC_LOCALE_FR_FR="
+SUNSTONE_PUBLIC_LOCALE_FR_FR="\
 src/sunstone/locale/languages/fr_FR.js \
 src/sunstone/locale/languages/fr_datatable.txt"
 
-#-----------------------------------------------------------------------------
-# Ozones files
-#-----------------------------------------------------------------------------
+SUNSTONE_PUBLIC_LOCALE_IT_IT="\
+src/sunstone/locale/languages/it_IT.js \
+src/sunstone/locale/languages/it_datatable.txt"
 
-OZONES_FILES="src/ozones/Server/ozones-server.rb"
+SUNSTONE_PUBLIC_LOCALE_JA="\
+src/sunstone/locale/languages/ja.js \
+src/sunstone/locale/languages/ja_datatable.txt"
 
-OZONES_BIN_FILES="src/ozones/Server/bin/ozones-server"
+SUNSTONE_PUBLIC_LOCALE_LT_LT="\
+src/sunstone/locale/languages/lt_LT.js \
+src/sunstone/locale/languages/lt_datatable.txt"
 
-OZONES_ETC_FILES="src/ozones/Server/etc/ozones-server.conf"
+SUNSTONE_PUBLIC_LOCALE_NL_NL="\
+src/sunstone/locale/languages/nl_NL.js \
+src/sunstone/locale/languages/nl_datatable.txt"
 
-OZONES_MODELS_FILES="src/ozones/Server/models/OzonesServer.rb \
-                     src/ozones/Server/models/Auth.rb \
-                     src/sunstone/models/OpenNebulaJSON/JSONUtils.rb"
+SUNSTONE_PUBLIC_LOCALE_PL="\
+src/sunstone/locale/languages/pl.js \
+src/sunstone/locale/languages/pl_datatable.txt"
 
-OZONES_TEMPLATE_FILES="src/ozones/Server/templates/index.html \
-                       src/ozones/Server/templates/login.html"
+SUNSTONE_PUBLIC_LOCALE_PT_PT="\
+src/sunstone/locale/languages/pt_PT.js \
+src/sunstone/locale/languages/pt_datatable.txt"
 
-OZONES_LIB_FILES="src/ozones/Server/lib/OZones.rb"
+SUNSTONE_PUBLIC_LOCALE_PT_BR="\
+src/sunstone/locale/languages/pt_BR.js \
+src/sunstone/locale/languages/pt_datatable.txt"
 
-OZONES_LIB_ZONE_FILES="src/ozones/Server/lib/OZones/Zones.rb \
-                src/ozones/Server/lib/OZones/VDC.rb \
-                src/ozones/Server/lib/OZones/ProxyRules.rb \
-                src/ozones/Server/lib/OZones/ApacheWritter.rb \
-                src/ozones/Server/lib/OZones/AggregatedHosts.rb \
-                src/ozones/Server/lib/OZones/AggregatedUsers.rb \
-                src/ozones/Server/lib/OZones/AggregatedVirtualMachines.rb \
-                src/ozones/Server/lib/OZones/AggregatedVirtualNetworks.rb \
-                src/ozones/Server/lib/OZones/AggregatedPool.rb \
-                src/ozones/Server/lib/OZones/AggregatedImages.rb \
-                src/ozones/Server/lib/OZones/AggregatedDatastores.rb \
-                src/ozones/Server/lib/OZones/AggregatedClusters.rb \
-                src/ozones/Server/lib/OZones/AggregatedTemplates.rb"
+SUNSTONE_PUBLIC_LOCALE_RU_RU="\
+src/sunstone/locale/languages/ru_RU.js \
+src/sunstone/locale/languages/ru_datatable.txt"
 
-OZONES_LIB_API_FILES="src/ozones/Client/lib/zona.rb"
+SUNSTONE_PUBLIC_LOCALE_SK_SK="\
+src/sunstone/locale/languages/sk_SK.js \
+src/sunstone/locale/languages/sk_datatable.txt"
 
-OZONES_LIB_API_ZONA_FILES="src/ozones/Client/lib/zona/ZoneElement.rb \
-                src/ozones/Client/lib/zona/OZonesPool.rb \
-                src/ozones/Client/lib/zona/OZonesJSON.rb \
-                src/ozones/Client/lib/zona/VDCPool.rb \
-                src/ozones/Client/lib/zona/VDCElement.rb \
-                src/ozones/Client/lib/zona/OZonesElement.rb \
-                src/ozones/Client/lib/zona/ZonePool.rb"
+SUNSTONE_PUBLIC_LOCALE_ZH_CN="\
+src/sunstone/locale/languages/zh_CN.js \
+src/sunstone/locale/languages/zh_datatable.txt"
 
-OZONES_PUBLIC_VENDOR_JQUERY=$SUNSTONE_PUBLIC_VENDOR_JQUERY
-
-OZONES_PUBLIC_VENDOR_DATATABLES=$SUNSTONE_PUBLIC_VENDOR_DATATABLES
-
-OZONES_PUBLIC_VENDOR_JGROWL=$SUNSTONE_PUBLIC_VENDOR_JGROWL
-
-OZONES_PUBLIC_VENDOR_JQUERYUI=$SUNSTONE_PUBLIC_VENDOR_JQUERYUI
-
-OZONES_PUBLIC_VENDOR_JQUERYUIIMAGES=$SUNSTONE_PUBLIC_VENDOR_JQUERYUIIMAGES
-
-OZONES_PUBLIC_VENDOR_JQUERYLAYOUT=$SUNSTONE_PUBLIC_VENDOR_JQUERYLAYOUT
-
-OZONES_PUBLIC_VENDOR_FONTAWESOME=$SUNSTONE_PUBLIC_VENDOR_FONTAWESOME
-
-OZONES_PUBLIC_VENDOR_FONTAWESOME_FONT=$SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_FONT
-
-OZONES_PUBLIC_VENDOR_FONTAWESOME_CSS=$SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_CSS
-
-OZONES_PUBLIC_JS_FILES="src/ozones/Server/public/js/ozones.js \
-                        src/ozones/Server/public/js/login.js \
-                        src/ozones/Server/public/js/ozones-util.js \
-                        src/sunstone/public/js/layout.js \
-                        src/sunstone/public/js/sunstone.js \
-                        src/sunstone/public/js/sunstone-util.js \
-                        src/sunstone/public/js/locale.js"
-
-OZONES_PUBLIC_CSS_FILES="src/ozones/Server/public/css/application.css \
-                         src/ozones/Server/public/css/layout.css \
-                         src/ozones/Server/public/css/login.css"
-
-OZONES_PUBLIC_IMAGES_FILES="src/ozones/Server/public/images/panel.png \
-                        src/ozones/Server/public/images/login.png \
-                        src/ozones/Server/public/images/login_over.png \
-                        src/ozones/Server/public/images/Refresh-icon.png \
-                        src/ozones/Server/public/images/ajax-loader.gif \
-                        src/ozones/Server/public/images/opennebula-zones-small.png \
-                        src/ozones/Server/public/images/opennebula-zones-big.png \
-                        src/ozones/Server/public/images/pbar.gif"
-
-OZONES_PUBLIC_JS_PLUGINS_FILES="src/ozones/Server/public/js/plugins/zones-tab.js \
-                               src/ozones/Server/public/js/plugins/vdcs-tab.js \
-                               src/ozones/Server/public/js/plugins/aggregated-tab.js \
-                               src/ozones/Server/public/js/plugins/dashboard-tab.js"
-
-OZONES_LIB_CLIENT_CLI_FILES="src/ozones/Client/lib/cli/ozones_helper.rb"
-
-OZONES_LIB_CLIENT_CLI_HELPER_FILES="\
-                src/ozones/Client/lib/cli/ozones_helper/vdc_helper.rb \
-                src/ozones/Client/lib/cli/ozones_helper/zones_helper.rb"
-
-OZONES_BIN_CLIENT_FILES="src/ozones/Client/bin/onevdc \
-                         src/ozones/Client/bin/onezone"
-
-OZONES_RUBY_LIB_FILES="src/oca/ruby/OpenNebula.rb"
+SUNSTONE_PUBLIC_LOCALE_ZH_TW="\
+src/sunstone/locale/languages/zh_TW.js \
+src/sunstone/locale/languages/zh_datatable.txt"
 
 #-----------------------------------------------------------------------------
-# Self-Service files
+# OneGate files
 #-----------------------------------------------------------------------------
 
-SELF_SERVICE_TEMPLATE_FILES="src/cloud/occi/lib/ui/templates/login.html"
-SELF_SERVICE_VIEWS_FILES="src/cloud/occi/lib/ui/views/index.erb"
-SELF_SERVICE_PUBLIC_JS_FILES="src/cloud/occi/lib/ui/public/js/layout.js \
-                    src/cloud/occi/lib/ui/public/js/occi.js \
-                    src/cloud/occi/lib/ui/public/js/locale.js \
-                    src/cloud/occi/lib/ui/public/js/login.js \
-                    src/sunstone/public/js/sunstone.js \
-                    src/sunstone/public/js/sunstone-util.js"
+ONEGATE_FILES="src/onegate/onegate-server.rb \
+                src/onegate/config.ru"
 
-SELF_SERVICE_PUBLIC_JS_PLUGINS_FILES="src/cloud/occi/lib/ui/public/js/plugins/compute.js \
-                    src/cloud/occi/lib/ui/public/js/plugins/configuration.js \
-                    src/cloud/occi/lib/ui/public/js/plugins/dashboard.js \
-                    src/cloud/occi/lib/ui/public/js/plugins/network.js \
-                    src/cloud/occi/lib/ui/public/js/plugins/storage.js"
+ONEGATE_BIN_FILES="src/onegate/bin/onegate-server"
+
+ONEGATE_ETC_FILES="src/onegate/etc/onegate-server.conf"
+
+#-----------------------------------------------------------------------------
+# OneFlow files
+#-----------------------------------------------------------------------------
 
 
-SELF_SERVICE_PUBLIC_CSS_FILES="src/cloud/occi/lib/ui/public/css/application.css \
-                    src/cloud/occi/lib/ui/public/css/layout.css \
-                    src/cloud/occi/lib/ui/public/css/login.css"
+ONEFLOW_FILES="src/flow/oneflow-server.rb \
+                src/flow/config.ru"
 
-SELF_SERVICE_PUBLIC_CUSTOMIZE_FILES="src/cloud/occi/lib/ui/public/customize/custom.js"
+ONEFLOW_BIN_FILES="src/flow/bin/oneflow-server"
 
+ONEFLOW_ETC_FILES="src/flow/etc/oneflow-server.conf"
 
-SELF_SERVICE_PUBLIC_VENDOR_DATATABLES=$SUNSTONE_PUBLIC_VENDOR_DATATABLES
-SELF_SERVICE_PUBLIC_VENDOR_JGROWL=$SUNSTONE_PUBLIC_VENDOR_JGROWL
-SELF_SERVICE_PUBLIC_VENDOR_JQUERY=$SUNSTONE_PUBLIC_VENDOR_JQUERY
-SELF_SERVICE_PUBLIC_VENDOR_JQUERYUI=$SUNSTONE_PUBLIC_VENDOR_JQUERYUI
-SELF_SERVICE_PUBLIC_VENDOR_JQUERYUIIMAGES=$SUNSTONE_PUBLIC_VENDOR_JQUERYUIIMAGES
-SELF_SERVICE_PUBLIC_VENDOR_JQUERYLAYOUT=$SUNSTONE_PUBLIC_VENDOR_JQUERYLAYOUT
-SELF_SERVICE_PUBLIC_VENDOR_FLOT=$SUNSTONE_PUBLIC_VENDOR_FLOT
-SELF_SERVICE_PUBLIC_VENDOR_CRYPTOJS=$SUNSTONE_PUBLIC_VENDOR_CRYPTOJS
-SELF_SERVICE_PUBLIC_VENDOR_FILEUPLOADER=$SUNSTONE_PUBLIC_VENDOR_FILEUPLOADER
-SELF_SERVICE_PUBLIC_VENDOR_XML2JSON=$SUNSTONE_PUBLIC_VENDOR_XML2JSON
-SELF_SERVICE_PUBLIC_VENDOR_FONTAWESOME=$SUNSTONE_PUBLIC_VENDOR_FONTAWESOME
-SELF_SERVICE_PUBLIC_VENDOR_FONTAWESOME_FONT=$SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_FONT
-SELF_SERVICE_PUBLIC_VENDOR_FONTAWESOME_CSS=$SUNSTONE_PUBLIC_VENDOR_FONTAWESOME_CSS
+ONEFLOW_LIB_FILES="src/flow/lib/grammar.rb \
+                    src/flow/lib/grammar.treetop \
+                    src/flow/lib/LifeCycleManager.rb \
+                    src/flow/lib/log.rb \
+                    src/flow/lib/models.rb \
+                    src/flow/lib/strategy.rb \
+                    src/flow/lib/validator.rb"
 
-SELF_SERVICE_PUBLIC_IMAGES_FILES="\
-src/cloud/occi/lib/ui/public/images/ajax-loader.gif \
-src/cloud/occi/lib/ui/public/images/green_bullet.png \
-src/cloud/occi/lib/ui/public/images/login_over.png \
-src/cloud/occi/lib/ui/public/images/login.png \
-src/cloud/occi/lib/ui/public/images/network_icon.png \
-src/cloud/occi/lib/ui/public/images/one-compute.png \
-src/cloud/occi/lib/ui/public/images/one-network.png \
-src/cloud/occi/lib/ui/public/images/one-storage.png \
-src/cloud/occi/lib/ui/public/images/opennebula-selfservice-big.png \
-src/cloud/occi/lib/ui/public/images/opennebula-selfservice-icon.png \
-src/cloud/occi/lib/ui/public/images/opennebula-selfservice-small.png \
-src/cloud/occi/lib/ui/public/images/panel.png \
-src/cloud/occi/lib/ui/public/images/panel_short.png \
-src/cloud/occi/lib/ui/public/images/pbar.gif \
-src/cloud/occi/lib/ui/public/images/red_bullet.png \
-src/cloud/occi/lib/ui/public/images/Refresh-icon.png \
-src/cloud/occi/lib/ui/public/images/server_icon.png \
-src/cloud/occi/lib/ui/public/images/storage_icon.png \
-src/cloud/occi/lib/ui/public/images/vnc_off.png \
-src/cloud/occi/lib/ui/public/images/vnc_on.png \
-src/cloud/occi/lib/ui/public/images/yellow_bullet.png"
+ONEFLOW_LIB_STRATEGY_FILES="src/flow/lib/strategy/straight.rb"
 
-SELF_SERVICE_PUBLIC_LOCALE_EN_US="src/cloud/occi/lib/ui/locale/languages/en_US.js"
-SELF_SERVICE_PUBLIC_LOCALE_ES_ES="src/cloud/occi/lib/ui/locale/languages/es_ES.js \
-                                  src/cloud/occi/lib/ui/locale/languages/es_datatable.txt"
-SELF_SERVICE_PUBLIC_LOCALE_FR_FR="src/cloud/occi/lib/ui/locale/languages/fr_FR.js \
-                                  src/cloud/occi/lib/ui/locale/languages/fr_datatable.txt"
-SELF_SERVICE_PUBLIC_LOCALE_FR_CA="src/cloud/occi/lib/ui/locale/languages/fr_CA.js \
-                                  src/cloud/occi/lib/ui/locale/languages/fr_datatable.txt"
+ONEFLOW_LIB_MODELS_FILES="src/flow/lib/models/role.rb \
+                          src/flow/lib/models/service_pool.rb \
+                          src/flow/lib/models/service.rb \
+                          src/flow/lib/models/service_template_pool.rb \
+                          src/flow/lib/models/service_template.rb"
+
 
 #-----------------------------------------------------------------------------
 # MAN files
 #-----------------------------------------------------------------------------
 
-MAN_FILES="share/man/oneauth.1.gz \
+MAN_FILES="share/man/oneacct.1.gz \
+        share/man/oneshowback.1.gz \
         share/man/oneacl.1.gz \
         share/man/onehost.1.gz \
         share/man/oneimage.1.gz \
@@ -1572,17 +1920,88 @@ MAN_FILES="share/man/oneauth.1.gz \
         share/man/onedb.1.gz \
         share/man/onedatastore.1.gz \
         share/man/onecluster.1.gz \
+        share/man/onezone.1.gz \
+        share/man/onevcenter.1.gz \
+        share/man/oneflow.1.gz \
+        share/man/oneflow-template.1.gz \
+        share/man/onesecgroup.1.gz \
+        share/man/onevdc.1.gz \
+        share/man/econe-allocate-address.1.gz \
+        share/man/econe-associate-address.1.gz \
+        share/man/econe-attach-volume.1.gz \
+        share/man/econe-create-keypair.1.gz \
+        share/man/econe-create-volume.1.gz \
+        share/man/econe-delete-keypair.1.gz \
+        share/man/econe-delete-volume.1.gz \
+        share/man/econe-describe-addresses.1.gz \
         share/man/econe-describe-images.1.gz \
         share/man/econe-describe-instances.1.gz \
+        share/man/econe-describe-keypairs.1.gz \
+        share/man/econe-describe-volumes.1.gz \
+        share/man/econe-detach-volume.1.gz \
+        share/man/econe-disassociate-address.1.gz \
+        share/man/econe-reboot-instances.1.gz \
         share/man/econe-register.1.gz \
+        share/man/econe-release-address.1.gz \
         share/man/econe-run-instances.1.gz \
+        share/man/econe-start-instances.1.gz \
+        share/man/econe-stop-instances.1.gz \
         share/man/econe-terminate-instances.1.gz \
-        share/man/econe-upload.1.gz \
-        share/man/occi-compute.1.gz \
-        share/man/occi-network.1.gz \
-        share/man/occi-storage.1.gz \
-        share/man/onezone.1.gz \
-        share/man/onevdc.1.gz"
+        share/man/econe-upload.1.gz"
+
+#-----------------------------------------------------------------------------
+# Docs Files
+#-----------------------------------------------------------------------------
+
+DOCS_FILES="LICENSE NOTICE README.md"
+
+#-----------------------------------------------------------------------------
+# Ruby VENDOR files
+#-----------------------------------------------------------------------------
+
+RBVMOMI_VENDOR_RUBY_FILES="share/vendor/ruby/gems/rbvmomi/LICENSE \
+share/vendor/ruby/gems/rbvmomi/README.rdoc \
+share/vendor/ruby/gems/rbvmomi/VERSION \
+share/vendor/ruby/gems/rbvmomi/vmodl.db"
+
+RBVMOMI_VENDOR_RUBY_LIB_FILES="share/vendor/ruby/gems/rbvmomi/lib/rbvmomi.rb"
+
+RBVMOMI_VENDOR_RUBY_LIB_RBVMOMI_FILES="share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/basic_types.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/connection.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/deserialization.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/fault.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/pbm.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/trivial_soap.rb
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/trollop.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/type_loader.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim.rb"
+
+RBVMOMI_VENDOR_RUBY_LIB_RBVMOMI_UTILS_FILES="share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/utils/admission_control.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/utils/deploy.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/utils/leases.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/utils/perfdump.rb"
+
+RBVMOMI_VENDOR_RUBY_LIB_RBVMOMI_VIM_FILES="share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ComputeResource.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/Datacenter.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/Datastore.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/DynamicTypeMgrAllTypeInfo.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/DynamicTypeMgrDataTypeInfo.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/DynamicTypeMgrManagedTypeInfo.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/Folder.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/HostSystem.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ManagedEntity.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ManagedObject.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ObjectContent.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ObjectUpdate.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/OvfManager.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/PerfCounterInfo.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/PerformanceManager.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/PropertyCollector.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ReflectManagedMethodExecuter.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ResourcePool.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/ServiceInstance.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/Task.rb \
+share/vendor/ruby/gems/rbvmomi/lib/rbvmomi/vim/VirtualMachine.rb"
 
 #-----------------------------------------------------------------------------
 #-----------------------------------------------------------------------------
@@ -1596,16 +2015,13 @@ if [ "$UNINSTALL" = "no" ] ; then
     for d in $MAKE_DIRS; do
         mkdir -p $DESTDIR$d
     done
-
-    # Remove old migrators
-    rm $LIB_LOCATION/ruby/onedb/*.rb &> /dev/null
 fi
 
 # --- Install/Uninstall files ---
 
 do_file() {
     if [ "$UNINSTALL" = "yes" ]; then
-        rm $2/`basename $1`
+        rm $DESTDIR$2/`basename $1`
     else
         if [ "$LINK" = "yes" ]; then
             ln -s $SRC_DIR/$1 $DESTDIR$2
@@ -1618,13 +2034,16 @@ do_file() {
 
 if [ "$CLIENT" = "yes" ]; then
     INSTALL_SET=${INSTALL_CLIENT_FILES[@]}
+elif [ "$ONEGATE" = "yes" ]; then
+    INSTALL_SET="${INSTALL_ONEGATE_FILES[@]}"
 elif [ "$SUNSTONE" = "yes" ]; then
     INSTALL_SET="${INSTALL_SUNSTONE_RUBY_FILES[@]} ${INSTALL_SUNSTONE_FILES[@]}"
-elif [ "$OZONES" = "yes" ]; then
-    INSTALL_SET="${INSTALL_OZONES_RUBY_FILES[@]} ${INSTALL_OZONES_FILES[@]}"
+elif [ "$ONEFLOW" = "yes" ]; then
+    INSTALL_SET="${INSTALL_ONEFLOW_FILES[@]}"
 else
-    INSTALL_SET="${INSTALL_FILES[@]} ${INSTALL_OZONES_FILES[@]} \
-                 ${INSTALL_SUNSTONE_FILES[@]} ${INSTALL_SELF_SERVICE_FILES[@]}"
+    INSTALL_SET="${INSTALL_FILES[@]} \
+                 ${INSTALL_SUNSTONE_FILES[@]} ${INSTALL_ONEGATE_FILES[@]} \
+                 ${INSTALL_ONEFLOW_FILES[@]}"
 fi
 
 for i in ${INSTALL_SET[@]}; do
@@ -1641,12 +2060,15 @@ done
 if [ "$INSTALL_ETC" = "yes" ] ; then
     if [ "$SUNSTONE" = "yes" ]; then
         INSTALL_ETC_SET="${INSTALL_SUNSTONE_ETC_FILES[@]}"
-    elif [ "$OZONES" = "yes" ]; then
-        INSTALL_ETC_SET="${INSTALL_OZONES_ETC_FILES[@]}"
+    elif [ "$ONEGATE" = "yes" ]; then
+        INSTALL_ETC_SET="${INSTALL_ONEGATE_ETC_FILES[@]}"
+    elif [ "$ONEFLOW" = "yes" ]; then
+        INSTALL_ETC_SET="${INSTALL_ONEFLOW_ETC_FILES[@]}"
     else
         INSTALL_ETC_SET="${INSTALL_ETC_FILES[@]} \
                          ${INSTALL_SUNSTONE_ETC_FILES[@]} \
-                         ${INSTALL_OZONES_ETC_FILES[@]}"
+                         ${INSTALL_ONEGATE_ETC_FILES[@]} \
+                         ${INSTALL_ONEFLOW_ETC_FILES[@]}"
     fi
 
     for i in ${INSTALL_ETC_SET[@]}; do

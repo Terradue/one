@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -17,7 +17,7 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-if RUBY_VERSION =~ /1.9/
+if RUBY_VERSION >= "1.9"
     Encoding.default_external = Encoding::UTF_8
     Encoding.default_internal = Encoding::UTF_8
 end
@@ -37,10 +37,11 @@ puts "datatable_lang=\"#{datatable_lang}_datatable.txt\""
 puts "locale={"
 
 msgid = nil
+tr_lines = []
 po_file.each do |line|
     if msgid
         msgstr = line.sub("msgstr ", "").chomp
-        puts "    #{msgid}:#{msgstr},"
+        tr_lines << "    #{msgid}:#{msgstr}"
         msgid = nil
         next
     end
@@ -54,5 +55,11 @@ po_file.each do |line|
     end
 
 end
+
+tr_lines[0..-2].each do |line|
+    puts line+','
+end
+# last line must not have an ending , for IE7 JS compatibility
+puts tr_lines[-1]
 
 puts "}"

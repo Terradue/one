@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -20,11 +20,14 @@
 #include "MadManager.h"
 #include "ActionManager.h"
 #include "InformationManagerDriver.h"
-#include "HostPool.h"
+#include "MonitorThread.h"
 
 using namespace std;
 
 extern "C" void * im_action_loop(void *arg);
+
+class HostPool;
+class ClusterPool;
 
 class InformationManager : public MadManager, public ActionListener
 {
@@ -32,22 +35,41 @@ public:
 
     InformationManager(
         HostPool *                  _hpool,
+        ClusterPool *               _clpool,
         time_t                      _timer_period,
         time_t                      _monitor_period,
         int                         _host_limit,
+        int                         _monitor_threads,
         const string&               _remotes_location,
         vector<const Attribute*>&   _mads)
             :MadManager(_mads),
             hpool(_hpool),
+            clpool(_clpool),
             timer_period(_timer_period),
             monitor_period(_monitor_period),
             host_limit(_host_limit),
-            remotes_location(_remotes_location)
+            remotes_location(_remotes_location),
+            mtpool(_monitor_threads)
     {
         am.addListener(this);
     };
 
     ~InformationManager(){};
+
+    enum Actions
+    {
+        STOPMONITOR /** Sent by the RM when a host is deleted **/
+    };
+
+    /**
+     *  Triggers specific actions to the Information Manager.
+     *    @param action the IM action
+     *    @param hid Host unique id. This is the argument of the passed to the
+     *    invoked action.
+     */
+    void trigger(
+        Actions action,
+        int     vid);
 
     /**
      *  This functions starts the associated listener thread, and creates a
@@ -69,7 +91,7 @@ public:
     /**
      *
      */
-    void load_mads(int uid=0);
+    int load_mads(int uid=0);
 
     /**
      *
@@ -79,6 +101,8 @@ public:
         am.trigger(ACTION_FINALIZE,0);
     };
 
+    void stop_monitor(int hid);
+
 private:
     /**
      *  Thread id for the Information Manager
@@ -86,9 +110,14 @@ private:
     pthread_t       im_thread;
 
     /**
-     *  Pointer to the Host Pool, to access hosts
+     *  Pointer to the Host Pool
      */
     HostPool *      hpool;
+
+    /**
+     *  Pointer to the Cluster Pool
+     */
+    ClusterPool *   clpool;
 
     /**
      *  Timer period for the Virtual Machine Manager.
@@ -116,13 +145,18 @@ private:
     ActionManager   am;
 
     /**
+     *  Pool of threads to process each monitor message
+     */
+    MonitorThreadPool mtpool;
+
+    /**
      *  Function to execute the Manager action loop method within a new pthread
      * (requires C linkage)
      */
     friend void * im_action_loop(void *arg);
 
     /**
-     *  Time in seconds to expire a monitoring action (10 minutes)
+     *  Time in seconds to expire a monitoring action (5 minutes)
      */
     static const time_t monitor_expire;
 

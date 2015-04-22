@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -46,8 +46,9 @@ public:
     {
         SUSPEND_SUCCESS,/**< Send by LCM when a VM is suspended*/
         STOP_SUCCESS,   /**< Send by LCM when a VM is stopped*/
+        UNDEPLOY_SUCCESS,  /**< Send by LCM when a VM is undeployed and saved*/
+        POWEROFF_SUCCESS, /**< Send by LCM when a VM is powered off */
         DONE,           /**< Send by LCM when a VM is shut down*/
-        FAILED,         /**< Send by LCM when one of the execution steps fails*/
         RESUBMIT,       /**< Send by LCM when a VM is ready for resubmission*/
         FINALIZE
     };
@@ -93,6 +94,15 @@ public:
         VirtualMachine * vm);
 
     /**
+     *  Sets an imported VM to RUNNING state, a history record MUST be added,
+     *  and the VM MUST be locked.
+     *    @param vm pointer to a VirtualMachine with its mutex locked.
+     *    @return 0 on success
+     */
+    int import (
+        VirtualMachine * vm);
+
+    /**
      *  Migrates a VM. The following actions must be performed before calling
      *  this function:
      *    - Lock the VM mutex.
@@ -128,6 +138,28 @@ public:
      */
     int shutdown (
         int vid);
+
+    /**
+     *  Shuts down a VM, but it is saved in the system DS instead of destroyed.
+     *    @param vid VirtualMachine identification
+     *    @param hard True to force the shutdown (cancel instead of shutdown)
+     *    @return 0 on success, -1 if the VM does not exits or -2 if the VM is
+     *    in a wrong a state
+     */
+    int undeploy (
+        int vid,
+        bool hard);
+
+    /**
+     *  Powers off a VM.
+     *    @param vid VirtualMachine identification
+     *    @param hard True to force the poweroff (cancel instead of shutdown)
+     *    @return 0 on success, -1 if the VM does not exits or -2 if the VM is
+     *    in a wrong a state
+     */
+    int poweroff (
+        int vid,
+        bool hard);
 
     /**
      *  Holds a VM.
@@ -232,12 +264,108 @@ public:
      *  Set the re-scheduling flag for the VM (must be in RUNNING state)
      *    @param vid VirtualMachine identification
      *    @param do_resched set or unset the flag
+     *
      *    @return 0 on success, -1 if the VM does not exits or -2 if the VM is
      *    in a wrong a state
      */
     int resched(
         int  vid,
         bool do_resched);
+
+    /**
+     *  Starts the attach disk action.
+     *    @param vid VirtualMachine identification
+     *    @param tmpl Template containing the new DISK attribute.
+     *    @param error_str Error reason, if any
+     *
+     *    @return 0 on success, -1 otherwise
+     */
+    int attach(
+        int                      vid,
+        VirtualMachineTemplate * tmpl,
+        string&                  error_str);
+
+    /**
+     * Starts the detach disk action.
+     *    @param vid VirtualMachine identification
+     *    @param disk_id Disk to detach
+     *    @param error_str Error reason, if any
+     *
+     *    @return 0 on success, -1 otherwise
+     */
+    int detach(
+        int      id,
+        int      disk_id,
+        string&  error_str);
+
+    /**
+     *  Starts the attach NIC action.
+     *    @param vid VirtualMachine identification
+     *    @param tmpl Template containing the new NIC attribute.
+     *    @param error_str Error reason, if any
+     *
+     *    @return 0 on success, -1 otherwise
+     */
+    int attach_nic(
+        int                      vid,
+        VirtualMachineTemplate * tmpl,
+        string&                  error_str);
+
+    /**
+     * Starts the detach NIC action.
+     *    @param vid VirtualMachine identification
+     *    @param nic_id NIC to detach
+     *    @param error_str Error reason, if any
+     *
+     *    @return 0 on success, -1 otherwise
+     */
+    int detach_nic(
+        int      id,
+        int      nic_id,
+        string&  error_str);
+    /**
+     * Starts the snapshot create action
+     *
+     * @param vid VirtualMachine identification
+     * @param name Name for the new snapshot
+     * @param snap_id Will contain the new snapshot ID
+     * @param error_str Error reason, if any
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int snapshot_create(
+        int         vid,
+        string&     name,
+        int&        snap_id,
+        string&     error_str);
+
+    /**
+     * Starts the snapshot revert action
+     *
+     * @param vid VirtualMachine identification
+     * @param snap_id Snapshot to be restored
+     * @param error_str Error reason, if any
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int snapshot_revert(
+        int         vid,
+        int         snap_id,
+        string&     error_str);
+
+    /**
+     * Starts the snapshot delete action
+     *
+     * @param vid VirtualMachine identification
+     * @param snap_id Snapshot to be deleted
+     * @param error_str Error reason, if any
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int snapshot_delete(
+        int         vid,
+        int         snap_id,
+        string&     error_str);
 
 private:
     /**
@@ -275,6 +403,13 @@ private:
         const string &  action,
         void *          arg);
 
+    /**
+     * Called from finalize(). Releases the images and networks acquired by this
+     * vm, and unlocks it.
+     *   @param vm the VM
+     */
+    void finalize_cleanup(VirtualMachine * vm);
+
     //--------------------------------------------------------------------------
     // DM Actions associated with a VM state transition
     //--------------------------------------------------------------------------
@@ -283,9 +418,11 @@ private:
 
     void  stop_success_action(int vid);
 
-    void  done_action(int vid);
+    void  undeploy_success_action(int vid);
 
-    void  failed_action(int vid);
+    void  poweroff_success_action(int vid);
+
+    void  done_action(int vid);
 
     void  resubmit_action(int vid);
 };

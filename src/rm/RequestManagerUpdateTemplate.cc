@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,6 +21,44 @@ using namespace std;
 /* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
 
+int RequestManagerUpdateTemplate::replace_template(
+        PoolObjectSQL * object,
+        const string & tmpl,
+        const RequestAttributes &att,
+        string &error_str)
+{
+    if (att.uid!=UserPool::ONEADMIN_ID && att.gid!=GroupPool::ONEADMIN_ID)
+    {
+        return object->replace_template(tmpl, true, error_str);
+    }
+    else
+    {
+        return object->replace_template(tmpl, false, error_str);
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+int RequestManagerUpdateTemplate::append_template(
+        PoolObjectSQL * object,
+        const string & tmpl,
+        const RequestAttributes &att,
+        string &error_str)
+{
+    if (att.uid!=UserPool::ONEADMIN_ID && att.gid!=GroupPool::ONEADMIN_ID)
+    {
+        return object->append_template(tmpl, true, error_str);
+    }
+    else
+    {
+        return object->append_template(tmpl, false, error_str);
+    }
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
 void RequestManagerUpdateTemplate::request_execute(
         xmlrpc_c::paramList const& paramList,
         RequestAttributes& att)
@@ -30,7 +68,14 @@ void RequestManagerUpdateTemplate::request_execute(
 
     int    oid  = xmlrpc_c::value_int(paramList.getInt(1));
     string tmpl = xmlrpc_c::value_string(paramList.getString(2));
-    
+
+    int update_type = 0;
+
+    if ( paramList.size() > 3 )
+    {
+        update_type = xmlrpc_c::value_int(paramList.getInt(3));
+    }
+
     PoolObjectSQL * object;
 
     if ( basic_authorization(oid, att) == false )
@@ -38,10 +83,20 @@ void RequestManagerUpdateTemplate::request_execute(
         return;
     }
 
+    if ( update_type < 0 || update_type > 1 )
+    {
+        failure_response(XML_RPC_API,
+                request_error("Wrong update type",error_str),
+                att);
+
+        return;
+    }
+
+
     object = pool->get(oid,true);
 
-    if ( object == 0 )                             
-    {                                            
+    if ( object == 0 )
+    {
         failure_response(NO_EXISTS,
                 get_error(object_name(auth_object),oid),
                 att);
@@ -49,7 +104,14 @@ void RequestManagerUpdateTemplate::request_execute(
         return;
     }
 
-    rc = object->replace_template(tmpl, error_str);
+    if (update_type == 0)
+    {
+        rc = replace_template(object, tmpl, att, error_str);
+    }
+    else //if (update_type == 1)
+    {
+        rc = append_template(object, tmpl, att, error_str);
+    }
 
     if ( rc != 0 )
     {

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -28,7 +28,7 @@ const char * History::table = "history";
 const char * History::db_names = "vid, seq, body, stime, etime";
 
 const char * History::db_bootstrap = "CREATE TABLE IF NOT EXISTS "
-    "history (vid INTEGER, seq INTEGER, body TEXT, "
+    "history (vid INTEGER, seq INTEGER, body MEDIUMTEXT, "
     "stime INTEGER, etime INTEGER,PRIMARY KEY(vid,seq))";
 
 /* -------------------------------------------------------------------------- */
@@ -40,10 +40,14 @@ History::History(
         ObjectXML(),
         oid(_oid),
         seq(_seq),
-        hostname(""),
         hid(-1),
+        hostname(""),
+        cid(-1),
         vmm_mad_name(""),
         vnm_mad_name(""),
+        tm_mad_name(""),
+        ds_location(""),
+        ds_id(0),
         stime(0),
         etime(0),
         prolog_stime(0),
@@ -53,6 +57,7 @@ History::History(
         epilog_stime(0),
         epilog_etime(0),
         reason(NONE),
+        action(NONE_ACTION),
         vm_info("<VM/>"){};
 
 /* -------------------------------------------------------------------------- */
@@ -62,15 +67,23 @@ History::History(
     int	_seq,
     int	_hid,
     const string& _hostname,
+    int _cid,    
     const string& _vmm,
     const string& _vnm,
+    const string& _tmm,
+    const string& _ds_location,
+    int           _ds_id,
     const string& _vm_info):
         oid(_oid),
         seq(_seq),
-        hostname(_hostname),
         hid(_hid),
+        hostname(_hostname),
+        cid(_cid),
         vmm_mad_name(_vmm),
         vnm_mad_name(_vnm),
+        tm_mad_name(_tmm),
+        ds_location(_ds_location),
+        ds_id(_ds_id),
         stime(0),
         etime(0),
         prolog_stime(0),
@@ -80,6 +93,7 @@ History::History(
         epilog_stime(0),
         epilog_etime(0),
         reason(NONE),
+        action(NONE_ACTION),
         vm_info(_vm_info)
 {
     non_persistent_data();
@@ -93,14 +107,12 @@ void History::non_persistent_data()
     ostringstream os;
 
     string vm_lhome;
-    string vm_rhome;
-    string ds_location;
-    
+
     Nebula& nd = Nebula::instance();
 
     // ----------- Local Locations ------------
     os.str("");
-    os << nd.get_var_location() << oid;
+    os << nd.get_vms_location() << oid;
 
     vm_lhome = os.str();
 
@@ -118,20 +130,24 @@ void History::non_persistent_data()
 
     context_file = os.str();
 
+    os.str("");
+    os << vm_lhome << "/token.txt";
+
+    token_file = os.str();
+
     // ----------- Remote Locations ------------
 
     os.str("");
 
-    nd.get_configuration_attribute("DATASTORE_LOCATION", ds_location);
-    os << ds_location << "/" << DatastorePool::SYSTEM_DS_ID << "/" << oid;
+    os << ds_location << "/" << ds_id << "/" << oid;
 
-    vm_rhome = os.str();
+    rsystem_dir = os.str();
 
     os << "/checkpoint";
     checkpoint_file = os.str();
 
     os.str("");
-    os << vm_rhome << "/deployment." << seq;
+    os << rsystem_dir << "/deployment." << seq;
 
     rdeployment_file = os.str();
 }
@@ -288,17 +304,22 @@ string& History::to_xml(string& xml, bool database) const
           "<SEQ>"               << seq               << "</SEQ>"   <<
           "<HOSTNAME>"          << hostname          << "</HOSTNAME>"<<
           "<HID>"               << hid               << "</HID>"   <<
+          "<CID>"               << cid               << "</CID>"   <<
           "<STIME>"             << stime             << "</STIME>" <<
           "<ETIME>"             << etime             << "</ETIME>" <<
           "<VMMMAD>"            << vmm_mad_name      << "</VMMMAD>"<<
           "<VNMMAD>"            << vnm_mad_name      << "</VNMMAD>"<<
+          "<TMMAD>"             << tm_mad_name       << "</TMMAD>" <<
+          "<DS_LOCATION>"       << ds_location       << "</DS_LOCATION>" <<
+          "<DS_ID>"             << ds_id             << "</DS_ID>" <<
           "<PSTIME>"            << prolog_stime      << "</PSTIME>"<<
           "<PETIME>"            << prolog_etime      << "</PETIME>"<<
           "<RSTIME>"            << running_stime     << "</RSTIME>"<<
           "<RETIME>"            << running_etime     << "</RETIME>"<<
           "<ESTIME>"            << epilog_stime      << "</ESTIME>"<<
           "<EETIME>"            << epilog_etime      << "</EETIME>"<<
-          "<REASON>"            << reason            << "</REASON>";
+          "<REASON>"            << reason            << "</REASON>"<<
+          "<ACTION>"            << action            << "</ACTION>";
 
     if ( database )
     {
@@ -318,25 +339,31 @@ string& History::to_xml(string& xml, bool database) const
 
 int History::rebuild_attributes()
 {
-    int int_reason;
+    int int_reason, int_action;
     int rc = 0;
 
-    rc += xpath(seq              , "/HISTORY/SEQ",      -1);
-    rc += xpath(hostname         , "/HISTORY/HOSTNAME", "not_found");
-    rc += xpath(hid              , "/HISTORY/HID",      -1);
-    rc += xpath(stime            , "/HISTORY/STIME",    0);
-    rc += xpath(etime            , "/HISTORY/ETIME",    0);
-    rc += xpath(vmm_mad_name     , "/HISTORY/VMMMAD",   "not_found");
-          xpath(vnm_mad_name     , "/HISTORY/VNMMAD",   "dummy");
-    rc += xpath(prolog_stime     , "/HISTORY/PSTIME",   0);
-    rc += xpath(prolog_etime     , "/HISTORY/PETIME",   0);
-    rc += xpath(running_stime    , "/HISTORY/RSTIME",   0);
-    rc += xpath(running_etime    , "/HISTORY/RETIME",   0);
-    rc += xpath(epilog_stime     , "/HISTORY/ESTIME",   0);
-    rc += xpath(epilog_etime     , "/HISTORY/EETIME",   0);
-    rc += xpath(int_reason       , "/HISTORY/REASON",   0);
+    rc += xpath(seq              , "/HISTORY/SEQ",         -1);
+    rc += xpath(hostname         , "/HISTORY/HOSTNAME",    "not_found");
+    rc += xpath(hid              , "/HISTORY/HID",         -1);
+    rc += xpath(cid              , "/HISTORY/CID",         -1);    
+    rc += xpath(stime            , "/HISTORY/STIME",       0);
+    rc += xpath(etime            , "/HISTORY/ETIME",       0);
+    rc += xpath(vmm_mad_name     , "/HISTORY/VMMMAD",      "not_found");
+          xpath(vnm_mad_name     , "/HISTORY/VNMMAD",      "dummy");
+    rc += xpath(tm_mad_name      , "/HISTORY/TMMAD",       "not_found");
+    rc += xpath(ds_location      , "/HISTORY/DS_LOCATION", "not_found");
+    rc += xpath(ds_id            , "/HISTORY/DS_ID",       0);
+    rc += xpath(prolog_stime     , "/HISTORY/PSTIME",      0);
+    rc += xpath(prolog_etime     , "/HISTORY/PETIME",      0);
+    rc += xpath(running_stime    , "/HISTORY/RSTIME",      0);
+    rc += xpath(running_etime    , "/HISTORY/RETIME",      0);
+    rc += xpath(epilog_stime     , "/HISTORY/ESTIME",      0);
+    rc += xpath(epilog_etime     , "/HISTORY/EETIME",      0);
+    rc += xpath(int_reason       , "/HISTORY/REASON",      0);
+    rc += xpath(int_action       , "/HISTORY/ACTION",      0);
 
-    reason = static_cast<MigrationReason>(int_reason);
+    reason = static_cast<EndReason>(int_reason);
+    action = static_cast<VMAction>(int_action);
 
     non_persistent_data();
 

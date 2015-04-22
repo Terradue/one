@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -40,31 +40,46 @@ source ${DRIVER_PATH}/lvm.conf
 DRV_ACTION=$1
 ID=$2
 
-XPATH="${DRIVER_PATH}/../xpath.rb -b $DRV_ACTION"
+UTILS_PATH="${DRIVER_PATH}/.."
 
-unset i XPATH_ELEMENTS
+XPATH="$UTILS_PATH/xpath.rb -b $DRV_ACTION"
+
+unset i j XPATH_ELEMENTS
 
 while IFS= read -r -d '' element; do
     XPATH_ELEMENTS[i++]="$element"
 done < <($XPATH     /DS_DRIVER_ACTION_DATA/DATASTORE/BASE_PATH \
                     /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/RESTRICTED_DIRS \
                     /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/SAFE_DIRS \
-                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/UMASK \
-                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/HOST \
+                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/BRIDGE_LIST \
                     /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/VG_NAME \
                     /DS_DRIVER_ACTION_DATA/IMAGE/PATH \
-                    /DS_DRIVER_ACTION_DATA/IMAGE/SIZE)
+                    /DS_DRIVER_ACTION_DATA/IMAGE/SIZE \
+                    /DS_DRIVER_ACTION_DATA/IMAGE/TEMPLATE/MD5 \
+                    /DS_DRIVER_ACTION_DATA/IMAGE/TEMPLATE/SHA1 \
+                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/NO_DECOMPRESS \
+                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/LIMIT_TRANSFER_BW)
 
-BASE_PATH="${XPATH_ELEMENTS[0]}"
-RESTRICTED_DIRS="${XPATH_ELEMENTS[1]}"
-SAFE_DIRS="${XPATH_ELEMENTS[2]}"
-UMASK="${XPATH_ELEMENTS[3]}"
-DST_HOST="${XPATH_ELEMENTS[4]:-$HOST}"
-VG_NAME="${XPATH_ELEMENTS[5]:-$VG_NAME}"
-SRC="${XPATH_ELEMENTS[6]}"
-SIZE="${XPATH_ELEMENTS[7]}"
+BASE_PATH="${XPATH_ELEMENTS[j++]}"
+RESTRICTED_DIRS="${XPATH_ELEMENTS[j++]}"
+SAFE_DIRS="${XPATH_ELEMENTS[j++]}"
+BRIDGE_LIST="${XPATH_ELEMENTS[j++]}"
+VG_NAME="${XPATH_ELEMENTS[j++]:-$VG_NAME}"
+SRC="${XPATH_ELEMENTS[j++]}"
+SIZE="${XPATH_ELEMENTS[j++]}"
+MD5="${XPATH_ELEMENTS[j++]}"
+SHA1="${XPATH_ELEMENTS[j++]}"
+NO_DECOMPRESS="${XPATH_ELEMENTS[j++]}"
+LIMIT_TRANSFER_BW="${XPATH_ELEMENTS[j++]}"
 
-set_up_datastore "$BASE_PATH" "$RESTRICTED_DIRS" "$SAFE_DIRS" "$UMASK"
+DST_HOST=`get_destination_host $ID`
+
+if [ -z "$DST_HOST" ]; then
+    error_message "Datastore template missing 'BRIDGE_LIST' attribute."
+    exit -1
+fi
+
+set_up_datastore "$BASE_PATH" "$RESTRICTED_DIRS" "$SAFE_DIRS"
 
 LV_NAME="lv-one-${ID}"
 LVM_SOURCE="$DST_HOST:$VG_NAME.$LV_NAME"
@@ -76,11 +91,15 @@ REGISTER_CMD=$(cat <<EOF
 EOF
 )
 
+DOWNLOADER_ARGS=`set_downloader_args "$MD5" "$SHA1" "$NO_DECOMPRESS" "$LIMIT_TRANSFER_BW" "$SRC" -`
+
+COPY_COMMAND="$UTILS_PATH/downloader.sh $DOWNLOADER_ARGS"
+
 case $SRC in
-http://*)
+http://*|https://*)
     log "Downloading $SRC to the image repository"
 
-    DUMP="$WGET $SRC -O-"
+    DUMP="$COPY_COMMAND"
     ;;
 
 *)
@@ -92,7 +111,7 @@ http://*)
 
     log "Copying local image $SRC to the image repository"
 
-    DUMP="cat $SRC"
+    DUMP="$COPY_COMMAND"
     ;;
 esac
 

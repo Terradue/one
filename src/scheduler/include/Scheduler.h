@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -19,6 +19,8 @@
 
 #include "Log.h"
 #include "HostPoolXML.h"
+#include "ClusterPoolXML.h"
+#include "DatastorePoolXML.h"
 #include "VirtualMachinePoolXML.h"
 #include "SchedulerPolicy.h"
 #include "ActionManager.h"
@@ -47,14 +49,17 @@ protected:
 
     Scheduler():
         hpool(0),
+        clpool(0),
         vmpool(0),
+        vmapool(0),
+        dspool(0),
+        img_dspool(0),
         acls(0),
         timer(0),
         url(""),
         machines_limit(0),
         dispatch_limit(0),
         host_dispatch_limit(0),
-        threshold(0.9),
         client(0)
     {
         am.addListener(this);
@@ -62,43 +67,46 @@ protected:
 
     virtual ~Scheduler()
     {
-        if ( hpool != 0)
-        {
-            delete hpool;
-        }
+        delete hpool;
+        delete clpool;
 
-        if ( vmpool != 0)
-        {
-            delete vmpool;
-        }
+        delete vmpool;
+        delete vmapool;
 
-        if ( acls != 0)
-        {
-            delete acls;
-        }
+        delete dspool;
+        delete img_dspool;
 
-        if ( client != 0)
-        {
-            delete client;
-        }
+        delete acls;
+
+        delete client;
     };
 
     // ---------------------------------------------------------------
     // Pools
     // ---------------------------------------------------------------
 
-    HostPoolXML *             hpool;
-    VirtualMachinePoolXML *   vmpool;
+    HostPoolXML *    hpool;
+    ClusterPoolXML * clpool;
 
-    AclXML *                  acls;
+    VirtualMachinePoolXML *       vmpool;
+    VirtualMachineActionsPoolXML* vmapool;
+    SystemDatastorePoolXML * dspool;
+    ImageDatastorePoolXML * img_dspool;
+
+    AclXML * acls;
 
     // ---------------------------------------------------------------
     // Scheduler Policies
     // ---------------------------------------------------------------
 
-    void add_host_policy(SchedulerHostPolicy *policy)
+    void add_host_policy(SchedulerPolicy *policy)
     {
         host_policies.push_back(policy);
+    }
+
+    void add_ds_policy(SchedulerPolicy *policy)
+    {
+        ds_policies.push_back(policy);
     }
 
     // ---------------------------------------------------------------
@@ -110,13 +118,20 @@ protected:
      *  the capacity of the host is checked. If there is enough room to host the
      *  VM a share vector is added to the VM.
      */
-    virtual void match();
+    virtual void match_schedule();
 
     virtual void dispatch();
 
-    virtual int schedule();
-
+    /**
+     * Retrieves the pools
+     *
+     * @return   0 on success
+     *          -1 on error
+     *          -2 if no VMs need to be scheduled
+     */
     virtual int set_up_pools();
+
+    virtual int do_scheduled_actions();
 
 private:
     Scheduler(Scheduler const&){};
@@ -125,12 +140,12 @@ private:
 
     friend void * scheduler_action_loop(void *arg);
 
-
     // ---------------------------------------------------------------
     // Scheduling Policies
     // ---------------------------------------------------------------
 
-    vector<SchedulerHostPolicy *>   host_policies;
+    vector<SchedulerPolicy *> host_policies;
+    vector<SchedulerPolicy *> ds_policies;
 
     // ---------------------------------------------------------------
     // Configuration attributes
@@ -156,14 +171,19 @@ private:
     unsigned int host_dispatch_limit;
 
     /**
-     *  Threshold value to round up freecpu
+     *  OpenNebula zone id.
      */
-    float threshold;
+    int zone_id;
 
     /**
      *  XML_RPC client
      */
     Client * client;
+
+    /**
+     * oned runtime configuration values
+     */
+     Template oned_conf;
 
     // ---------------------------------------------------------------
     // Timer to periodically schedule and dispatch VMs

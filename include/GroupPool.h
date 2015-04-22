@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -26,7 +26,10 @@ using namespace std;
 class GroupPool : public PoolSQL
 {
 public:
-    GroupPool(SqlDB * db);
+    GroupPool(SqlDB * db,
+              vector<const Attribute *> hook_mads,
+              const string&             remotes_location,
+              bool                      is_federation_slave);
 
     ~GroupPool(){};
 
@@ -110,14 +113,19 @@ public:
         return name;
     };
 
-    /** Update a particular Group
+    /**
+     * Update a particular Group. This method does not update the group's quotas
      *    @param user pointer to Group
      *    @return 0 on success
      */
-    int update(Group * group)
-    {
-        return group->update(db);
-    };
+    int update(Group * group);
+
+    /**
+     * Update a particular Group's Quotas
+     *    @param group pointer to Group
+     *    @return 0 on success
+     */
+    int update_quotas(Group * group);
 
     /**
      *  Drops the Group from the data base. The object mutex SHOULD be
@@ -145,13 +153,11 @@ public:
      *  query
      *  @param oss the output stream to dump the pool contents
      *  @param where filter for the objects, defaults to all
+     *  @param limit parameters used for pagination
      *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& where)
-    {
-        return PoolSQL::dump(oss, "GROUP_POOL", Group::table, where);
-    };
+    int dump(ostringstream& oss, const string& where, const string& limit);
 
 private:
 
@@ -163,6 +169,15 @@ private:
     {
         return new Group(-1,"");
     };
+
+    /**
+     *  Callback function to get output in XML format
+     *    @param num the number of columns read from the DB
+     *    @param names the column names
+     *    @param vaues the column values
+     *    @return 0 on success
+     */
+    int dump_cb(void * _oss, int num, char **values, char **names);
 };
 
 #endif /*GROUP_POOL_H_*/

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -48,7 +48,7 @@ public:
         if  ((size >0 && !isalpha(aname[0]))||
              (size >=3 && (aname[0]=='X' && aname[1]=='M' && aname[2]=='L')))
         {
-            attribute_name.insert(0,"ONE_");    
+            attribute_name.insert(0,"ONE_");
         }
     };
 
@@ -198,7 +198,7 @@ public:
      */
     Attribute* clone() const
     {
-        return new SingleAttribute(*this);   
+        return new SingleAttribute(*this);
     };
 
 private:
@@ -247,6 +247,24 @@ public:
     string vector_value(const char *name) const;
 
     /**
+     *  Returns the string value
+     *    @param name of the attribute
+     *    @param value of the value
+     *
+     *    @return 0 if the attribute was found, -1 otherwise
+     */
+    int vector_value(const char *name, string& value) const;
+
+    /**
+     *  Returns the boolean value
+     *    @param name of the attribute
+     *    @param value Bool value ("YES" is true)
+     *
+     *    @return 0 on success, -1 otherwise
+     */
+    int vector_value(const char *name, bool& value) const;
+
+    /**
      * Returns the integer value
      *
      * @param name Name of the attribute
@@ -257,15 +275,56 @@ public:
     int vector_value(const char *name, int& value) const;
 
     /**
+     * Returns the unsigned integer value
+     *
+     * @param name Name of the attribute
+     * @param value Integer value
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int vector_value(const char *name, unsigned int& value) const;
+
+    /**
+     * Returns the long long value
+     *
+     * @param name Name of the attribute
+     * @param value Long long value
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int vector_value(const char *name, long long& value) const;
+
+    /**
+     * Returns the float value
+     *
+     * @param name Name of the attribute
+     * @param value Float value
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int vector_value(const char *name, float& value) const;
+
+    /**
      * Returns the integer value
      *
      * @param name Name of the attribute
-     * @param value Integer value, if an error ocurred the string returned is 
+     * @param value Integer value, if an error occurred the string returned is
      * empty and value set to -1;
      *
      * @return the value in string form on success, "" otherwise
      */
     string vector_value_str(const char *name, int& value) const;
+
+    /**
+     * Returns the float value
+     *
+     * @param name Name of the attribute
+     * @param value Float value, if an error occurred the string returned is
+     * empty and value set to -1;
+     *
+     * @return the value in string form on success, "" otherwise
+     */
+    string vector_value_str(const char *name, float& value) const;
 
     /**
      *  Marshall the attribute in a single string. The string MUST be freed
@@ -290,6 +349,11 @@ public:
     string * to_xml() const;
 
     /**
+     *  Same as above but the attribute is written in an string stream;
+     */
+    void to_xml(ostringstream &oss) const;
+
+    /**
      *  Builds a new attribute from a string of the form:
      *  "VAL_NAME_1=VAL_VALUE_1,...,VAL_NAME_N=VAL_VALUE_N".
      */
@@ -299,6 +363,14 @@ public:
      *  Replace the value of the given attribute with the provided map
      */
     void replace(const map<string,string>& attr);
+
+    /**
+     * The attributes from vattr will be copied to this vector
+     * @param attr Vector attribute to merge
+     * @param replace True to replace existing values, false to copy values
+     * only if they don't exist in this vector attribute
+     */
+    void merge(VectorAttribute* vattr, bool replace);
 
     /**
      *  Replace the value of the given vector attribute
@@ -315,7 +387,66 @@ public:
         oss << value;
 
         replace(name, oss.str());
-    } 
+    }
+
+    /**
+     *  Replace the value of the given vector attribute
+     */
+    void replace(const string& name, unsigned int value)
+    {
+        ostringstream oss;
+
+        oss << value;
+
+        replace(name, oss.str());
+    }
+
+    /**
+     *  Replace the value of the given vector attribute
+     */
+    void replace(const string& name, long long value)
+    {
+        ostringstream oss;
+
+        oss << value;
+
+        replace(name, oss.str());
+    }
+
+    /**
+     *  Replace the value of the given vector attribute
+     */
+    void replace(const string& name, const char* value)
+    {
+        string svalue(value);
+
+        replace(name, svalue);
+    }
+
+    /**
+     *  Replace the value of the given vector attribute
+     */
+    void replace(const string& name, bool value)
+    {
+        string b_value;
+
+        if (value == true)
+        {
+            b_value = "YES";
+        }
+        else
+        {
+            b_value = "NO";
+        }
+
+        replace(name, b_value);
+    }
+
+    /**
+     * Removes given the vector attribute
+     * @param name of the vector attribute
+     */
+    void remove(const string& name);
 
     /**
      *  Returns the attribute type
@@ -328,10 +459,18 @@ public:
     /**
      *  Clones the current attribute
      */
-    Attribute* clone() const
+    VectorAttribute* clone() const
     {
-        return new VectorAttribute(*this);   
+        return new VectorAttribute(*this);
     };
+
+    /**
+     *  Clear the vector attribute values
+     */
+    void clear()
+    {
+        attribute_value.clear();
+    }
 
 private:
 

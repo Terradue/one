@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -18,36 +18,60 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <time.h>
+#include <getopt.h>
+#include <ostream>
 
 #include "Nebula.h"
 
 using namespace std;
-
-/* ------------------------------------------------------------------------- */
-/* GLOBAL VARIABLES                                                          */
-/* ------------------------------------------------------------------------- */
-
-static const char * usage =
-"\n  oned [-h] [-v] [-f]\n\n"
-"SYNOPSIS\n"
-"  Starts the OpenNebula daemon\n\n"
-"OPTIONS\n"
-"\t-h\tprints this help.\n"
-"\t-v\tprints OpenNebula version and license\n"
-"\t-f\tforeground, do not fork the oned daemon\n";
-
-static const char * susage =
-"usage: oned [-h] [-v] [-f]\n";
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 static void print_license()
 {
-    cout<< "Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)\n\n"
+    cout<< "Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs\n\n"
         << Nebula::version() << " is distributed and licensed for use under the"
         << " terms of the\nApache License, Version 2.0 "
         << "(http://www.apache.org/licenses/LICENSE-2.0).\n";
+}
+
+static void print_usage(ostream& str)
+{
+    str << "Usage: oned [-h] [-v] [-f] [-i]\n";
+}
+
+static void print_help()
+{
+    print_usage(cout);
+
+    cout << "\n"
+         << "SYNOPSIS\n"
+         << "  Starts the OpenNebula daemon\n\n"
+         << "OPTIONS\n"
+         << "  -v, --verbose\toutput version information and exit\n"
+         << "  -h, --help\tdisplay this help and exit\n"
+         << "  -f, --foreground\tforeground, do not fork the oned daemon\n"
+         << "  -i, --init-db\tinitialize the dabase and exit\n";
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+static void oned_init()
+{
+    try
+    {
+        Nebula& nd  = Nebula::instance();
+        nd.bootstrap_db();
+    }
+    catch (exception &e)
+    {
+        cerr << e.what() << endl;
+
+        return;
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -58,30 +82,42 @@ static void oned_main()
     try
     {
         Nebula& nd  = Nebula::instance();
-        nd.start();    
+        nd.start();
     }
     catch (exception &e)
     {
         cerr << e.what() << endl;
- 
+
         return;
     }
 }
-    
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
-    
+
 int main(int argc, char **argv)
 {
-    char            opt;
+    int             opt;
     bool            foreground = false;
     const char *    nl;
     int             fd;
     pid_t           pid,sid;
     string          wd;
     int             rc;
-            
-    while((opt = getopt(argc,argv,"vhf")) != -1)
+
+    static struct option long_options[] = {
+        {"version",    no_argument, 0, 'v'},
+        {"help",       no_argument, 0, 'h'},
+        {"foreground", no_argument, 0, 'f'},
+        {"init-db",    no_argument, 0, 'i'},
+        {0,            0,           0, 0}
+    };
+
+    int long_index = 0;
+
+    while ((opt = getopt_long(argc, argv, "vhif",
+                    long_options, &long_index)) != -1)
+    {
         switch(opt)
         {
             case 'v':
@@ -89,37 +125,42 @@ int main(int argc, char **argv)
                 exit(0);
                 break;
             case 'h':
-                cout << usage;
+                print_help();
+                exit(0);
+                break;
+            case 'i':
+                oned_init();
                 exit(0);
                 break;
             case 'f':
                 foreground = true;
-                break;        
+                break;
             default:
-                cerr << susage;
+                print_usage(cerr);
                 exit(-1);
                 break;
         }
+    }
 
     // ---------------------------------
-    //   Check if other oned is running  
-    // --------------------------------- 
-    
+    //   Check if other oned is running
+    // ---------------------------------
+
     string lockfile;
     string var_location;
-    
+
     nl = getenv("ONE_LOCATION");
 
     if (nl == 0) // OpenNebula in root of FSH
     {
-    	var_location = "/var/lib/one/"; 
+    	var_location = "/var/lib/one/";
     	lockfile 	 = "/var/lock/one/one";
     }
     else
     {
     	var_location = nl;
     	var_location += "/var/";
-    	
+
     	lockfile = var_location + ".lock";
     }
 
@@ -127,70 +168,70 @@ int main(int argc, char **argv)
 
     if( fd == -1)
     {
-        cerr<< "Error: Cannot start oned, opening lock file " << lockfile 
+        cerr<< "Error: Cannot start oned, opening lock file " << lockfile
             << endl;
-        
+
         exit(-1);
     }
 
     close(fd);
-    
-    // ---------------------------- 
-    //   Fork & exit main process   
-    // ---------------------------- 
-    
+
+    // ----------------------------
+    //   Fork & exit main process
+    // ----------------------------
+
     if (foreground == true)
     {
         pid = 0; //Do not fork
     }
     else
     {
-        pid = fork();    
+        pid = fork();
     }
-        
+
 
     switch (pid){
         case -1: // Error
-            cerr << "Error: Unable to fork.\n"; 
+            cerr << "Error: Unable to fork.\n";
             exit(-1);
-            
+
 
         case 0: // Child process
-        	
+
             rc  = chdir(var_location.c_str());
-                        
+
             if (rc != 0)
             {
                 goto error_chdir;
             }
-            
+
             if (foreground == false)
-            { 
+            {
                 sid = setsid();
-                
+
                 if (sid == -1)
                 {
                     goto error_sid;
                 }
             }
-                        
+
             oned_main();
-            
-            unlink(lockfile.c_str());            
+
+            unlink(lockfile.c_str());
             break;
 
         default: // Parent process
-            break;               
+            break;
     }
-    
+
     return 0;
-    
+
 error_chdir:
     cerr << "Error: cannot change to dir " << wd << "\n";
     unlink(lockfile.c_str());
     exit(-1);
 
-error_sid:    
+error_sid:
     cerr << "Error: creating new session\n";
     unlink(lockfile.c_str());
     exit(-1);

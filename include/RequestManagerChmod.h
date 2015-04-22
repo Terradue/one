@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -30,9 +30,8 @@ class RequestManagerChmod : public Request
 {
 protected:
     RequestManagerChmod(const string& method_name,
-                        const string& help,
-                        const string& params = "A:siiiiiiiiii")
-        :Request(method_name,params,help){};
+                        const string& help)
+        :Request(method_name, "A:siiiiiiiiii", help){};
 
     ~RequestManagerChmod(){};
 
@@ -132,6 +131,43 @@ public:
     };
 
     ~DatastoreChmod(){};
+
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class DocumentChmod : public RequestManagerChmod
+{
+public:
+    DocumentChmod():
+        RequestManagerChmod("DocumentChmod",
+                            "Changes permission bits of a generic document")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_docpool();
+        auth_object = PoolObjectSQL::DOCUMENT;
+    };
+
+    ~DocumentChmod(){};
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class SecurityGroupChmod: public RequestManagerChmod
+{
+public:
+    SecurityGroupChmod():
+        RequestManagerChmod("SecurityGroupChmod",
+                            "Changes permission bits of a security group")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_secgrouppool();
+        auth_object = PoolObjectSQL::SECGROUP;
+    };
+
+    ~SecurityGroupChmod(){};
 
 };
 

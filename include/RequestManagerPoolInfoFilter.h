@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -39,6 +39,22 @@ public:
     /** Specify user's + group objects (-1)     */
     static const int MINE_GROUP;
 
+    /**
+     *  Set a where filter to get the oids of objects that a user can "USE"
+     *    @param att the XML-RPC Attributes with user information
+     *    @param auth_object the object type
+     *    @param where_string will store the resulting SQL filter
+     *    @return true if the use_filter is empty and access to all objects
+     *    should be granted.
+     */
+    static bool use_filter(RequestAttributes& att,
+          PoolObjectSQL::ObjectType aobj,
+          bool disable_all_acl,
+          bool disable_cluster_acl,
+          bool disable_group_acl,
+          const string& and_str,
+          string& where_str);
+
 protected:
     RequestManagerPoolInfoFilter(const string& method_name,
                                  const string& help,
@@ -56,12 +72,15 @@ protected:
     /* -------------------------------------------------------------------- */
 
     void where_filter(RequestAttributes& att,
-                      int                filter_flag,
-                      int                start_id,
-                      int                end_id,
-                      const string&      and_clause,
-                      const string&      or_clause,
-                      string&            where_string);
+              int                filter_flag,
+              int                start_id,
+              int                end_id,
+              const string&      and_clause,
+              const string&      or_clause,
+              bool               disable_all_acl,
+              bool               disable_cluster_acl,
+              bool               disable_group_acl,
+              string&            where_string);
 
     /* -------------------------------------------------------------------- */
 
@@ -90,7 +109,7 @@ public:
         RequestManagerPoolInfoFilter("VirtualMachinePoolInfo",
                                      "Returns the virtual machine instances pool",
                                      "A:siiii")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_vmpool();
         auth_object = PoolObjectSQL::VM;
@@ -122,6 +141,31 @@ public:
     };
 
     ~VirtualMachinePoolAccounting(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachinePoolShowback : public RequestManagerPoolInfoFilter
+{
+public:
+
+    VirtualMachinePoolShowback():
+        RequestManagerPoolInfoFilter("VirtualMachinePoolShowback",
+                                     "Returns the virtual machine showback records",
+                                     "A:siiiii")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_vmpool();
+        auth_object = PoolObjectSQL::VM;
+    };
+
+    ~VirtualMachinePoolShowback(){};
 
     /* -------------------------------------------------------------------- */
 
@@ -164,7 +208,7 @@ public:
         RequestManagerPoolInfoFilter("TemplatePoolInfo",
                                      "Returns the virtual machine template pool",
                                      "A:siii")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_tpool();
         auth_object = PoolObjectSQL::TEMPLATE;
@@ -183,13 +227,16 @@ public:
         RequestManagerPoolInfoFilter("VirtualNetworkPoolInfo",
                                      "Returns the virtual network pool",
                                      "A:siii")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_vnpool();
         auth_object = PoolObjectSQL::NET;
     };
 
     ~VirtualNetworkPoolInfo(){};
+
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
 };
 
 /* ------------------------------------------------------------------------- */
@@ -202,7 +249,7 @@ public:
         RequestManagerPoolInfoFilter("ImagePoolInfo",
                                      "Returns the image pool",
                                      "A:siii")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_ipool();
         auth_object = PoolObjectSQL::IMAGE;
@@ -349,6 +396,97 @@ public:
     };
 
     ~ClusterPoolInfo(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class DocumentPoolInfo : public RequestManagerPoolInfoFilter
+{
+public:
+    DocumentPoolInfo():
+        RequestManagerPoolInfoFilter("DocumentPoolInfo",
+                                     "Returns the generic document pool",
+                                     "A:siiii")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_docpool();
+        auth_object = PoolObjectSQL::DOCUMENT;
+    };
+
+    ~DocumentPoolInfo(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class ZonePoolInfo : public RequestManagerPoolInfoFilter
+{
+public:
+    ZonePoolInfo():
+        RequestManagerPoolInfoFilter("ZonePoolInfo",
+                                     "Returns the zone pool",
+                                     "A:s")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_zonepool();
+        auth_object = PoolObjectSQL::ZONE;
+    };
+
+    ~ZonePoolInfo(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class SecurityGroupPoolInfo : public RequestManagerPoolInfoFilter
+{
+public:
+    SecurityGroupPoolInfo():
+        RequestManagerPoolInfoFilter("SecurityGroupPoolInfo",
+                                     "Returns the security group pool",
+                                     "A:siii")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_secgrouppool();
+        auth_object = PoolObjectSQL::SECGROUP;
+    };
+
+    ~SecurityGroupPoolInfo(){};
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VdcPoolInfo : public RequestManagerPoolInfoFilter
+{
+public:
+    VdcPoolInfo():
+        RequestManagerPoolInfoFilter("VdcPoolInfo",
+                                     "Returns the VDC pool",
+                                     "A:s")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_vdcpool();
+        auth_object = PoolObjectSQL::VDC;
+    };
+
+    ~VdcPoolInfo(){};
 
     /* -------------------------------------------------------------------- */
 

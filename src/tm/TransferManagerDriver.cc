@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -41,8 +41,7 @@ void TransferManagerDriver::transfer (
 /* MAD Interface                                                              */
 /* ************************************************************************** */
 
-void TransferManagerDriver::protocol(
-    string&     message)
+void TransferManagerDriver::protocol(const string& message) const
 {
     istringstream           is(message);
     ostringstream           os;
@@ -96,9 +95,7 @@ void TransferManagerDriver::protocol(
         return;
     }
 
-    if ( vm->get_lcm_state() == VirtualMachine::CLEANUP ||
-         vm->get_lcm_state() == VirtualMachine::FAILURE ||
-         vm->get_lcm_state() == VirtualMachine::LCM_INIT )
+    if ( vm->get_lcm_state() == VirtualMachine::LCM_INIT )
     {
         os.str("");
         os << "Ignored: " << message;
@@ -123,12 +120,30 @@ void TransferManagerDriver::protocol(
                 case VirtualMachine::PROLOG:
                 case VirtualMachine::PROLOG_MIGRATE:
                 case VirtualMachine::PROLOG_RESUME:
+                case VirtualMachine::PROLOG_UNDEPLOY:
+                case VirtualMachine::PROLOG_MIGRATE_POWEROFF:
                     lcm_action = LifeCycleManager::PROLOG_SUCCESS;
                     break;
 
                 case VirtualMachine::EPILOG:
                 case VirtualMachine::EPILOG_STOP:
+                case VirtualMachine::EPILOG_UNDEPLOY:
+                case VirtualMachine::CLEANUP_RESUBMIT:
                     lcm_action = LifeCycleManager::EPILOG_SUCCESS;
+                    break;
+
+                case VirtualMachine::HOTPLUG_SAVEAS:
+                case VirtualMachine::HOTPLUG_SAVEAS_POWEROFF:
+                case VirtualMachine::HOTPLUG_SAVEAS_SUSPENDED:
+                    lcm_action = LifeCycleManager::SAVEAS_HOT_SUCCESS;
+                    break;
+
+                case VirtualMachine::HOTPLUG_PROLOG_POWEROFF:
+                    lcm_action = LifeCycleManager::ATTACH_SUCCESS;
+                    break;
+
+                case VirtualMachine::HOTPLUG_EPILOG_POWEROFF:
+                    lcm_action = LifeCycleManager::DETACH_SUCCESS;
                     break;
 
                 default:
@@ -143,7 +158,7 @@ void TransferManagerDriver::protocol(
 
             os.str("");
             os << "Error executing image transfer script";
-            
+
             if (!info.empty() && info[0] != '-')
             {
                 os << ": " << info;
@@ -151,7 +166,7 @@ void TransferManagerDriver::protocol(
                 vm->set_template_error_message(os.str());
                 vmpool->update(vm);
             }
-            
+
             vm->log("TM",Log::ERROR,os);
 
             switch (vm->get_lcm_state())
@@ -159,12 +174,30 @@ void TransferManagerDriver::protocol(
                 case VirtualMachine::PROLOG:
                 case VirtualMachine::PROLOG_MIGRATE:
                 case VirtualMachine::PROLOG_RESUME:
+                case VirtualMachine::PROLOG_UNDEPLOY:
+                case VirtualMachine::PROLOG_MIGRATE_POWEROFF:
                     lcm_action = LifeCycleManager::PROLOG_FAILURE;
                     break;
 
                 case VirtualMachine::EPILOG:
                 case VirtualMachine::EPILOG_STOP:
+                case VirtualMachine::EPILOG_UNDEPLOY:
+                case VirtualMachine::CLEANUP_RESUBMIT:
                     lcm_action = LifeCycleManager::EPILOG_FAILURE;
+                    break;
+
+                case VirtualMachine::HOTPLUG_SAVEAS:
+                case VirtualMachine::HOTPLUG_SAVEAS_POWEROFF:
+                case VirtualMachine::HOTPLUG_SAVEAS_SUSPENDED:
+                    lcm_action = LifeCycleManager::SAVEAS_HOT_FAILURE;
+                    break;
+
+                case VirtualMachine::HOTPLUG_PROLOG_POWEROFF:
+                    lcm_action = LifeCycleManager::ATTACH_FAILURE;
+                    break;
+
+                case VirtualMachine::HOTPLUG_EPILOG_POWEROFF:
+                    lcm_action = LifeCycleManager::DETACH_FAILURE;
                     break;
 
                 default:

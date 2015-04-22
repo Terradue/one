@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -18,9 +18,21 @@
 #define HOST_SHARE_H_
 
 #include "ObjectXML.h"
+#include "Template.h"
 #include <time.h>
 
 using namespace std;
+
+/* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
+
+class HostShareTemplate : public Template
+{
+public:
+    HostShareTemplate() : Template(false,'=',"DATASTORES"){};
+
+    ~HostShareTemplate(){};
+};
 
 /* ------------------------------------------------------------------------ */
 /* ------------------------------------------------------------------------ */
@@ -33,19 +45,19 @@ class HostShare : public ObjectXML
 public:
 
     HostShare(
-        int     _max_disk=0,
-        int     _max_mem=0,
-        int     _max_cpu=0);
+        long long  _max_disk=0,
+        long long  _max_mem=0,
+        long long  _max_cpu=0);
 
     ~HostShare(){};
 
     /**
      *  Add a new VM to this share
-     *    @param cpu requested by the VM
-     *    @param mem requested by the VM
+     *    @param cpu requested by the VM, in percentage
+     *    @param mem requested by the VM, in KB
      *    @param disk requested by the VM
      */
-    void add(int cpu, int mem, int disk)
+    void add(long long cpu, long long mem, long long disk)
     {
         cpu_usage  += cpu;
         mem_usage  += mem;
@@ -55,12 +67,25 @@ public:
     }
 
     /**
+     *  Updates the capacity of VM in this share
+     *    @param cpu increment
+     *    @param mem increment
+     *    @param disk increment
+     */
+    void update(int cpu, int mem, int disk)
+    {
+        cpu_usage  += cpu;
+        mem_usage  += mem;
+        disk_usage += disk;
+    }
+
+    /**
      *  Delete a VM from this share
      *    @param cpu requested by the VM
      *    @param mem requested by the VM
      *    @param disk requested by the VM
      */
-    void del(int cpu, int mem, int disk)
+    void del(long long cpu, long long mem, long long disk)
     {
         cpu_usage  -= cpu;
         mem_usage  -= mem;
@@ -78,7 +103,7 @@ public:
      *    @return true if the share can host the VM or it is the only one
      *    configured
      */
-    bool test(int cpu, int mem, int disk) const
+    bool test(long long cpu, long long mem, long long disk) const
     {
             return (((max_cpu  - cpu_usage ) >= cpu) &&
                     ((max_mem  - mem_usage ) >= mem) &&
@@ -98,25 +123,29 @@ public:
      */
     string& to_xml(string& xml) const;
 
+    void set_ds_monitorization(const vector<Attribute*> &ds_att);
+
 private:
 
-    int disk_usage; /**< Disk allocated to VMs (in Mb).        */
-    int mem_usage;  /**< Memory allocated to VMs (in Mb)       */
-    int cpu_usage;  /**< CPU  allocated to VMs (in percentage) */
+    long long disk_usage; /**< Disk allocated to VMs (in MB).        */
+    long long mem_usage;  /**< Memory allocated to VMs (in KB)       */
+    long long cpu_usage;  /**< CPU  allocated to VMs (in percentage) */
 
-    int max_disk;   /**< Total disk capacity (in Mb)           */
-    int max_mem;    /**< Total memory capacity (in Mb)         */
-    int max_cpu;    /**< Total cpu capacity (in percentage)    */
+    long long max_disk;   /**< Total disk capacity (in MB)           */
+    long long max_mem;    /**< Total memory capacity (in KB)         */
+    long long max_cpu;    /**< Total cpu capacity (in percentage)    */
 
-    int free_disk;  /**< Free disk from the IM monitor         */
-    int free_mem;   /**< Free memory from the IM monitor       */
-    int free_cpu;   /**< Free cpu from the IM monitor          */
+    long long free_disk;  /**< Free disk from the IM monitor         */
+    long long free_mem;   /**< Free memory from the IM monitor       */
+    long long free_cpu;   /**< Free cpu from the IM monitor          */
 
-    int used_disk;  /**< Used disk from the IM monitor         */
-    int used_mem;   /**< Used memory from the IM monitor       */
-    int used_cpu;   /**< Used cpu from the IM monitor          */
+    long long used_disk;  /**< Used disk from the IM monitor         */
+    long long used_mem;   /**< Used memory from the IM monitor       */
+    long long used_cpu;   /**< Used cpu from the IM monitor          */
 
-    int running_vms;/**< Number of running VMs in this Host   */
+    long long running_vms;/**< Number of running VMs in this Host   */
+
+    HostShareTemplate ds_template;
 
     // ----------------------------------------
     // Friends

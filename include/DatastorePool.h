@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -54,6 +54,16 @@ public:
      */
     static const int DEFAULT_DS_ID;
 
+    /**
+     *  Name for the file datastore
+     */
+    static const string FILE_DS_NAME;
+
+    /**
+     *  Identifier for the file datastore
+     */
+    static const int FILE_DS_ID;
+
     /* ---------------------------------------------------------------------- */
     /* Methods for DB management                                              */
     /* ---------------------------------------------------------------------- */
@@ -65,6 +75,7 @@ public:
      *    @param gid the id of the group this object is assigned to
      *    @param uname name of the user
      *    @param gname name of the group
+     *    @param umask permissions umask
      *    @param ds_template Datastore definition template
      *    @param oid the id assigned to the Datastore
      *    @param cluster_id the id of the cluster this Datastore will belong to
@@ -78,6 +89,7 @@ public:
             int                 gid,
             const string&       uname,
             const string&       gname,
+            int                 umask,
             DatastoreTemplate * ds_template,
             int *               oid,
             int                 cluster_id,
@@ -156,13 +168,26 @@ public:
      *  query
      *  @param oss the output stream to dump the pool contents
      *  @param where filter for the objects, defaults to all
+     *  @param limit parameters used for pagination
      *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& where)
+    int dump(ostringstream& oss, const string& where, const string& limit)
     {
-        return PoolSQL::dump(oss, "DATASTORE_POOL", Datastore::table, where);
+        return PoolSQL::dump(oss, "DATASTORE_POOL", Datastore::table, where,
+                             limit);
     };
+
+    /**
+     *  Lists the Datastore ids
+     *  @param oids a vector with the oids of the objects.
+     *
+     *  @return 0 on success
+     */
+     int list(vector<int>& oids)
+     {
+        return PoolSQL::list(oids, Datastore::table);
+     }
 
 private:
 
@@ -172,7 +197,7 @@ private:
      */
     PoolObjectSQL * create()
     {
-        return new Datastore(-1,-1,"","", 0, -1, "");
+        return new Datastore(-1,-1,"","", 0, 0, -1, "");
     };
 };
 

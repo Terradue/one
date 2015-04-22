@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -26,16 +26,16 @@ int XMLDriver::deployment_description(
 {
     ofstream    file;
     string      xml;
-    
+
     file.open(file_name.c_str(), ios::out);
-    
+
     if (file.fail() == true)
     {
         vm->log("VMM", Log::ERROR, "Could not open XML deployment file.");
         return -1;
     }
-    
-    file << vm->template_to_xml(xml);
+
+    file << vm->to_xml(xml);
 
     file.close();
 

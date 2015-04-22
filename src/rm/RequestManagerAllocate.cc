@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -34,14 +34,14 @@ bool RequestManagerAllocate::allocate_authorization(
 
     string tmpl_str = "";
 
-    AuthRequest ar(att.uid, att.gid);
+    AuthRequest ar(att.uid, att.group_ids);
 
     if ( tmpl != 0 )
     {
         tmpl->to_xml(tmpl_str);
     }
 
-    ar.add_create_auth(auth_object, tmpl_str);
+    ar.add_create_auth(att.uid, att.gid, auth_object, tmpl_str);
 
     if ( cluster_perms->oid != ClusterPool::NONE_CLUSTER_ID )
     {
@@ -73,7 +73,7 @@ bool VirtualMachineAllocate::allocate_authorization(
         return true;
     }
 
-    AuthRequest ar(att.uid, att.gid);
+    AuthRequest ar(att.uid, att.group_ids);
     string      t64;
     string      aname;
 
@@ -99,7 +99,7 @@ bool VirtualMachineAllocate::allocate_authorization(
 
     // ------------------ Authorize VM create operation ------------------------
 
-    ar.add_create_auth(auth_object, tmpl->to_xml(t64));
+    ar.add_create_auth(att.uid, att.gid, auth_object, tmpl->to_xml(t64));
 
     VirtualMachine::set_auth_request(att.uid, ar, ttmpl);
 
@@ -114,45 +114,12 @@ bool VirtualMachineAllocate::allocate_authorization(
 
     // -------------------------- Check Quotas  ----------------------------
 
-    if ( quota_authorization(tmpl, att) == false )
+    if ( quota_authorization(tmpl, Quotas::VIRTUALMACHINE, att) == false )
     {
         return false;
     }
 
     return true;
-}
-
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-bool ImageAllocate::allocate_authorization(
-        Template *          tmpl,
-        RequestAttributes&  att,
-        PoolObjectAuth *    cluster_perms)
-{
-    string      aname;
-
-    ImageTemplate * itmpl = static_cast<ImageTemplate *>(tmpl);
-
-    // Check template for restricted attributes
-
-    if ( att.uid != 0 && att.gid != GroupPool::ONEADMIN_ID )
-    {
-        if (itmpl->check(aname))
-        {
-            ostringstream oss;
-
-            oss << "Template includes a restricted attribute " << aname;
-
-            failure_response(AUTHORIZATION,
-                    authorization_error(oss.str(), att),
-                    att);
-
-            return false;
-        }
-    }
-
-    return RequestManagerAllocate::allocate_authorization(tmpl, att, cluster_perms);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -193,7 +160,7 @@ void RequestManagerAllocate::request_execute(xmlrpc_c::paramList const& params,
     if ( cluster_id != ClusterPool::NONE_CLUSTER_ID )
     {
         rc = get_info(clpool, cluster_id, PoolObjectSQL::CLUSTER, att,
-                cluster_perms, cluster_name);
+                cluster_perms, cluster_name, true);
 
         if ( rc != 0 )
         {
@@ -212,7 +179,7 @@ void RequestManagerAllocate::request_execute(xmlrpc_c::paramList const& params,
         return;
     }
 
-    rc = pool_allocate(params, tmpl, id, error_str, att, cluster_id, cluster_name);
+    rc = pool_allocate(params, tmpl, id, error_str,att,cluster_id,cluster_name);
 
     if ( rc < 0 )
     {
@@ -222,6 +189,8 @@ void RequestManagerAllocate::request_execute(xmlrpc_c::paramList const& params,
 
     if ( cluster_id != ClusterPool::NONE_CLUSTER_ID )
     {
+        Datastore::DatastoreType ds_type = get_ds_type(id);
+
         cluster = clpool->get(cluster_id, true);
 
         if ( cluster == 0 )
@@ -233,7 +202,7 @@ void RequestManagerAllocate::request_execute(xmlrpc_c::paramList const& params,
             return;
         }
 
-        rc = add_to_cluster(cluster, id, error_str);
+        rc = add_to_cluster(cluster, id, ds_type, error_str);
 
         if ( rc < 0 )
         {
@@ -265,23 +234,31 @@ void RequestManagerAllocate::request_execute(xmlrpc_c::paramList const& params,
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int VirtualMachineAllocate::pool_allocate(xmlrpc_c::paramList const& paramList, 
-                                          Template * tmpl,
-                                          int& id, 
-                                          string& error_str,
-                                          RequestAttributes& att)
+int VirtualMachineAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
 {
+    bool on_hold = false;
+
+    if ( paramList.size() > 2 )
+    {
+        on_hold = xmlrpc_c::value_boolean(paramList.getBoolean(2));
+    }
+
     VirtualMachineTemplate * ttmpl= static_cast<VirtualMachineTemplate *>(tmpl);
     VirtualMachinePool * vmpool   = static_cast<VirtualMachinePool *>(pool);
 
     Template tmpl_back(*tmpl);
 
-    int rc = vmpool->allocate(att.uid, att.gid, att.uname, att.gname, ttmpl, &id,
-                error_str, false);
+    int rc = vmpool->allocate(att.uid, att.gid, att.uname, att.gname, att.umask,
+            ttmpl, &id, error_str, on_hold);
 
     if ( rc < 0 )
     {
-        quota_rollback(&tmpl_back, att);
+        quota_rollback(&tmpl_back, Quotas::VIRTUALMACHINE, att);
     }
 
     return rc;
@@ -303,8 +280,8 @@ int VirtualNetworkAllocate::pool_allocate(
     VirtualNetworkPool * vpool = static_cast<VirtualNetworkPool *>(pool);
     VirtualNetworkTemplate * vtmpl=static_cast<VirtualNetworkTemplate *>(tmpl);
 
-    return vpool->allocate(att.uid, att.gid, att.uname, att.gname, vtmpl, &id,
-            cluster_id, cluster_name, error_str);
+    return vpool->allocate(att.uid, att.gid, att.uname, att.gname, att.umask,-1,
+            vtmpl, &id, cluster_id, cluster_name, error_str);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -316,11 +293,13 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
     string error_str;
     string size_str;
 
-    int           size_mb;
+    long long     size_mb;
     istringstream iss;
 
     string ds_name;
     string ds_data;
+
+    Datastore::DatastoreType ds_type;
 
     int    rc, id;
 
@@ -334,14 +313,20 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
     DatastorePool * dspool = nd.get_dspool();
     ImagePool *     ipool  = static_cast<ImagePool *>(pool);
     ImageManager *  imagem = nd.get_imagem();
-    
-    ImageTemplate * tmpl = new ImageTemplate;
+
+    ImageTemplate * tmpl;
     Template        img_usage;
 
     Datastore *     ds;
     Image::DiskType ds_disk_type;
 
+    long long       avail;
+
+    bool ds_check;
+
     // ------------------------- Parse image template --------------------------
+
+    tmpl = new ImageTemplate;
 
     rc = tmpl->parse_str_or_xml(str_tmpl, error_str);
 
@@ -355,17 +340,6 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
 
     // ------------------------- Check Datastore exists ------------------------
 
-    if ( ds_id == DatastorePool::SYSTEM_DS_ID )
-    {
-        ostringstream oss;
-
-        oss << "New images cannot be allocated in the system datastore.";
-        failure_response(INTERNAL, allocate_error(oss.str()), att);
-
-        delete tmpl;
-        return;
-    }
-
     if ((ds = dspool->get(ds_id,true)) == 0 )
     {
         failure_response(NO_EXISTS,
@@ -376,10 +350,27 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
         return;
     }
 
+    ds_type = ds->get_type();
+
+    if ( ds_type == Datastore::SYSTEM_DS )
+    {
+        ostringstream oss;
+
+        ds->unlock();
+
+        oss << "New images cannot be allocated in a system datastore.";
+        failure_response(INTERNAL, allocate_error(oss.str()), att);
+
+        delete tmpl;
+
+        return;
+    }
+
     ds->get_permissions(ds_perms);
 
     ds_name      = ds->get_name();
     ds_disk_type = ds->get_disk_type();
+    ds_check     = ds->get_avail_mb(avail);
 
     ds->to_xml(ds_data);
 
@@ -391,8 +382,8 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
 
     if ( rc == -1 )
     {
-        failure_response(INTERNAL, 
-                         request_error("Cannot determine Image SIZE", size_str), 
+        failure_response(INTERNAL,
+                         request_error("Cannot determine Image SIZE", size_str),
                          att);
         delete tmpl;
         return;
@@ -403,30 +394,58 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
 
     if ( iss.fail() )
     {
-        failure_response(INTERNAL, 
-                         request_error("Cannot parse SIZE", size_str), 
+        failure_response(INTERNAL,
+                         request_error("Cannot parse SIZE", size_str),
                          att);
         delete tmpl;
-        return;   
+        return;
+    }
+
+    if (ds_check && (size_mb > avail))
+    {
+        failure_response(ACTION, "Not enough space in datastore", att);
+
+        delete tmpl;
+        return;
     }
 
     tmpl->erase("SIZE");
     tmpl->add("SIZE", size_str);
 
     // ------------- Set authorization request for non-oneadmin's --------------
-    
+
     img_usage.add("DATASTORE", ds_id);
     img_usage.add("SIZE", size_str);
 
     if ( att.uid != 0 )
     {
-        AuthRequest ar(att.uid, att.gid);
+        AuthRequest ar(att.uid, att.group_ids);
         string  tmpl_str;
+        string  aname;
+
+        // ------------ Check template for restricted attributes  --------------
+
+        if ( att.uid != UserPool::ONEADMIN_ID && att.gid != GroupPool::ONEADMIN_ID )
+        {
+            if (tmpl->check(aname))
+            {
+                ostringstream oss;
+
+                oss << "Template includes a restricted attribute " << aname;
+
+                failure_response(AUTHORIZATION,
+                        authorization_error(oss.str(), att),
+                        att);
+
+                delete tmpl;
+                return;
+            }
+        }
 
         // ------------------ Check permissions and ACLs  ----------------------
         tmpl->to_xml(tmpl_str);
 
-        ar.add_create_auth(auth_object, tmpl_str); // CREATE IMAGE
+        ar.add_create_auth(att.uid, att.gid, auth_object, tmpl_str); // CREATE IMAGE
 
         ar.add_auth(AuthRequest::USE, ds_perms); // USE DATASTORE
 
@@ -442,27 +461,30 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
 
         // -------------------------- Check Quotas  ----------------------------
 
-        if ( quota_authorization(&img_usage, att) == false )
+        if ( quota_authorization(&img_usage, Quotas::DATASTORE, att) == false )
         {
             delete tmpl;
-            return;   
+            return;
         }
     }
 
-    rc = ipool->allocate(att.uid, 
-                         att.gid, 
-                         att.uname, 
-                         att.gname, 
-                         tmpl, 
-                         ds_id, 
+    rc = ipool->allocate(att.uid,
+                         att.gid,
+                         att.uname,
+                         att.gname,
+                         att.umask,
+                         tmpl,
+                         ds_id,
                          ds_name,
                          ds_disk_type,
-                         ds_data, 
+                         ds_data,
+                         ds_type,
+                         -1,
                          &id,
                          error_str);
     if ( rc < 0 )
     {
-        quota_rollback(&img_usage, att);
+        quota_rollback(&img_usage, Quotas::DATASTORE, att);
 
         failure_response(INTERNAL, allocate_error(error_str), att);
         return;
@@ -485,18 +507,55 @@ void ImageAllocate::request_execute(xmlrpc_c::paramList const& params,
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int TemplateAllocate::pool_allocate(xmlrpc_c::paramList const& _paramList, 
-                                    Template * tmpl,
-                                    int& id, 
-                                    string& error_str,
-                                    RequestAttributes& att)
+int TemplateAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
 {
     VMTemplatePool * tpool = static_cast<VMTemplatePool *>(pool);
 
     VirtualMachineTemplate * ttmpl=static_cast<VirtualMachineTemplate *>(tmpl);
 
-    return tpool->allocate(att.uid, att.gid, att.uname, att.gname, ttmpl, &id,
-            error_str);
+    return tpool->allocate(att.uid, att.gid, att.uname, att.gname, att.umask,
+        ttmpl, &id, error_str);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool TemplateAllocate::allocate_authorization(
+        Template *          tmpl,
+        RequestAttributes&  att,
+        PoolObjectAuth *    cluster_perms)
+{
+    if ( att.uid == UserPool::ONEADMIN_ID || att.gid == GroupPool::ONEADMIN_ID )
+    {
+        return true;
+    }
+
+    AuthRequest ar(att.uid, att.group_ids);
+    string      t64;
+    string      aname;
+
+    VirtualMachineTemplate * ttmpl = static_cast<VirtualMachineTemplate *>(tmpl);
+
+    // ------------ Check template for restricted attributes -------------------
+    if (ttmpl->check(aname))
+    {
+        ostringstream oss;
+
+        oss << "VM Template includes a restricted attribute " << aname;
+
+        failure_response(AUTHORIZATION,
+                authorization_error(oss.str(), att),
+                att);
+
+        return false;
+    }
+
+    return true;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -526,11 +585,12 @@ int HostAllocate::pool_allocate(
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int UserAllocate::pool_allocate(xmlrpc_c::paramList const& paramList, 
-                                Template * tmpl,
-                                int& id, 
-                                string& error_str,
-                                RequestAttributes& att)
+int UserAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
 {
     string uname  = xmlrpc_c::value_string(paramList.getString(1));
     string passwd = xmlrpc_c::value_string(paramList.getString(2));
@@ -549,7 +609,7 @@ int UserAllocate::pool_allocate(xmlrpc_c::paramList const& paramList,
 
     if (driver.empty())
     {
-        driver = UserPool::CORE_AUTH;    
+        driver = UserPool::CORE_AUTH;
     }
 
     return upool->allocate(&id,ugid,uname,ugname,passwd,driver,true,error_str);
@@ -558,17 +618,38 @@ int UserAllocate::pool_allocate(xmlrpc_c::paramList const& paramList,
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int GroupAllocate::pool_allocate(xmlrpc_c::paramList const& paramList, 
-                                 Template * tmpl,
-                                 int& id, 
-                                 string& error_str,
-                                 RequestAttributes& att)
+int GroupAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
 {
+    int rc;
+
     string gname = xmlrpc_c::value_string(paramList.getString(1));
 
     GroupPool * gpool = static_cast<GroupPool *>(pool);
 
-    return gpool->allocate(gname, &id, error_str);
+    rc = gpool->allocate(gname, &id, error_str);
+
+    if (rc == -1)
+    {
+        return rc;
+    }
+
+    Vdc* vdc = vdcpool->get(VdcPool::DEFAULT_ID, true);
+
+    if (vdc != 0)
+    {
+        rc = vdc->add_group(id, error_str);
+
+        vdcpool->update(vdc);
+
+        vdc->unlock();
+    }
+
+    return rc;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -583,26 +664,111 @@ int DatastoreAllocate::pool_allocate(
         int                         cluster_id,
         const string&               cluster_name)
 {
-    DatastorePool * dspool = static_cast<DatastorePool *>(pool);
-
+    DatastorePool * dspool      = static_cast<DatastorePool *>(pool);
     DatastoreTemplate * ds_tmpl = static_cast<DatastoreTemplate *>(tmpl);
 
-    return dspool->allocate(att.uid, att.gid, att.uname, att.gname,
+    return dspool->allocate(att.uid, att.gid, att.uname, att.gname, att.umask,
             ds_tmpl, &id, cluster_id, cluster_name, error_str);
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int ClusterAllocate::pool_allocate(xmlrpc_c::paramList const& paramList,
-                                    Template * tmpl,
-                                    int& id,
-                                    string& error_str,
-                                    RequestAttributes& att)
+int ClusterAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
 {
     string name = xmlrpc_c::value_string(paramList.getString(1));
 
     ClusterPool * clpool = static_cast<ClusterPool *>(pool);
 
     return clpool->allocate(name, &id, error_str);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int DocumentAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
+{
+    int type = xmlrpc_c::value_int(paramList.getInt(2));
+
+    DocumentPool * docpool = static_cast<DocumentPool *>(pool);
+
+    return docpool->allocate(att.uid, att.gid, att.uname, att.gname, att.umask,
+            type, tmpl, &id, error_str);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void ZoneAllocate::request_execute(xmlrpc_c::paramList const& params,
+                                             RequestAttributes& att)
+{
+    if(!Nebula::instance().is_federation_master())
+    {
+        failure_response(INTERNAL, allocate_error(
+                "New Zones can only be created if OpenNebula "
+                "is configured as a Federation Master."), att);
+        return;
+    }
+
+    RequestManagerAllocate::request_execute(params, att);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int ZoneAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
+{
+    string name = xmlrpc_c::value_string(paramList.getString(1));
+
+    ZonePool * zonepool = static_cast<ZonePool *>(pool);
+
+    return zonepool->allocate(tmpl, &id, error_str);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int SecurityGroupAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
+{
+    SecurityGroupPool * sgpool = static_cast<SecurityGroupPool *>(pool);
+
+    return sgpool->allocate(att.uid, att.gid, att.uname, att.gname, att.umask,
+        tmpl, &id, error_str);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int VdcAllocate::pool_allocate(
+        xmlrpc_c::paramList const&  paramList,
+        Template *                  tmpl,
+        int&                        id,
+        string&                     error_str,
+        RequestAttributes&          att)
+{
+    string name = xmlrpc_c::value_string(paramList.getString(1));
+
+    VdcPool * vdcpool = static_cast<VdcPool *>(pool);
+
+    return vdcpool->allocate(tmpl, &id, error_str);
 }

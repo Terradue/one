@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -24,15 +24,7 @@ class OneDatastoreHelper < OpenNebulaHelper::OneHelper
         :description => "Selects the datastore",
         :format => String,
         :proc   => lambda { |o, options|
-            ch = OneDatastoreHelper.new
-            rc, dsid = ch.to_id(o)
-            if rc == 0
-                options[:datastore] = dsid
-            else
-                puts dsid
-                puts "option datastore: Parsing error"
-                exit -1
-            end
+            OpenNebulaHelper.rname_to_id(o, "DATASTORE")
         }
     }
 
@@ -52,15 +44,32 @@ class OneDatastoreHelper < OpenNebulaHelper::OneHelper
                 d["ID"]
             end
 
-            column :NAME, "Name of the Datastore", :left, :size=>12 do |d|
+            column :NAME, "Name of the Datastore", :left, :size=>13 do |d|
                 d["NAME"]
             end
 
-            column :CLUSTER, "Name of the Cluster", :left, :size=>8 do |d|
+            column :SIZE, "Datastore total size", :size =>10 do |d|
+                shared = d['TEMPLATE']['SHARED']
+                if shared != nil && shared.upcase == 'NO'
+                    "-"
+                else
+                    OpenNebulaHelper.unit_to_str(d['TOTAL_MB'].to_i, {}, 'M')
+                end
+            end
+
+            column :AVAIL, "Datastore free size", :left, :size =>5 do |d|
+                if d['TOTAL_MB'].to_i == 0
+                    "-"
+                else
+                    "#{((d['FREE_MB'].to_f/d['TOTAL_MB'].to_f) * 100).round()}%"
+                end
+            end
+
+            column :CLUSTER, "Name of the Cluster", :left, :size=>12 do |d|
                 OpenNebulaHelper.cluster_str(d["CLUSTER"])
             end
 
-            column :IMAGES, "Number of Images", :left, :size=>6 do |d|
+            column :IMAGES, "Number of Images", :size=>6 do |d|
                 if d["IMAGES"]["ID"].nil?
                     "0"
                 else
@@ -68,15 +77,26 @@ class OneDatastoreHelper < OpenNebulaHelper::OneHelper
                 end
             end
 
-            column :TYPE, "Datastore driver", :left, :size=>6 do |d|
+            column :TYPE, "Datastore type", :left, :size=>4 do |d|
+                type = Datastore::DATASTORE_TYPES[d["TYPE"].to_i]
+                Datastore::SHORT_DATASTORE_TYPES[type]
+            end
+
+            column :DS, "Datastore driver", :left, :size=>7 do |d|
                 d["DS_MAD"]
             end
 
-            column :TM, "Transfer driver", :left, :size=>6 do |d|
+            column :TM, "Transfer driver", :left, :size=>7 do |d|
                 d["TM_MAD"]
             end
 
-            default :ID, :CLUSTER, :NAME, :IMAGES, :TYPE, :TM
+            column :STAT, "State of the Datastore", :left, :size=>3 do |d|
+                state = Datastore::DATASTORE_STATES[d["STATE"].to_i]
+                Datastore::SHORT_DATASTORE_STATES[state]
+            end
+
+            default :ID, :NAME, :SIZE, :AVAIL, :CLUSTER, :IMAGES,
+                    :TYPE, :DS, :TM, :STAT
         end
 
         table
@@ -98,7 +118,7 @@ class OneDatastoreHelper < OpenNebulaHelper::OneHelper
         OpenNebula::DatastorePool.new(@client)
     end
 
-    def format_resource(datastore)
+    def format_resource(datastore, options = {})
         str="%-15s: %-20s"
         str_h1="%-80s"
 
@@ -109,9 +129,24 @@ class OneDatastoreHelper < OpenNebulaHelper::OneHelper
         puts str % ["GROUP",    datastore['GNAME']]
         puts str % ["CLUSTER",  OpenNebulaHelper.cluster_str(datastore['CLUSTER'])]
 
+        puts str % ["TYPE",     datastore.type_str]
         puts str % ["DS_MAD",   datastore['DS_MAD']]
         puts str % ["TM_MAD",   datastore['TM_MAD']]
         puts str % ["BASE PATH",datastore['BASE_PATH']]
+        puts str % ["DISK_TYPE",Image::DISK_TYPES[datastore['DISK_TYPE'].to_i]]
+        puts str % ["STATE",    datastore.state_str]
+        puts
+
+        CLIHelper.print_header(str_h1 % "DATASTORE CAPACITY", false)
+
+        shared = datastore['TEMPLATE/SHARED']
+        local = shared != nil && shared.upcase == 'NO'
+        limit_mb = datastore['TEMPLATE/LIMIT_MB']
+
+        puts str % ["TOTAL:", local ? '-' : OpenNebulaHelper.unit_to_str(datastore['TOTAL_MB'].to_i, {},'M')]
+        puts str % ["FREE:",  local ? '-' : OpenNebulaHelper.unit_to_str(datastore['FREE_MB'].to_i, {},'M')]
+        puts str % ["USED: ", local ? '-' : OpenNebulaHelper.unit_to_str(datastore['USED_MB'].to_i, {},'M')]
+        puts str % ["LIMIT:",  local || limit_mb.nil? ? '-' : OpenNebulaHelper.unit_to_str(limit_mb.to_i, {},'M')]
         puts
 
         CLIHelper.print_header(str_h1 % "PERMISSIONS",false)

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -37,12 +37,23 @@ const int    GroupPool::USERS_ID      = 1;
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-GroupPool::GroupPool(SqlDB * db):PoolSQL(db, Group::table, true)
+GroupPool::GroupPool(SqlDB * db,
+                     vector<const Attribute *> hook_mads,
+                     const string&             remotes_location,
+                     bool                      is_federation_slave)
+    :PoolSQL(db, Group::table, !is_federation_slave, true)
 {
     ostringstream oss;
     string        error_str;
 
-    if (get_lastOID() == -1) //lastOID is set in PoolSQL::init_cb
+    //Federation slaves do not need to init the pool
+    if (is_federation_slave)
+    {
+        return;
+    }
+
+    //lastOID is set in PoolSQL::init_cb
+    if (get_lastOID() == -1)
     {
         int         rc;
         Group *     group;
@@ -68,7 +79,9 @@ GroupPool::GroupPool(SqlDB * db):PoolSQL(db, Group::table, true)
 
         set_update_lastOID(99);
     }
-    
+
+    register_hooks(hook_mads, remotes_location);
+
     return;
 
 error_groups:
@@ -83,17 +96,23 @@ error_groups:
 
 int GroupPool::allocate(string name, int * oid, string& error_str)
 {
-    Group *         group;
+    Group * group;
+
     ostringstream   oss;
 
-    if ( name.empty() )
+    if (Nebula::instance().is_federation_slave())
     {
-        goto error_name;
+        NebulaLog::log("ONE",Log::ERROR,
+                "GroupPool::allocate called, but this "
+                "OpenNebula is a federation slave");
+
+        return -1;
     }
 
-    if ( name.length() > 128 )
+    // Check name
+    if ( !PoolObjectSQL::name_is_valid(name, error_str) )
     {
-        goto error_name_length;
+        goto error_name;
     }
 
     // Check for duplicates
@@ -112,22 +131,39 @@ int GroupPool::allocate(string name, int * oid, string& error_str)
 
     return *oid;
 
-error_name:
-    oss << "NAME cannot be empty.";
-    goto error_common;
-
-error_name_length:
-    oss << "NAME is too long; max length is 128 chars.";
-    goto error_common;
-
 error_duplicated:
     oss << "NAME is already taken by GROUP " << group->get_oid() << ".";
-
-error_common:
-    *oid = -1;
     error_str = oss.str();
 
+error_name:
+    *oid = -1;
+
     return *oid;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int GroupPool::update(Group * group)
+{
+    if (Nebula::instance().is_federation_slave())
+    {
+        NebulaLog::log("ONE",Log::ERROR,
+                "GroupPool::update called, but this "
+                "OpenNebula is a federation slave");
+
+        return -1;
+    }
+
+    return group->update(db);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int GroupPool::update_quotas(Group * group)
+{
+    return group->update_quotas(db);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -138,6 +174,15 @@ int GroupPool::drop(PoolObjectSQL * objsql, string& error_msg)
     Group * group = static_cast<Group*>(objsql);
 
     int rc;
+
+    if (Nebula::instance().is_federation_slave())
+    {
+        NebulaLog::log("ONE",Log::ERROR,
+                "GroupPool::drop called, but this "
+                "OpenNebula is a federation slave");
+
+        return -1;
+    }
 
     // Return error if the group is a default one.
     if( group->get_oid() < 100 )
@@ -164,6 +209,80 @@ int GroupPool::drop(PoolObjectSQL * objsql, string& error_msg)
         error_msg = "SQL DB error";
         rc = -1;
     }
+    else
+    {
+        do_hooks(objsql, Hook::REMOVE);
+    }
 
     return rc;
 }
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int GroupPool::dump(ostringstream& oss, const string& where, const string& limit)
+{
+    int     rc;
+    string  def_quota_xml;
+
+    ostringstream cmd;
+
+    cmd << "SELECT " << Group::table << ".body, "
+        << GroupQuotas::db_table << ".body" << " FROM " << Group::table
+        << " LEFT JOIN " << GroupQuotas::db_table << " ON "
+        << Group::table << ".oid=" << GroupQuotas::db_table << ".group_oid";
+
+    if ( !where.empty() )
+    {
+        cmd << " WHERE " << where;
+    }
+
+    cmd << " ORDER BY oid";
+
+    if ( !limit.empty() )
+    {
+        cmd << " LIMIT " << limit;
+    }
+
+    oss << "<GROUP_POOL>";
+
+    set_callback(static_cast<Callbackable::Callback>(&GroupPool::dump_cb),
+                 static_cast<void *>(&oss));
+
+    rc = db->exec(cmd, this);
+
+    unset_callback();
+
+    oss << Nebula::instance().get_default_group_quota().to_xml(def_quota_xml);
+
+    oss << "</GROUP_POOL>";
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int GroupPool::dump_cb(void * _oss, int num, char **values, char **names)
+{
+    ostringstream * oss;
+
+    oss = static_cast<ostringstream *>(_oss);
+
+    if ( (!values[0]) || (num != 2) )
+    {
+        return -1;
+    }
+
+    *oss << values[0];
+
+    if (values[1] != NULL)
+    {
+        *oss << values[1];
+    }
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */

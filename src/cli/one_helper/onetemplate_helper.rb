@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -18,13 +18,12 @@ require 'one_helper'
 
 class OneTemplateHelper < OpenNebulaHelper::OneHelper
     VM_NAME={
-        :name  => "vm_name",
-        :short => "-n vm_name",
-        :large => "--name vm_name",
+        :name  => "name",
+        :large => "--name name",
         :format => String,
-        :description =>  <<-EOT
-Name of the new Virtual Machine. When instantiating
-                               multiple VMs you can use the\"%i\" wildcard to produce
+        :description =>  <<-EOT.strip
+Name of the new VM or TEMPLATE. When instantiating
+                               multiple VMs you can use the \"%i\" wildcard to produce
                                different names such as vm-0, vm-1...
 EOT
     }
@@ -35,6 +34,13 @@ EOT
         :large => "--multiple x",
         :format => Integer,
         :description => "Instance multiple VMs"
+    }
+
+    USERDATA={
+        :name  => "userdata",
+        :large => "--userdata userdata",
+        :format => String,
+        :description => "Integrate userdata into the EC2 section"
     }
 
     def self.rname
@@ -53,21 +59,21 @@ EOT
                 d["ID"]
             end
 
-            column :NAME, "Name of the Template", :left, :size=>15 do |d|
+            column :NAME, "Name of the Template", :left, :size=>27 do |d|
                 d["NAME"]
             end
 
             column :USER, "Username of the Template owner", :left,
-                    :size=>8 do |d|
+                    :size=>15 do |d|
                 helper.user_name(d, options)
             end
 
-            column :GROUP, "Group of the Template", :left, :size=>8 do |d|
+            column :GROUP, "Group of the Template", :left, :size=>15 do |d|
                 helper.group_name(d, options)
             end
 
             column :REGTIME, "Registration time of the Template",
-                    :size=>20 do |d|
+                    :size=>15 do |d|
                 OpenNebulaHelper.time_to_str(d["REGTIME"])
             end
 
@@ -75,6 +81,48 @@ EOT
         end
 
         table
+    end
+
+    def get_user_inputs(template)
+        user_inputs = template['VMTEMPLATE']['TEMPLATE']['USER_INPUTS']
+
+        return "" if !user_inputs
+
+        answers = ""
+
+        puts "There are some parameters that require user input."
+
+        user_inputs.each do |key, val|
+            input_cfg = val.split('|')
+
+            if input_cfg.length != 3
+                STDERR.puts "Malformed user input. It should have 3 parts separated by '|':"
+                STDERR.puts "  #{key}: #{val}"
+                exit(-1)
+            end
+
+            optional, type, description = input_cfg
+            optional.strip!
+            type.strip!
+            description.strip!
+
+            print "  * (#{key}) #{description}: "
+
+            case type
+            when 'text'
+                answer = STDIN.readline.chop
+            when 'password'
+                answer = OpenNebulaHelper::OneHelper.get_password
+            else
+                STDERR.puts "user input types can only be text or password:"
+                STDERR.puts "  #{key}: #{val}"
+                exit(-1)
+            end
+            answers << "#{key} = \""
+            answers << answer.gsub('"', "\\\"") << "\"\n"
+        end
+
+        answers
     end
 
     private
@@ -92,7 +140,7 @@ EOT
         OpenNebula::TemplatePool.new(@client, user_flag)
     end
 
-    def format_resource(template)
+    def format_resource(template, options = {})
         str="%-15s: %-20s"
         str_h1="%-80s"
 

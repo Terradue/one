@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,10 +21,12 @@
 #include <stdexcept>
 #include <sstream>
 
+#include "Nebula.h"
 #include "HostPool.h"
 #include "HostHook.h"
 #include "NebulaLog.h"
 #include "GroupPool.h"
+#include "ClusterPool.h"
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -39,7 +41,7 @@ HostPool::HostPool(SqlDB*                    db,
                    const string&             hook_location,
                    const string&             remotes_location,
                    time_t                    expire_time)
-                        : PoolSQL(db, Host::table, true)
+                        : PoolSQL(db, Host::table, true, true)
 {
 
     _monitor_expiration = expire_time;
@@ -57,7 +59,6 @@ HostPool::HostPool(SqlDB*                    db,
     string on;
     string cmd;
     string arg;
-    string rmt;
     bool   remote;
 
     bool state_hook = false;
@@ -70,7 +71,7 @@ HostPool::HostPool(SqlDB*                    db,
         on   = vattr->vector_value("ON");
         cmd  = vattr->vector_value("COMMAND");
         arg  = vattr->vector_value("ARGUMENTS");
-        rmt  = vattr->vector_value("REMOTE");
+        vattr->vector_value("REMOTE", remote);
 
         transform (on.begin(),on.end(),on.begin(),(int(*)(int))toupper);
 
@@ -80,7 +81,7 @@ HostPool::HostPool(SqlDB*                    db,
 
             oss << "Empty ON or COMMAND attribute in HOST_HOOK. Hook "
                 << "not registered!";
-            NebulaLog::log("VM",Log::WARNING,oss);
+            NebulaLog::log("ONE",Log::WARNING,oss);
 
             continue;
         }
@@ -90,33 +91,21 @@ HostPool::HostPool(SqlDB*                    db,
             name = cmd;
         }
 
-        remote = false;
-
-        if ( !rmt.empty() )
-        {
-            transform(rmt.begin(),rmt.end(),rmt.begin(),(int(*)(int))toupper);
-
-            if ( rmt == "YES" )
-            {
-                remote = true;
-            }
-        }
-
         if (cmd[0] != '/')
         {
             ostringstream cmd_os;
 
             if ( remote )
             {
-                cmd_os << hook_location << "/" << cmd;     
+                cmd_os << hook_location << "/" << cmd;
             }
             else
             {
                 cmd_os << remotes_location << "/hooks/" << cmd;
-            } 
+            }
 
             cmd = cmd_os.str();
-        } 
+        }
 
         if ( on == "CREATE" )
         {
@@ -174,14 +163,9 @@ int HostPool::allocate (
     Host *        host;
     ostringstream oss;
 
-    if ( hostname.empty() )
+    if ( !PoolObjectSQL::name_is_valid(hostname, error_str) )
     {
         goto error_name;
-    }
-
-    if ( hostname.length() > 128 )
-    {
-        goto error_name_length;
     }
 
     if ( im_mad_name.empty() )
@@ -223,32 +207,25 @@ int HostPool::allocate (
 
     return *oid;
 
-error_name:
-    oss << "NAME cannot be empty.";
-    goto error_common;
-
-error_name_length:
-    oss << "NAME is too long; max length is 128 chars.";
-    goto error_common;
-
 error_im:
-    oss << "IM_MAD_NAME cannot be empty.";
+    error_str = "IM_MAD_NAME cannot be empty.";
     goto error_common;
 
 error_vmm:
-    oss << "VMM_MAD_NAME cannot be empty.";
+    error_str = "VMM_MAD_NAME cannot be empty.";
     goto error_common;
 
 error_vnm:
-    oss << "VNM_MAD_NAME cannot be empty.";
+    error_str = "VNM_MAD_NAME cannot be empty.";
     goto error_common;
 
 error_duplicated:
     oss << "NAME is already taken by HOST " << host->get_oid() << ".";
+    error_str = oss.str();
 
+error_name:
 error_common:
     *oid = -1;
-    error_str = oss.str();
 
     return *oid;
 }
@@ -256,36 +233,32 @@ error_common:
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int HostPool::discover_cb(void * _map, int num, char **values, char **names)
+int HostPool::discover_cb(void * _set, int num, char **values, char **names)
 {
-    map<int, string> *  discovered_hosts;
-    string              im_mad;
-    int                 hid;
-    int                 rc;
+    set<int> *  discovered_hosts;
+    string      im_mad;
+    int         hid;
 
-    discovered_hosts = static_cast<map<int, string> *>(_map);
+    discovered_hosts = static_cast<set<int> *>(_set);
 
-    if ( (num<2) || (values[0] == 0) || (values[1] == 0) )
+    if ( (num<1) || (values[0] == 0) )
     {
         return -1;
     }
 
     hid = atoi(values[0]);
-    rc  = ObjectXML::xpath_value(im_mad,values[1],"/HOST/IM_MAD");
 
-    if( rc != 0)
-    {
-        return -1;
-    }
-
-    discovered_hosts->insert(make_pair(hid,im_mad));
+    discovered_hosts->insert(hid);
 
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-int HostPool::discover(map<int, string> * discovered_hosts, int host_limit)
+int HostPool::discover(
+        set<int> *  discovered_hosts,
+        int         host_limit,
+        time_t      target_time)
 {
     ostringstream   sql;
     int             rc;
@@ -293,9 +266,9 @@ int HostPool::discover(map<int, string> * discovered_hosts, int host_limit)
     set_callback(static_cast<Callbackable::Callback>(&HostPool::discover_cb),
                  static_cast<void *>(discovered_hosts));
 
-    sql << "SELECT oid, body FROM "
-        << Host::table << " WHERE state != "
-        << Host::DISABLED << " ORDER BY last_mon_time ASC LIMIT " << host_limit;
+    sql << "SELECT oid FROM " << Host::table
+        << " WHERE last_mon_time <= " << target_time
+        << " ORDER BY last_mon_time ASC LIMIT " << host_limit;
 
     rc = db->exec(sql,this);
 

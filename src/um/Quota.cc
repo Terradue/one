@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -15,13 +15,23 @@
 /* -------------------------------------------------------------------------- */
 
 #include "Quota.h"
+#include "NebulaUtil.h"
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int Quota::get_quota(const string& id, VectorAttribute ** va)
+const int Quota::DEFAULT        = -1;
+const string Quota::DEFAULT_STR = "-1";
+const int Quota::UNLIMITED      = -2;
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Quota::get_quota(
+        const string& id,
+        VectorAttribute ** va,
+        map<string, Attribute *>::iterator& it)
 {
-    map<string, Attribute *>::iterator it;
     VectorAttribute * q;
 
     istringstream iss(id);
@@ -58,10 +68,9 @@ int Quota::get_quota(const string& id, VectorAttribute ** va)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void Quota::add_to_quota(VectorAttribute * attr, const string& va_name, int num)
+void Quota::add_to_quota(VectorAttribute * attr, const string& va_name, float num)
 {
     istringstream iss;
-    ostringstream oss;
     float         total;
 
     iss.str(attr->vector_value(va_name.c_str()));
@@ -70,9 +79,7 @@ void Quota::add_to_quota(VectorAttribute * attr, const string& va_name, int num)
 
     total += num;
 
-    oss << total;
-
-    attr->replace(va_name, oss.str());
+    attr->replace(va_name, one_util::float_to_str(total));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -118,10 +125,12 @@ int Quota::set(vector<Attribute*> * new_quotas, string& error)
             if (update_limits(tq, iq) != 0)
             {
                 goto error_limits;
-            } 
+            }
         }
+
+        cleanup_quota(id);
     }
-    
+
     return 0;
 
 error_limits:
@@ -137,29 +146,41 @@ error_limits:
 
         delete quota_str;
     }
-     
+
     error = oss.str();
 
-    return -1;        
+    return -1;
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool Quota::check_quota(const string& qid, 
-                        map<string, int>& usage_req, 
+bool Quota::check_quota(const string& qid,
+                        map<string, float>& usage_req,
+                        Quotas& default_quotas,
                         string& error)
 {
     VectorAttribute * q;
-    map<string, int>::iterator it;
+    VectorAttribute * default_q;
+    map<string, float>::iterator it;
 
     bool check;
-    int  limit;
-    int  usage;
+    float limit;
+    float usage;
 
     if ( get_quota(qid, &q) == -1 )
     {
+        ostringstream oss;
+        oss << "String '" << qid << "' is not a valid ID";
+
+        error = oss.str();
+
         return false;
+    }
+
+    if ( get_default_quota(qid, default_quotas, &default_q) == -1 )
+    {
+        default_q = 0;
     }
 
     // -------------------------------------------------------------------------
@@ -168,37 +189,25 @@ bool Quota::check_quota(const string& qid,
     if ( q == 0 )
     {
         map<string, string> values;
-    
+
         for (int i=0; i < num_metrics; i++)
         {
-            ostringstream usage_req_str;
-            string        metrics_used = metrics[i];
+            string metrics_used = metrics[i];
 
             metrics_used += "_USED";
 
-            it = usage_req.find(metrics[i]);
-
-            if (it == usage_req.end())
-            {
-                usage_req_str << "0";
-            }
-            else
-            {
-                usage_req_str << it->second;    
-            }
-
-            values.insert(make_pair(metrics[i],  "0"));
-            values.insert(make_pair(metrics_used, usage_req_str.str()));
+            values.insert(make_pair(metrics[i], DEFAULT_STR));
+            values.insert(make_pair(metrics_used, "0"));
         }
-        
+
         if (!qid.empty())
         {
             values.insert(make_pair("ID", qid));
         }
 
-        add(new VectorAttribute(template_name, values));
+        q = new VectorAttribute(template_name, values);
 
-        return true;
+        add(q);
     }
 
     // -------------------------------------------------------------------------
@@ -207,7 +216,7 @@ bool Quota::check_quota(const string& qid,
     for (int i=0; i < num_metrics; i++)
     {
         string metrics_used = metrics[i];
-            
+
         metrics_used += "_USED";
 
         it = usage_req.find(metrics[i]);
@@ -220,16 +229,28 @@ bool Quota::check_quota(const string& qid,
         q->vector_value(metrics[i],   limit);
         q->vector_value(metrics_used.c_str(), usage);
 
-        check = ( limit == 0 ) || ( ( usage + it->second ) <= limit );
+        if ( limit == DEFAULT )
+        {
+            if ( default_q != 0 )
+            {
+                default_q->vector_value(metrics[i], limit);
+            }
+            else
+            {
+                limit = UNLIMITED;
+            }
+        }
+
+        check = ( limit == UNLIMITED ) || ( ( usage + it->second ) <= limit );
 
         if ( !check )
         {
             ostringstream oss;
 
-            oss << "Limit of " << limit << " reached for " << metrics[i]
+            oss << "limit of " << limit << " reached for " << metrics[i]
                 << " quota in " << template_name;
 
-            if ( !qid.empty() ) 
+            if ( !qid.empty() )
             {
                 oss << " with ID: " << qid;
             }
@@ -246,7 +267,7 @@ bool Quota::check_quota(const string& qid,
     for (int i=0; i < num_metrics; i++)
     {
         string metrics_used = metrics[i];
-            
+
         metrics_used += "_USED";
 
         it = usage_req.find(metrics[i]);
@@ -265,10 +286,10 @@ bool Quota::check_quota(const string& qid,
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void Quota::del_quota(const string& qid, map<string, int>& usage_req)
+void Quota::del_quota(const string& qid, map<string, float>& usage_req)
 {
     VectorAttribute * q;
-    map<string, int>::iterator it;
+    map<string, float>::iterator it;
 
     if ( get_quota(qid, &q) == -1)
     {
@@ -278,12 +299,12 @@ void Quota::del_quota(const string& qid, map<string, int>& usage_req)
     if ( q == 0 )
     {
         return;
-    } 
+    }
 
     for (int i=0; i < num_metrics; i++)
     {
         string metrics_used = metrics[i];
-            
+
         metrics_used += "_USED";
 
         it = usage_req.find(metrics[i]);
@@ -295,30 +316,88 @@ void Quota::del_quota(const string& qid, map<string, int>& usage_req)
 
         add_to_quota(q, metrics_used, -it->second);
     }
+
+    cleanup_quota(qid);
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int Quota::update_limits(VectorAttribute * quota, const VectorAttribute * va)
-{        
-    string limit;
-    int    limit_i;
+void Quota::cleanup_quota(const string& qid)
+{
+    VectorAttribute * q;
+    map<string, Attribute *>::iterator q_it;
+
+    float usage, limit, implicit_limit;
+
+    if ( get_quota(qid, &q, q_it) == -1)
+    {
+        return;
+    }
+
+    if ( q == 0 )
+    {
+        return;
+    }
+
+    if ( is_default )
+    {
+        implicit_limit = UNLIMITED;
+    }
+    else
+    {
+        implicit_limit = DEFAULT;
+    }
 
     for (int i=0; i < num_metrics; i++)
     {
-        limit = va->vector_value_str(metrics[i], limit_i);
+        string metrics_used = metrics[i];
 
-        if ( limit_i < 0 ) //No quota, NaN or negative
+        metrics_used += "_USED";
+
+        q->vector_value(metrics[i], limit);
+        q->vector_value(metrics_used.c_str(), usage);
+
+        if ( usage != 0 || limit != implicit_limit )
+        {
+            return;
+        }
+    }
+
+    delete static_cast<Attribute *>(q_it->second);
+
+    attributes.erase(q_it);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Quota::update_limits(
+        VectorAttribute *       quota,
+        const VectorAttribute * va)
+{
+    string  limit;
+    float   limit_f;
+
+    for (int i=0; i < num_metrics; i++)
+    {
+        limit = va->vector_value_str(metrics[i], limit_f);
+
+        if (( limit_f == -1 && limit == "" )    // NaN
+            ||
+            // Negative. Default & unlimited allowed
+            ( !is_default && limit_f < 0 && limit_f != UNLIMITED && limit_f != DEFAULT )
+            ||
+            // Negative. Unlimited allowed
+            ( is_default && limit_f < 0 && limit_f != UNLIMITED )
+           )
         {
             return -1;
         }
-        else
-        {
-            quota->replace(metrics[i], limit);
-        }
+
+        quota->replace(metrics[i], one_util::float_to_str(limit_f));
     }
-    
+
     return 0;
 }
 
@@ -330,22 +409,29 @@ VectorAttribute * Quota::new_quota(VectorAttribute * va)
     map<string,string> limits;
 
     string limit;
-    int    limit_i;
+    float  limit_f;
 
     for (int i=0; i < num_metrics; i++)
     {
         string metrics_used = metrics[i];
-            
+
         metrics_used += "_USED";
 
-        limit = va->vector_value_str(metrics[i], limit_i);
-        
-        if ( limit_i < 0 ) //No quota, NaN or negative
+        limit = va->vector_value_str(metrics[i], limit_f);
+
+        if (( limit_f == -1 && limit == "" )    // NaN
+            ||
+            // Negative. Default & unlimited allowed
+            ( !is_default && limit_f < 0 && limit_f != UNLIMITED && limit_f != DEFAULT )
+            ||
+            // Negative. Unlimited allowed
+            ( is_default && limit_f < 0 && limit_f != UNLIMITED )
+           )
         {
-            limit = "0";
+            return 0;
         }
 
-        limits.insert(make_pair(metrics[i], limit));
+        limits.insert(make_pair(metrics[i], one_util::float_to_str(limit_f)));
         limits.insert(make_pair(metrics_used, "0"));
     }
 
@@ -358,4 +444,3 @@ VectorAttribute * Quota::new_quota(VectorAttribute * va)
 
     return new VectorAttribute(template_name,limits);
 }
-

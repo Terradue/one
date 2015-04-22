@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -38,51 +38,33 @@ fi
 
 . $TMCOMMON
 
+
 #-------------------------------------------------------------------------------
 # Set dst path and dir
 #-------------------------------------------------------------------------------
-SRC_PATH=`arg_path $SRC`
-SRC_PATH="../../${SRC_PATH##"$DS_DIR/"}"
-
 DST_PATH=`arg_path $DST`
 DST_HOST=`arg_host $DST`
 DST_DIR=`dirname $DST_PATH`
 
+SRC_ARG_PATH=`arg_path $SRC`
+
+DST_DS_PATH="$(dirname $(dirname $(dirname $DST_PATH)))"
+SRC_DS_PATH="$(dirname $(dirname $SRC_ARG_PATH))"
+
+SRC_PATH="${DST_DS_PATH}${SRC_ARG_PATH##$SRC_DS_PATH}"
+
+#-------------------------------------------------------------------------------
+# Create DST path
+#-------------------------------------------------------------------------------
+ssh_make_path $DST_HOST $DST_DIR
+
 #-------------------------------------------------------------------------------
 # Link (ln) SRC into DST
 #-------------------------------------------------------------------------------
+log "Linking $SRC_PATH in $DST"
 
-# Is it a file or a folder (VMware)?
-if [ -d `arg_path $SRC`  ]; then
-	ssh_make_path $DST_HOST $DST_PATH
-
-	# It's a folder, make links for all elements
-    SRC_FOLDER_NAME=`basename $SRC_PATH`
-    SRC_WITH_NO_FOLDER=`dirname $SRC_PATH`
-    SRC_DS_NAME=`basename $SRC_WITH_NO_FOLDER`
-	REL_SRC_PATH="../../../$SRC_DS_NAME/$SRC_FOLDER_NAME"
-
-	log "Link all files in $SRC_PATH to $DST_PATH"
-
-LINK_SCRIPT=$(cat <<EOF
-for file in \$(cd $DST_DIR  ; find $SRC_PATH -type f); do
-	FNAME=\$(basename \$file)
-	(cd $DST_PATH ;  ln -sf $REL_SRC_PATH/\$FNAME $DST_PATH/$FNAME)
-done
-EOF
-)
-	ssh_exec_and_log $DST_HOST "$LINK_SCRIPT" "Could not link dir files from source DS to system DS"
-else
-	ssh_make_path $DST_HOST $DST_DIR
-
-	# Just link a file
-	log "Linking $SRC_PATH in $DST"
-
-	ssh_exec_and_log $DST_HOST \
-				     "cd $DST_DIR; ln -s $SRC_PATH $DST_PATH" \
-	             	 "Error linking $SRC to $DST"
-fi
-
+ssh_exec_and_log $DST_HOST \
+                "cd $DST_DIR; rm -f $DST_PATH ; ln -s $SRC_PATH $DST_PATH" \
+                "Error linking $SRC to $DST"
 
 exit 0
-

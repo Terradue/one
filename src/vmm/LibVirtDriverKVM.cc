@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -20,6 +20,68 @@
 #include <sstream>
 #include <fstream>
 #include <libgen.h>
+#include <math.h>
+
+const float LibVirtDriver::CGROUP_BASE_CPU_SHARES = 1024;
+
+const int LibVirtDriver::CEPH_DEFAULT_PORT = 6789;
+
+const int LibVirtDriver::GLUSTER_DEFAULT_PORT = 24007;
+
+/**
+ *  This function generates the <host> element for network disks
+ */
+static void do_network_hosts(ofstream& file,
+                             const string& cg_host,
+                             const string& transport,
+                             int   default_port)
+{
+    if (cg_host.empty())
+    {
+        file << "'/>" << endl;
+        return;
+    }
+
+    vector<string>::const_iterator it;
+    vector<string> hosts;
+
+    hosts = one_util::split(cg_host, ' ');
+
+    file << "'>" << endl;
+
+    for (it = hosts.begin(); it != hosts.end(); it++)
+    {
+        vector<string> parts = one_util::split(*it, ':');
+
+        if (parts.empty())
+        {
+            continue;
+        }
+
+        file << "\t\t\t\t<host name='" << parts[0];
+
+        if (parts.size() > 1)
+        {
+            file << "' port='" << parts[1];
+        }
+        else if ( default_port != -1 )
+        {
+            file << "' port='" << default_port;
+        }
+
+        if (!transport.empty())
+        {
+            file << "' transport='" << transport;
+        }
+
+        file << "'/>" << endl;
+    }
+
+    file << "\t\t\t</source>" << endl;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
 
 int LibVirtDriver::deployment_description_kvm(
         const VirtualMachine *  vm,
@@ -31,9 +93,8 @@ int LibVirtDriver::deployment_description_kvm(
     vector<const Attribute *>   attrs;
 
     string  vcpu;
-    string  memory;
-
-    int     memory_in_kb = 0;
+    float   cpu;
+    int     memory;
 
     string  emulator_path = "";
 
@@ -44,45 +105,90 @@ int LibVirtDriver::deployment_description_kvm(
     string  kernel_cmd = "";
     string  bootloader = "";
     string  arch       = "";
+    string  machine    = "";
+
+    vector<string> boots;
 
     const VectorAttribute * disk;
     const VectorAttribute * context;
 
-    string  type       = "";
-    string  target     = "";
-    string  bus        = "";
-    string  ro         = "";
-    string  driver     = "";
-    string  cache      = "";
-    string  default_driver       = "";
-    string  default_driver_cache = "";
+    string  type            = "";
+    string  target          = "";
+    string  bus             = "";
+    string  ro              = "";
+    string  driver          = "";
+    string  cache           = "";
+    string  disk_io         = "";
+    string  source          = "";
+    string  clone           = "";
+    string  ceph_host       = "";
+    string  ceph_secret     = "";
+    string  ceph_user       = "";
+    string  sheepdog_host   = "";
+    string  gluster_host    = "";
+    string  gluster_volume  = "";
+
+    string  total_bytes_sec = "";
+    string  read_bytes_sec  = "";
+    string  write_bytes_sec = "";
+    string  total_iops_sec  = "";
+    string  read_iops_sec   = "";
+    string  write_iops_sec  = "";
+
+    string  default_total_bytes_sec = "";
+    string  default_read_bytes_sec  = "";
+    string  default_write_bytes_sec = "";
+    string  default_total_iops_sec  = "";
+    string  default_read_iops_sec   = "";
+    string  default_write_iops_sec  = "";
+
+    int     disk_id;
+    string  default_driver          = "";
+    string  default_driver_cache    = "";
+    string  default_driver_disk_io  = "";
     bool    readonly;
 
     const VectorAttribute * nic;
 
     string  mac        = "";
     string  bridge     = "";
+    string  bridge_ovs = "";
     string  script     = "";
     string  model      = "";
     string  ip         = "";
     string  filter     = "";
+
     string  default_filter = "";
+    string  default_model  = "";
 
     const VectorAttribute * graphics;
 
-    string  listen     = "";
-    string  port       = "";
-    string  passwd     = "";
-    string  keymap     = "";
+    string  listen          = "";
+    string  port            = "";
+    string  passwd          = "";
+    string  keymap          = "";
+    string  spice_options   = "";
 
     const VectorAttribute * input;
 
     const VectorAttribute * features;
 
-    string     pae     = "";
-    string     acpi    = "";
+    bool pae        = false;
+    bool acpi       = false;
+    bool apic       = false;
+    bool hyperv     = false;
+    bool localtime  = false;
+
+    int pae_found       = -1;
+    int acpi_found      = -1;
+    int apic_found      = -1;
+    int hyperv_found    = -1;
+    int localtime_found = -1;
+
+    string hyperv_options = "";
 
     const VectorAttribute * raw;
+    string default_raw;
     string data;
 
     // ------------------------------------------------------------------------
@@ -110,7 +216,7 @@ int LibVirtDriver::deployment_description_kvm(
     file << "\t<name>one-" << vm->get_oid() << "</name>" << endl;
 
     // ------------------------------------------------------------------------
-    // CPU
+    // CPU & Memory
     // ------------------------------------------------------------------------
 
     vm->get_template_attribute("VCPU", vcpu);
@@ -125,17 +231,19 @@ int LibVirtDriver::deployment_description_kvm(
         file << "\t<vcpu>" << vcpu << "</vcpu>" << endl;
     }
 
-    // ------------------------------------------------------------------------
-    // Memory
-    // ------------------------------------------------------------------------
-
-    vm->get_template_attribute("MEMORY",memory);
-
-    if (!memory.empty())
+    //Every process gets 1024 shares by default (cgroups), scale this with CPU
+    if(vm->get_template_attribute("CPU", cpu))
     {
-        memory_in_kb = atoi(memory.c_str()) * 1024;
+        file << "\t<cputune>" << endl
+             << "\t\t<shares>"<< ceil( cpu * CGROUP_BASE_CPU_SHARES )
+             << "</shares>"   << endl
+             << "\t</cputune>"<< endl;
+    }
 
-        file << "\t<memory>" << memory_in_kb << "</memory>" << endl;
+    // Memory must be expressed in Kb
+    if (vm->get_template_attribute("MEMORY",memory))
+    {
+        file << "\t<memory>" << memory * 1024 << "</memory>" << endl;
     }
     else
     {
@@ -167,6 +275,7 @@ int LibVirtDriver::deployment_description_kvm(
             kernel_cmd = os->vector_value("KERNEL_CMD");
             bootloader = os->vector_value("BOOTLOADER");
             arch       = os->vector_value("ARCH");
+            machine    = os->vector_value("MACHINE");
         }
     }
 
@@ -180,10 +289,19 @@ int LibVirtDriver::deployment_description_kvm(
         }
     }
 
-    if (emulator == "kvm")
+    if ( machine.empty() )
     {
-        file << "\t\t<type arch='" << arch << "'>hvm</type>" << endl;
+        get_default("OS", "MACHINE", machine);
     }
+
+    file << "\t\t<type arch='" << arch << "'";
+
+    if ( !machine.empty() )
+    {
+        file << " machine='" << machine << "'";
+    }
+
+    file << ">hvm</type>" << endl;
 
     if ( kernel.empty() )
     {
@@ -246,8 +364,12 @@ int LibVirtDriver::deployment_description_kvm(
         file << "\t\t<bootloader>" << bootloader << "</bootloader>" << endl;
     }
 
+    boots = one_util::split(boot, ',');
 
-    file << "\t\t<boot dev='" << boot << "'/>" << endl;
+    for (vector<string>::const_iterator it=boots.begin(); it!=boots.end(); it++)
+    {
+        file << "\t\t<boot dev='" << *it << "'/>" << endl;
+    }
 
     file << "\t</os>" << endl;
 
@@ -258,34 +380,40 @@ int LibVirtDriver::deployment_description_kvm(
     // ------------------------------------------------------------------------
     file << "\t<devices>" << endl;
 
-    if (emulator == "kvm")
+    get_default("EMULATOR",emulator_path);
+
+    if(emulator_path.empty())
     {
-        get_default("EMULATOR",emulator_path);
-
-        if(emulator_path.empty())
-        {
-            emulator_path = "/usr/bin/kvm";
-        }
-
-        file << "\t\t<emulator>" << emulator_path << "</emulator>" << endl;
+        emulator_path = "/usr/bin/kvm";
     }
+
+    file << "\t\t<emulator>" << emulator_path << "</emulator>" << endl;
 
     // ------------------------------------------------------------------------
     // Disks
     // ------------------------------------------------------------------------
-    get_default("DISK","DRIVER",default_driver);
+    get_default("DISK", "DRIVER", default_driver);
 
     if (default_driver.empty())
     {
         default_driver = "raw";
     }
 
-    get_default("DISK","CACHE",default_driver_cache);
+    get_default("DISK", "CACHE", default_driver_cache);
 
     if (default_driver_cache.empty())
     {
        default_driver_cache = "default";
     }
+
+    get_default("DISK", "IO", default_driver_disk_io);
+
+    get_default("DISK", "TOTAL_BYTES_SEC", default_total_bytes_sec);
+    get_default("DISK", "READ_BYTES_SEC", default_read_bytes_sec);
+    get_default("DISK", "WRITE_BYTES_SEC", default_write_bytes_sec);
+    get_default("DISK", "TOTAL_IOPS_SEC", default_total_iops_sec);
+    get_default("DISK", "READ_IOPS_SEC", default_read_iops_sec);
+    get_default("DISK", "WRITE_IOPS_SEC", default_write_iops_sec);
 
     // ------------------------------------------------------------------------
 
@@ -297,15 +425,64 @@ int LibVirtDriver::deployment_description_kvm(
 
         if ( disk == 0 )
         {
-         continue;
+            continue;
         }
 
-        type   = disk->vector_value("TYPE");
-        target = disk->vector_value("TARGET");
-        ro     = disk->vector_value("READONLY");
-        bus    = disk->vector_value("BUS");
-        driver = disk->vector_value("DRIVER");
-        cache  = disk->vector_value("CACHE");
+        type            = disk->vector_value("TYPE");
+        target          = disk->vector_value("TARGET");
+        ro              = disk->vector_value("READONLY");
+        driver          = disk->vector_value("DRIVER");
+        cache           = disk->vector_value("CACHE");
+        disk_io         = disk->vector_value("IO");
+        source          = disk->vector_value("SOURCE");
+        clone           = disk->vector_value("CLONE");
+
+        ceph_host       = disk->vector_value("CEPH_HOST");
+        ceph_secret     = disk->vector_value("CEPH_SECRET");
+        ceph_user       = disk->vector_value("CEPH_USER");
+
+        gluster_host    = disk->vector_value("GLUSTER_HOST");
+        gluster_volume  = disk->vector_value("GLUSTER_VOLUME");
+
+        sheepdog_host   = disk->vector_value("SHEEPDOG_HOST");
+        total_bytes_sec = disk->vector_value("TOTAL_BYTES_SEC");
+        read_bytes_sec  = disk->vector_value("READ_BYTES_SEC");
+        write_bytes_sec = disk->vector_value("WRITE_BYTES_SEC");
+        total_iops_sec  = disk->vector_value("TOTAL_IOPS_SEC");
+        read_iops_sec   = disk->vector_value("READ_IOPS_SEC");
+        write_iops_sec  = disk->vector_value("WRITE_IOPS_SEC");
+
+        if ( total_bytes_sec.empty() && !default_total_bytes_sec.empty())
+        {
+            total_bytes_sec = default_total_bytes_sec;
+        }
+
+        if ( read_bytes_sec.empty() && !default_read_bytes_sec.empty())
+        {
+            read_bytes_sec = default_read_bytes_sec;
+        }
+
+        if ( write_bytes_sec.empty() && !default_write_bytes_sec.empty())
+        {
+            write_bytes_sec = default_write_bytes_sec;
+        }
+
+        if ( total_iops_sec.empty() && !default_total_iops_sec.empty())
+        {
+            total_iops_sec = default_total_iops_sec;
+        }
+
+        if ( read_iops_sec.empty() && !default_read_iops_sec.empty())
+        {
+            read_iops_sec = default_read_iops_sec;
+        }
+
+        if ( write_iops_sec.empty() && !default_write_iops_sec.empty())
+        {
+            write_iops_sec = default_write_iops_sec;
+        }
+
+        disk->vector_value_str("DISK_ID", disk_id);
 
         if (target.empty())
         {
@@ -316,7 +493,7 @@ int LibVirtDriver::deployment_description_kvm(
 
         if ( !ro.empty() )
         {
-            transform(ro.begin(),ro.end(),ro.begin(),(int(*)(int))toupper);
+            one_util::toupper(ro);
 
             if ( ro == "YES" )
             {
@@ -326,44 +503,103 @@ int LibVirtDriver::deployment_description_kvm(
 
         // ---- Disk type and source for the image ----
 
-        if (type.empty() == false)
-        {
-            transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
-        }
+        one_util::toupper(type);
 
         if ( type == "BLOCK" )
         {
             file << "\t\t<disk type='block' device='disk'>" << endl
-                 << "\t\t\t<source dev='" << vm->get_remote_system_dir() 
-                 << "/disk." << i << "'/>" << endl;
+                 << "\t\t\t<source dev='" << vm->get_remote_system_dir()
+                 << "/disk." << disk_id << "'/>" << endl;
+        }
+        else if ( type == "RBD" || type == "RBD_CDROM" )
+        {
+            if (type == "RBD")
+            {
+                file << "\t\t<disk type='network' device='disk'>" << endl;
+            }
+            else
+            {
+                file << "\t\t<disk type='network' device='cdrom'>" << endl;
+            }
+
+            file << "\t\t\t<source protocol='rbd' name='" << source;
+
+            if ( clone == "YES" )
+            {
+                file << "-" << vm->get_oid() << "-" << disk_id;
+            }
+
+            do_network_hosts(file, ceph_host, "", CEPH_DEFAULT_PORT);
+
+            if ( !ceph_secret.empty() && !ceph_user.empty())
+            {
+                file << "\t\t\t<auth username='"<< ceph_user <<"'>" << endl
+                     << "\t\t\t\t<secret type='ceph' uuid='"
+                     << ceph_secret <<"'/>" << endl
+                     << "\t\t\t</auth>" << endl;
+            }
+        }
+        else if ( type == "SHEEPDOG" || type == "SHEEPDOG_CDROM" )
+        {
+            if (type == "SHEEPDOG")
+            {
+                file << "\t\t<disk type='network' device='disk'>" << endl;
+            }
+            else
+            {
+                file << "\t\t<disk type='network' device='cdrom'>" << endl;
+            }
+
+            file << "\t\t\t<source protocol='sheepdog' name='" << source;
+
+            if ( clone == "YES" )
+            {
+                file << "-" << vm->get_oid() << "-" << disk_id;
+            }
+
+    	    do_network_hosts(file, sheepdog_host, "tcp", -1);
+        }
+        else if ( type == "GLUSTER" || type == "GLUSTER_CDROM" )
+        {
+            if ( type == "GLUSTER" )
+            {
+                file << "\t\t<disk type='network' device='disk'>" << endl;
+            }
+            else
+            {
+                file << "\t\t<disk type='network' device='cdrom'>" << endl;
+            }
+
+            file << "\t\t\t<source protocol='gluster' name='" << gluster_volume
+                 << "/";
+
+            if ( clone == "YES" )
+            {
+                file << vm->get_oid() << "/disk." << disk_id;
+            }
+            else
+            {
+                file << one_util::split(source, '/').back();
+            }
+
+            do_network_hosts(file, gluster_host, "tcp", GLUSTER_DEFAULT_PORT);
         }
         else if ( type == "CDROM" )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl
-                 << "\t\t\t<source file='" << vm->get_remote_system_dir() 
-                 << "/disk." << i << "'/>" << endl;
+                 << "\t\t\t<source file='" << vm->get_remote_system_dir()
+                 << "/disk." << disk_id << "'/>" << endl;
         }
         else
         {
             file << "\t\t<disk type='file' device='disk'>" << endl
-                 << "\t\t\t<source file='" << vm->get_remote_system_dir() 
-                 << "/disk." << i << "'/>" << endl;
+                 << "\t\t\t<source file='" << vm->get_remote_system_dir()
+                 << "/disk." << disk_id << "'/>" << endl;
         }
 
         // ---- target device to map the disk ----
 
-        file << "\t\t\t<target dev='" << target << "'";
-
-        // ---- bus ----
-
-        if (!bus.empty())
-        {
-            file << " bus='" << bus << "'/>" << endl;
-        }
-        else
-        {
-            file << "/>" << endl;
-        }
+        file << "\t\t\t<target dev='" << target << "'/>" << endl;
 
         // ---- readonly attribute for the disk ----
 
@@ -376,7 +612,11 @@ int LibVirtDriver::deployment_description_kvm(
 
         file << "\t\t\t<driver name='qemu' type='";
 
-        if ( !driver.empty() )
+        if ( type == "CDROM" ) // Use driver raw for CD's
+        {
+            file << "raw";
+        }
+        else if ( !driver.empty() )
         {
             file << driver;
         }
@@ -389,11 +629,69 @@ int LibVirtDriver::deployment_description_kvm(
 
         if ( !cache.empty() )
         {
-            file << cache << "'/>" << endl;
+            file << cache << "'";
         }
         else
         {
-            file << default_driver_cache << "'/>" << endl;
+            file << default_driver_cache << "'";
+        }
+
+        if ( !disk_io.empty() )
+        {
+            file << " io='" << disk_io << "'";
+        }
+        else if ( !default_driver_disk_io.empty() )
+        {
+            file << " io='" << default_driver_disk_io << "'";
+        }
+
+        file << "/>" << endl;
+
+        // ---- I/O Options  ----
+
+        if (!(total_bytes_sec.empty() && read_bytes_sec.empty() &&
+              write_bytes_sec.empty() && total_iops_sec.empty() &&
+              read_iops_sec.empty() && write_iops_sec.empty()))
+        {
+            file << "\t\t\t<iotune>" << endl;
+
+            if ( !total_bytes_sec.empty() )
+            {
+                file << "\t\t\t\t<total_bytes_sec>" << total_bytes_sec
+                     << "</total_bytes_sec>" << endl;
+            }
+
+            if ( !read_bytes_sec.empty() )
+            {
+                file << "\t\t\t\t<read_bytes_sec>" << read_bytes_sec
+                     << "</read_bytes_sec>" << endl;
+            }
+
+            if ( !write_bytes_sec.empty() )
+            {
+                file << "\t\t\t\t<write_bytes_sec>" << write_bytes_sec
+                     << "</write_bytes_sec>" << endl;
+            }
+
+            if ( !total_iops_sec.empty() )
+            {
+                file << "\t\t\t\t<total_iops_sec>" << total_iops_sec
+                     << "</total_iops_sec>" << endl;
+            }
+
+            if ( !read_iops_sec.empty() )
+            {
+                file << "\t\t\t\t<read_iops_sec>" << read_iops_sec
+                     << "</read_iops_sec>" << endl;
+            }
+
+            if ( !write_iops_sec.empty() )
+            {
+                file << "\t\t\t\t<write_iops_sec>" << write_iops_sec
+                     << "</write_iops_sec>" << endl;
+            }
+
+            file << "\t\t\t</iotune>" << endl;
         }
 
         file << "\t\t</disk>" << endl;
@@ -411,26 +709,19 @@ int LibVirtDriver::deployment_description_kvm(
         target  = context->vector_value("TARGET");
         driver  = context->vector_value("DRIVER");
 
+        context->vector_value_str("DISK_ID", disk_id);
+
         if ( !target.empty() )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
 
-            file << "\t\t\t<source file='" << vm->get_remote_system_dir() 
-                 << "/disk." << num << "'/>" << endl;
+            file << "\t\t\t<source file='" << vm->get_remote_system_dir()
+                 << "/disk." << disk_id << "'/>" << endl;
 
             file << "\t\t\t<target dev='" << target << "'/>" << endl;
             file << "\t\t\t<readonly/>" << endl;
 
-            file << "\t\t\t<driver name='qemu' type='";
-
-            if ( !driver.empty() )
-            {
-                file << driver << "'/>" << endl;
-            }
-            else
-            {
-                file << default_driver << "'/>" << endl;
-            }
+            file << "\t\t\t<driver name='qemu' type='raw'/>" << endl;
 
             file << "\t\t</disk>" << endl;
         }
@@ -447,9 +738,11 @@ int LibVirtDriver::deployment_description_kvm(
     // Network interfaces
     // ------------------------------------------------------------------------
 
-    get_default("NIC","FILTER",default_filter);
+    get_default("NIC", "FILTER", default_filter);
 
-    num = vm->get_template_attribute("NIC",attrs);
+    get_default("NIC", "MODEL", default_model);
+
+    num = vm->get_template_attribute("NIC", attrs);
 
     for(int i=0; i<num; i++)
     {
@@ -460,13 +753,14 @@ int LibVirtDriver::deployment_description_kvm(
             continue;
         }
 
-        bridge = nic->vector_value("BRIDGE");
-        mac    = nic->vector_value("MAC");
-        target = nic->vector_value("TARGET");
-        script = nic->vector_value("SCRIPT");
-        model  = nic->vector_value("MODEL");
-        ip     = nic->vector_value("IP");
-        filter = nic->vector_value("FILTER");
+        bridge     = nic->vector_value("BRIDGE");
+        bridge_ovs = nic->vector_value("BRIDGE_OVS");
+        mac        = nic->vector_value("MAC");
+        target     = nic->vector_value("TARGET");
+        script     = nic->vector_value("SCRIPT");
+        model      = nic->vector_value("MODEL");
+        ip         = nic->vector_value("IP");
+        filter     = nic->vector_value("FILTER");
 
         if ( bridge.empty() )
         {
@@ -475,7 +769,21 @@ int LibVirtDriver::deployment_description_kvm(
         else
         {
             file << "\t\t<interface type='bridge'>" << endl;
-            file << "\t\t\t<source bridge='" << bridge << "'/>" << endl;
+
+            string * the_bridge = &bridge;
+
+            if ( vm->get_vnm_mad() == "ovswitch" )
+            {
+
+                if ( !bridge_ovs.empty() )
+                {
+                    the_bridge = &bridge_ovs;
+                }
+
+                file << "\t\t\t<virtualport type='openvswitch'/>" << endl;
+            }
+
+            file << "\t\t\t<source bridge='" << *the_bridge << "'/>" << endl;
         }
 
         if( !mac.empty() )
@@ -493,9 +801,20 @@ int LibVirtDriver::deployment_description_kvm(
             file << "\t\t\t<script path='" << script << "'/>" << endl;
         }
 
-        if( !model.empty() )
+        string * the_model = 0;
+
+        if (!model.empty())
         {
-            file << "\t\t\t<model type='" << model << "'/>" << endl;
+            the_model = &model;
+        }
+        else if (!default_model.empty())
+        {
+            the_model = &default_model;
+        }
+
+        if (the_model != 0)
+        {
+            file << "\t\t\t<model type='" << *the_model << "'/>" << endl;
         }
 
         if (!ip.empty() )
@@ -541,9 +860,11 @@ int LibVirtDriver::deployment_description_kvm(
             passwd = graphics->vector_value("PASSWD");
             keymap = graphics->vector_value("KEYMAP");
 
-            if ( type == "vnc" || type == "VNC" )
+            one_util::tolower(type);
+
+            if ( type == "vnc" || type == "spice" )
             {
-                file << "\t\t<graphics type='vnc'";
+                file << "\t\t<graphics type='" << type << "'";
 
                 if ( !listen.empty() )
                 {
@@ -566,11 +887,21 @@ int LibVirtDriver::deployment_description_kvm(
                 }
 
                 file << "/>" << endl;
+
+                if ( type == "spice" )
+                {
+                    get_default("SPICE_OPTIONS", spice_options);
+
+                    if ( spice_options != "" )
+                    {
+                        file << "\t\t" << spice_options << endl;
+                    }
+                }
             }
             else
             {
                 vm->log("VMM", Log::WARNING,
-                        "Not supported graphics type, ignored.");
+                        "Graphics not supported or undefined, ignored.");
             }
         }
     }
@@ -620,36 +951,73 @@ int LibVirtDriver::deployment_description_kvm(
 
         if ( features != 0 )
         {
-            pae  = features->vector_value("PAE");
-            acpi = features->vector_value("ACPI");
+            pae_found       = features->vector_value("PAE", pae);
+            acpi_found      = features->vector_value("ACPI", acpi);
+            apic_found      = features->vector_value("APIC", apic);
+            hyperv_found    = features->vector_value("HYPERV", hyperv);
+            localtime_found = features->vector_value("LOCALTIME", localtime);
         }
     }
 
-    if ( pae.empty() )
+    if ( pae_found != 0 )
     {
         get_default("FEATURES", "PAE", pae);
     }
 
-    if ( acpi.empty() )
+    if ( acpi_found != 0 )
     {
         get_default("FEATURES", "ACPI", acpi);
     }
 
-    if( acpi == "yes" || pae == "yes" )
+    if ( apic_found != 0 )
+    {
+        get_default("FEATURES", "APIC", apic);
+    }
+
+    if ( hyperv_found != 0 )
+    {
+        get_default("FEATURES", "HYPERV", hyperv);
+    }
+
+    if ( localtime_found != 0 )
+    {
+        get_default("FEATURES", "LOCALTIME", localtime);
+    }
+
+    if ( acpi || pae || apic || hyperv )
     {
         file << "\t<features>" << endl;
 
-        if ( pae == "yes" )
+        if ( pae )
         {
             file << "\t\t<pae/>" << endl;
         }
 
-        if ( acpi == "yes" )
+        if ( acpi )
         {
             file << "\t\t<acpi/>" << endl;
         }
 
+        if ( apic )
+        {
+            file << "\t\t<apic/>" << endl;
+        }
+
+        if ( hyperv )
+        {
+            get_default("HYPERV_OPTIONS", hyperv_options);
+
+            file << "\t\t<hyperv>" << endl;
+            file << hyperv_options << endl;
+            file << "\t\t</hyperv>" << endl;
+        }
+
         file << "\t</features>" << endl;
+    }
+
+    if ( localtime )
+    {
+        file << "\t<clock offset='localtime'/>" << endl;
     }
 
     attrs.clear();
@@ -671,13 +1039,20 @@ int LibVirtDriver::deployment_description_kvm(
 
         type = raw->vector_value("TYPE");
 
-        transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
+        one_util::toupper(type);
 
         if ( type == "KVM" )
         {
             data = raw->vector_value("DATA");
             file << "\t" << data << endl;
         }
+    }
+
+    get_default("RAW", default_raw);
+
+    if ( !default_raw.empty() )
+    {
+        file << "\t" << default_raw << endl;
     }
 
     file << "</domain>" << endl;

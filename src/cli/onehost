@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -20,8 +20,10 @@ ONE_LOCATION=ENV["ONE_LOCATION"]
 
 if !ONE_LOCATION
     RUBY_LIB_LOCATION="/usr/lib/one/ruby"
+    REMOTES_LOCATION="/var/lib/one/remotes/"
 else
     RUBY_LIB_LOCATION=ONE_LOCATION+"/lib/ruby"
+    REMOTES_LOCATION=ONE_LOCATION+"/var/remotes/"
 end
 
 $: << RUBY_LIB_LOCATION
@@ -37,10 +39,15 @@ cmd=CommandParser::CmdParser.new(ARGV) do
 
     helper = OneHostHelper.new
 
+    before_proc do
+        helper.set_client(options)
+    end
+
     ########################################################################
     # Global Options
     ########################################################################
-    set :option, CommandParser::OPTIONS
+    cmd_options=CommandParser::OPTIONS-[CommandParser::VERBOSE]
+    set :option, cmd_options+OpenNebulaHelper::CLIENT_OPTIONS
 
     IM = {
     :name   => "im",
@@ -51,7 +58,7 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     }
 
     VMM = {
-    :name   => "vmm",
+    :name   => "vm",
     :short  => "-v vmm_mad",
     :large  => "--vm vmm_mad" ,
     :description => "Set the virtualization driver for the host",
@@ -59,15 +66,30 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     }
 
     VNET = {
-    :name   => "vnm",
+    :name   => "net",
     :short  => "-n vnet_mad",
     :large  => "--net vnet_mad" ,
     :description => "Set the network driver for the host",
     :format => String
     }
 
+    FORCE = {
+        :name   => "force",
+        :large  => "--force" ,
+        :description => "Force probe upgrade in onehost sync"
+    }
+
+    RSYNC = {
+        :name   => "rsync",
+        :large  => "--rsync" ,
+        :description => "Use rsync to synchronize remotes. In case some " <<
+            "probes are no longer in the fronted are deleted in the hosts." <<
+            " rsync command must be installed in the frontend and nodes."
+    }
+
     CREAT_OPTIONS = [ IM, VMM, VNET, OneClusterHelper::CLUSTER ]
-    
+    SYNC_OPTIONS  = [ OneClusterHelper::CLUSTER, FORCE, RSYNC ]
+
     ########################################################################
     # Formatters for arguments
     ########################################################################
@@ -89,7 +111,7 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     EOT
 
     command :create, create_desc, :hostname, :options=>CREAT_OPTIONS do
-        if options[:im].nil? or options[:vmm].nil? or options[:vnm].nil?
+        if options[:im].nil? or options[:vm].nil? or options[:net].nil?
             STDERR.puts "Drivers are mandatory to create a host:"
             STDERR.puts "\t -i information driver"
             STDERR.puts "\t -v hypervisor driver"
@@ -100,10 +122,10 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         cid = options[:cluster] || ClusterPool::NONE_CLUSTER_ID
 
         helper.create_resource(options) do |host|
-                host.allocate(args[0], 
+                host.allocate(args[0],
                               options[:im],
-                              options[:vmm],
-                              options[:vnm],
+                              options[:vm],
+                              options[:net],
                               cid)
         end
     end
@@ -143,26 +165,31 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         be launched to modify the current content.
     EOT
 
-    command :update, update_desc, :hostid, [:file, nil] do
-        helper.perform_action(args[0],options,"updated") do |host|
-            str = OpenNebulaHelper.update_template(args[0], host, args[1])
-            host.update(str)
+    command :update, update_desc, :hostid, [:file, nil],
+    :options=>OpenNebulaHelper::APPEND do
+        helper.perform_action(args[0],options,"updated") do |obj|
+            if options[:append]
+                str = OpenNebulaHelper.append_template(args[0], obj, args[1])
+            else
+                str = OpenNebulaHelper.update_template(args[0], obj, args[1])
+            end
+
+            obj.update(str, options[:append])
         end
     end
 
     sync_desc = <<-EOT.unindent
         Synchronizes probes in /var/lib/one/remotes ($ONE_LOCATION/var/remotes
         in self-contained installations) with Hosts.
-        The copy is performed the next time the Host is monitored
+        Examples:
+            onehost sync
+            onehost sync -c myCluster
+            onehost sync host01,host02,host03
     EOT
 
-    command :sync, sync_desc do
-        if ONE_LOCATION
-            FileUtils.touch "#{ONE_LOCATION}/var/remotes"
-        else
-            FileUtils.touch "/var/lib/one/remotes"
-        end
-        0
+    command :sync, sync_desc, [:range, :hostid_list, nil],
+            :options=>SYNC_OPTIONS do
+        helper.sync(args[0], options)
     end
 
     list_desc = <<-EOT.unindent
@@ -170,7 +197,8 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     EOT
 
     command :list, list_desc,
-            :options=>CLIHelper::OPTIONS+OpenNebulaHelper::OPTIONS do
+            :options=>CLIHelper::OPTIONS+OpenNebulaHelper::OPTIONS+
+            [OpenNebulaHelper::DESCRIBE] do
         helper.list_pool(options)
     end
 
@@ -190,5 +218,25 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     command :top, top_desc,
             :options=>CLIHelper::OPTIONS+OpenNebulaHelper::OPTIONS do
         helper.list_pool(options, true)
+    end
+
+    flush_desc = <<-EOT.unindent
+        Disables the host and reschedules all the running VMs in it.
+    EOT
+
+    command :flush, flush_desc, [:range,:hostid_list] do
+        helper.perform_actions(args[0],options,"flush") do |host|
+            host.flush
+        end
+    end
+
+    rename_desc = <<-EOT.unindent
+        Renames the Host
+    EOT
+
+    command :rename, rename_desc, :hostid, :name do
+        helper.perform_action(args[0],options,"renamed") do |o|
+            o.rename(args[1])
+        end
     end
 end

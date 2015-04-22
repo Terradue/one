@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <set>
 
 #include <ctype.h>
 #include <string.h>
@@ -64,13 +65,6 @@ extern "C"
         return rc;
     }
 }
-
-void get_xml_attribute(ObjectXML * oxml, const char* attr, int& val);
-
-void get_xml_attribute(ObjectXML * oxml, const char* attr, float& val);
-
-void get_xml_attribute(ObjectXML * oxml, const char* attr, string& val);
-
 %}
 
 %parse-param {mem_collector * mc}
@@ -104,55 +98,80 @@ stmt:   expr    { result=$1;   }
         |       { result=true; } /* TRUE BY DEFAULT, ON EMPTY STRINGS */
         ;
 
-expr:   STRING '=' INTEGER { int val;
+expr:   STRING '=' INTEGER {
+            int val = $3;
+            int rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val == $3;}
+            rc = oxml->search($1,val);
 
-        | STRING '!' '=' INTEGER { int val;
+            $$ = (rc == 0 && val == $3);
+        }
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val != $4;}
+        | STRING '!' '=' INTEGER {
+            int val = $4;
+            int rc;
 
-        | STRING '>' INTEGER { int val;
+            rc = oxml->search($1,val);
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val > $3;}
+            $$ = (rc == 0 && val != $4);
+        }
 
-        | STRING '<' INTEGER { int val;
+        | STRING '>' INTEGER {
+            int val, rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val < $3;}
+            rc = oxml->search($1,val);
+            $$ = (rc == 0 && val > $3);
+        }
 
-        | STRING '=' FLOAT { float val;
+        | STRING '<' INTEGER {
+            int val, rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val == $3;}
+            rc = oxml->search($1,val);
+            $$ = (rc == 0 && val < $3);
+        }
 
-        | STRING '!' '=' FLOAT { float val;
+        | STRING '=' FLOAT {
+            float val, rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val != $4;}
+            rc = oxml->search($1,val);
+            $$ = (rc == 0 && val == $3);
+        }
 
-        | STRING '>' FLOAT { float val;
+        | STRING '!' '=' FLOAT {
+            float val, rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val > $3;}
+            rc = oxml->search($1,val);
+            $$ = (rc == 0 && val != $4);
+        }
 
-        | STRING '<' FLOAT { float val;
+        | STRING '>' FLOAT {
+            float val, rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = val < $3;}
+            rc = oxml->search($1,val);
+            $$ = (rc == 0 && val > $3);
+        }
 
-        | STRING '=' STRING { string val;
+        | STRING '<' FLOAT {
+            float val, rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = (val.empty() || $3==0) ? false : fnmatch($3,val.c_str(),0)==0;}
+            rc = oxml->search($1,val);
+            $$ = (rc == 0 && val < $3);}
 
-        | STRING '!''=' STRING { string val;
+        | STRING '=' STRING {
+            string val;
+            int rc;
 
-            get_xml_attribute(oxml,$1,val);
-            $$ = (val.empty() || $4==0) ? false : fnmatch($4,val.c_str(),0)!=0;}
+            rc = oxml->search($1,val);
+            $$ = (rc != 0 || $3==0) ? false : fnmatch($3,val.c_str(),0)==0;
+        }
+
+        | STRING '!''=' STRING {
+            string val;
+            int rc;
+
+            rc = oxml->search($1,val);
+            $$ = (rc != 0 || $4==0) ? false : fnmatch($4,val.c_str(),0)!=0;
+        }
 
         | expr '&' expr { $$ = $1 && $3; }
         | expr '|' expr { $$ = $1 || $3; }
@@ -188,105 +207,4 @@ extern "C" void expr_bool__error(
     }
 
     result = false;
-}
-
-void get_xml_attribute(ObjectXML * oxml, const char* attr, int& val)
-{
-    val = 0;
-
-    //TODO: pass xpath base
-    vector<string> results;
-    ostringstream  xpath_t;
-
-    xpath_t << "/HOST/TEMPLATE/" << attr;
-    results = (*oxml)[xpath_t.str().c_str()];
-
-    if (results.size() == 0)
-    {
-        ostringstream  xpath_s;
-
-        xpath_s << "/HOST/HOST_SHARE/" << attr;
-        results = (*oxml)[xpath_s.str().c_str()];
-
-        if (results.size() == 0)
-        {
-            ostringstream  xpath_h;
-
-            xpath_h << "/HOST/" << attr;
-            results = (*oxml)[xpath_h.str().c_str()];
-        }
-    }
-
-    if (results.size() != 0)
-    {
-        istringstream iss(results[0]);
-        iss >> val;
-    }
-}
-
-void get_xml_attribute(ObjectXML * oxml, const char* attr, float& val)
-{
-    val = 0.0;
-
-    //TODO: pass xpath base
-    ostringstream  xpath_t;
-    vector<string> results;
-
-    xpath_t << "/HOST/TEMPLATE/" << attr;
-    results = (*oxml)[xpath_t.str().c_str()];
-
-    if (results.size() == 0)
-    {
-        ostringstream  xpath_s;
-
-        xpath_s << "/HOST/HOST_SHARE/" << attr;
-        results = (*oxml)[xpath_s.str().c_str()];
-
-        if (results.size() == 0)
-        {
-            ostringstream  xpath_h;
-
-            xpath_h << "/HOST/" << attr;
-            results = (*oxml)[xpath_h.str().c_str()];
-        }
-    }
-
-    if (results.size() != 0)
-    {
-        istringstream iss(results[0]);
-        iss >> val;
-    }
-}
-
-void get_xml_attribute(ObjectXML * oxml, const char* attr, string& val)
-{
-    val = "";
-
-    //TODO: pass xpath base
-    ostringstream  xpath_t;
-    vector<string> results;
-
-    xpath_t << "/HOST/TEMPLATE/" << attr;
-    results = (*oxml)[xpath_t.str().c_str()];
-
-    if (results.size() == 0)
-    {
-        ostringstream  xpath_s;
-
-        xpath_s << "/HOST/HOST_SHARE/" << attr;
-        results = (*oxml)[xpath_s.str().c_str()];
-
-        if (results.size() == 0)
-        {
-            ostringstream  xpath_h;
-
-            xpath_h << "/HOST/" << attr;
-            results = (*oxml)[xpath_h.str().c_str()];
-        }
-    }
-
-    if (results.size() != 0)
-    {
-        val = results[0];
-    }
 }

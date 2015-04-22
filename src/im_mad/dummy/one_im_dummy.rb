@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -30,6 +30,7 @@ $: << RUBY_LIB_LOCATION
 
 require 'OpenNebulaDriver'
 require 'CommandManager'
+require 'base64'
 
 
 # The SSH Information Manager Driver
@@ -44,24 +45,37 @@ class DummyInformationManager < OpenNebulaDriver
 
         # register actions
         register_action(:MONITOR, method("action_monitor"))
+        register_action(:STOPMONITOR, method("stop_monitor"))
     end
 
     # Execute the sensor array in the remote host
-    def action_monitor(number, host, not_used)
-        results =  "HYPERVISOR=dummy,"
-        results << "HOSTNAME=#{host},"
+    def action_monitor(number, host, not_used1, not_used2)
+        results =  "HYPERVISOR=dummy\n"
+        results << "HOSTNAME=#{host}\n"
 
-        results << "TOTALCPU=800,"
-        results << "CPUSPEED=2.2GHz,"
+        results << "CPUSPEED=2.2GHz\n"
 
-        results << "TOTALMEMORY=16777216,"
-        results << "USEDMEMORY=0,"
-        results << "FREEMEMORY=16777216,"
+        used_memory = rand(16777216)
+        results << "TOTALMEMORY=16777216\n"
+        results << "USEDMEMORY=#{used_memory}\n"
+        results << "FREEMEMORY=#{16777216-used_memory}\n"
 
-        results << "FREECPU=800,"
-        results << "USEDCPU=0"
+        used_cpu = rand(800)
+        results << "TOTALCPU=800\n"
+        results << "USEDCPU=#{used_cpu}\n"
+        results << "FREECPU=#{800-used_cpu}\n"
+
+        results << "DS_LOCATION_USED_MB=9720\n"
+        results << "DS_LOCATION_TOTAL_MB=20480\n"
+        results << "DS_LOCATION_FREE_MB=20480\n"
+
+        results = Base64::encode64(results).strip.delete("\n")
 
         send_message("MONITOR", RESULT[:success], number, results)
+    end
+
+    def stop_monitor(number, host)
+        send_message("STOPMONITOR", RESULT[:success], number, nil)
     end
 end
 

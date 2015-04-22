@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -15,6 +15,7 @@
 /* -------------------------------------------------------------------------- */
 
 #include "QuotaImage.h"
+#include "Quotas.h"
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -26,7 +27,7 @@ const int QuotaImage::NUM_IMAGE_METRICS  = 1;
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool QuotaImage::check(Template * tmpl,  string& error)
+bool QuotaImage::check(Template * tmpl, Quotas& default_quotas, string& error)
 {
     vector<Attribute*> disks;
     VectorAttribute *  disk;
@@ -34,7 +35,7 @@ bool QuotaImage::check(Template * tmpl,  string& error)
     string image_id;
     int num;
 
-    map<string, int> image_request;
+    map<string, float> image_request;
 
     image_request.insert(make_pair("RVMS",1));
 
@@ -50,10 +51,13 @@ bool QuotaImage::check(Template * tmpl,  string& error)
         }
 
         image_id = disk->vector_value("IMAGE_ID");
-        
-        if ( !check_quota(image_id, image_request, error) )
+
+        if ( !image_id.empty() )
         {
-            return false;
+            if ( !check_quota(image_id, image_request, default_quotas, error) )
+            {
+                return false;
+            }
         }
     }
 
@@ -72,7 +76,7 @@ void QuotaImage::del(Template * tmpl)
     string image_id;
     int num;
 
-    map<string, int> image_request;
+    map<string, float> image_request;
 
     image_request.insert(make_pair("RVMS",1));
 
@@ -88,9 +92,20 @@ void QuotaImage::del(Template * tmpl)
         }
 
         image_id = disk->vector_value("IMAGE_ID");
-        
+
         del_quota(image_id, image_request);
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int QuotaImage::get_default_quota(
+    const string& id,
+    Quotas& default_quotas,
+    VectorAttribute **va)
+{
+    return default_quotas.image_get(id, va);
 }
 
 /* -------------------------------------------------------------------------- */

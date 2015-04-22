@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2014, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -16,7 +16,10 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+COPYRIGHT_HOLDER="2002-2014, OpenNebula Project (OpenNebula.org), C12G Labs"
+PACKAGE_NAME="OpenNebula"
+
 find ../public/js -name \*.js > file_list.txt
-xgettext --from-code=utf-8 --no-wrap --keyword=tr -L python -f file_list.txt -p .
+xgettext --from-code=utf-8 --copyright-holder="$COPYRIGHT_HOLDER" --package-name="$PACKAGE_NAME" --no-wrap --keyword=tr -L python -f file_list.txt -p .
 mv messages.po messages.pot
 rm file_list.txt

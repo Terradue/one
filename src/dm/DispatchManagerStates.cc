@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -70,11 +70,20 @@ void  DispatchManager::stop_success_action(int vid)
     }
 
     if ((vm->get_state() == VirtualMachine::ACTIVE) &&
-        (vm->get_lcm_state() == VirtualMachine::EPILOG_STOP))
+        (vm->get_lcm_state() == VirtualMachine::EPILOG_STOP ||
+         vm->get_lcm_state() == VirtualMachine::PROLOG_RESUME))
     {
         vm->set_state(VirtualMachine::STOPPED);
 
         vm->set_state(VirtualMachine::LCM_INIT);
+
+        //Set history action field to perform the right TM command on resume
+        if (vm->get_action() == History::NONE_ACTION)
+        {
+            vm->set_action(History::STOP_ACTION);
+
+            vmpool->update_history(vm);
+        }
 
         vmpool->update(vm);
 
@@ -85,6 +94,97 @@ void  DispatchManager::stop_success_action(int vid)
         ostringstream oss;
 
         oss << "stop_success action received but VM " << vid
+            << " not in ACTIVE state";
+        NebulaLog::log("DiM",Log::ERROR,oss);
+    }
+
+    vm->unlock();
+
+    return;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void  DispatchManager::undeploy_success_action(int vid)
+{
+    VirtualMachine *    vm;
+
+    vm = vmpool->get(vid,true);
+
+    if ( vm == 0 )
+    {
+        return;
+    }
+
+    if ((vm->get_state() == VirtualMachine::ACTIVE) &&
+        (vm->get_lcm_state() == VirtualMachine::EPILOG_UNDEPLOY ||
+         vm->get_lcm_state() == VirtualMachine::PROLOG_UNDEPLOY))
+    {
+        vm->set_state(VirtualMachine::UNDEPLOYED);
+
+        vm->set_state(VirtualMachine::LCM_INIT);
+
+        //Set history action field to perform the right TM command on resume
+        if (vm->get_action() == History::NONE_ACTION)
+        {
+            vm->set_action(History::UNDEPLOY_ACTION);
+
+            vmpool->update_history(vm);
+        }
+
+        vmpool->update(vm);
+
+        vm->log("DiM", Log::INFO, "New VM state is UNDEPLOYED");
+    }
+    else
+    {
+        ostringstream oss;
+
+        oss << "undeploy_success action received but VM " << vid
+            << " not in ACTIVE state";
+        NebulaLog::log("DiM",Log::ERROR,oss);
+    }
+
+    vm->unlock();
+
+    return;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void  DispatchManager::poweroff_success_action(int vid)
+{
+    VirtualMachine *    vm;
+
+    vm = vmpool->get(vid,true);
+
+    if ( vm == 0 )
+    {
+        return;
+    }
+
+    if ((vm->get_state() == VirtualMachine::ACTIVE) &&
+        (vm->get_lcm_state() == VirtualMachine::SHUTDOWN_POWEROFF ||
+         vm->get_lcm_state() == VirtualMachine::HOTPLUG_PROLOG_POWEROFF ||
+         vm->get_lcm_state() == VirtualMachine::HOTPLUG_EPILOG_POWEROFF ||
+         vm->get_lcm_state() == VirtualMachine::PROLOG_MIGRATE_POWEROFF ||
+         vm->get_lcm_state() == VirtualMachine::PROLOG_MIGRATE_POWEROFF_FAILURE))
+    {
+        vm->set_state(VirtualMachine::POWEROFF);
+
+        vm->set_state(VirtualMachine::LCM_INIT);
+
+        vmpool->update(vm);
+
+        vm->log("DiM", Log::INFO, "New VM state is POWEROFF");
+    }
+    else
+    {
+        ostringstream oss;
+
+        oss << "poweroff_success action received but VM " << vid
             << " not in ACTIVE state";
         NebulaLog::log("DiM",Log::ERROR,oss);
     }
@@ -108,13 +208,6 @@ void  DispatchManager::done_action(int vid)
     VirtualMachine::LcmState lcm_state;
     VirtualMachine::VmState  dm_state;
 
-    Nebula&    nd    = Nebula::instance();
-    UserPool * upool = nd.get_upool();
-    GroupPool* gpool = nd.get_gpool();
-
-    User *  user;
-    Group * group;
-
     vm = vmpool->get(vid,true);
 
     if ( vm == 0 )
@@ -128,8 +221,12 @@ void  DispatchManager::done_action(int vid)
     if ((dm_state == VirtualMachine::ACTIVE) &&
           (lcm_state == VirtualMachine::EPILOG ||
            lcm_state == VirtualMachine::CANCEL ||
-           lcm_state == VirtualMachine::CLEANUP ))
+           lcm_state == VirtualMachine::CLEANUP_DELETE))
     {
+        vm->release_network_leases();
+
+        vm->release_disk_images();
+
         vm->set_state(VirtualMachine::DONE);
 
         vm->set_state(VirtualMachine::LCM_INIT);
@@ -140,46 +237,14 @@ void  DispatchManager::done_action(int vid)
 
         vm->log("DiM", Log::INFO, "New VM state is DONE");
 
-        vm->release_network_leases();
-
-        vm->release_disk_images();
-
         uid  = vm->get_uid();
         gid  = vm->get_gid();
         tmpl = vm->clone_template();
-    
+
         vm->unlock();
 
-        /* ---------------- Update Group & User quota counters -------------- */
+        Quotas::vm_del(uid, gid, tmpl);
 
-        if ( uid != UserPool::ONEADMIN_ID )
-        {
-            user = upool->get(uid, true);
-
-            if ( user != 0 )
-            {
-                user->quota.vm_del(tmpl);
-                
-                upool->update(user);
-                 
-                user->unlock();
-            }
-        }
-
-        if ( gid != GroupPool::ONEADMIN_ID )
-        {
-            group = gpool->get(gid, true);
-
-            if ( group != 0 )
-            {
-                group->quota.vm_del(tmpl);
-
-                gpool->update(group);
-
-                group->unlock();
-            } 
-        }
-        
         delete tmpl;
     }
     else
@@ -188,39 +253,6 @@ void  DispatchManager::done_action(int vid)
 
         oss << "done action received but VM " << vid << " not in ACTIVE state";
         NebulaLog::log("DiM",Log::ERROR,oss);
-
-        vm->unlock();
-    }
-    
-    return;
-}
-
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-void  DispatchManager::failed_action(int vid)
-{
-    VirtualMachine *    vm;
-
-    vm = vmpool->get(vid,true);
-
-    if ( vm == 0 )
-    {
-        return;
-    }
-
-    if (vm->get_lcm_state() == VirtualMachine::FAILURE)
-    {
-
-        vm->set_state(VirtualMachine::LCM_INIT);
-
-        vm->set_state(VirtualMachine::FAILED);
-
-        vm->set_exit_time(time(0));
-
-        vmpool->update(vm);
-
-        vm->log("DiM", Log::INFO, "New VM state is FAILED");
 
         vm->unlock();
     }
@@ -242,7 +274,7 @@ void  DispatchManager::resubmit_action(int vid)
         return;
     }
 
-    if (vm->get_lcm_state() == VirtualMachine::CLEANUP)
+    if (vm->get_lcm_state() == VirtualMachine::CLEANUP_RESUBMIT)
     {
 
         vm->set_state(VirtualMachine::LCM_INIT);

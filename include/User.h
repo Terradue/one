@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -19,7 +19,11 @@
 
 #include "PoolSQL.h"
 #include "UserTemplate.h"
-#include "Quotas.h"
+#include "ObjectCollection.h"
+#include "QuotasSQL.h"
+#include "LoginToken.h"
+
+class UserQuotas;
 
 using namespace std;
 
@@ -29,7 +33,7 @@ using namespace std;
 /**
  *  The User class.
  */
-class User : public PoolObjectSQL
+class User : public PoolObjectSQL, public ObjectCollection
 {
 public:
 
@@ -49,6 +53,14 @@ public:
      *  @return a reference to the generated string
      */
     string& to_xml(string& xml) const;
+
+    /**
+     * Function to print the User object into a string in
+     * XML format. The extended XML includes the default quotas
+     *  @param xml the resulting XML string
+     *  @return a reference to the generated string
+     */
+    string& to_xml_extended(string& xml) const;
 
     /**
      *  Check if the user is enabled
@@ -82,17 +94,10 @@ public:
     void disable()
     {
         enabled = false;
-        invalidate_session();
-    };
 
-    /**
-     *  Checks if a name is valid, i.e. it is not empty and does not
-     *  contain invalid characters.
-     *    @param uname Name to be checked
-     *    @param error_str Returns the error reason, if any
-     *    @return true if the string is valid
-     */
-    static bool name_is_valid(const string& uname, string& error_str);
+        session.reset();
+        login_token.reset();
+    };
 
     /**
      *  Checks if a password is valid, i.e. it is not empty and does not
@@ -110,22 +115,7 @@ public:
      *    @param error_str Returns the error reason, if any
      *    @returns -1 if the password is not valid
      */
-    int set_password(const string& passwd, string& error_str)
-    {
-        int rc = 0;
-
-        if (pass_is_valid(passwd, error_str))
-        { 
-            password = passwd;
-            invalidate_session();
-        }
-        else
-        {
-            rc = -1;
-        }
-
-        return rc;
-    };
+    int set_password(const string& passwd, string& error_str);
 
     /**
      *  Returns user password
@@ -146,7 +136,7 @@ public:
     int set_auth_driver(const string& _auth_driver, string& error_str)
     {
         auth_driver = _auth_driver;
-        invalidate_session();
+        session.reset();
 
         return 0;
     };
@@ -169,9 +159,88 @@ public:
     }
 
     /**
+     * Returns the UMASK template attribute (read as an octal number), or the
+     * default UMASK from oned.conf if it does not exist
+     *
+     * @return the UMASK to create new objects
+     */
+    int get_umask() const;
+
+    /**
+     * Returns the default UMASK attribute (octal) from oned.conf
+     *
+     * @return the UMASK to create new objects
+     */
+    static int get_default_umask();
+
+    /**
+     *  Returns a copy of the groups for the user
+     */
+    set<int> get_groups()
+    {
+        return get_collection_copy();
+    };
+
+    // *************************************************************************
+    // Group IDs set Management
+    // *************************************************************************
+
+    /**
+     *  Adds a group ID to the groups set.
+     *
+     *    @param id The new id
+     *    @return 0 on success, -1 if the ID was already in the set
+     */
+    int add_group(int group_id)
+    {
+        return add_collection_id(group_id);
+    }
+
+    /**
+     *  Deletes a group ID from the groups set.
+     *
+     *    @param id The id
+     *    @return   0 on success,
+     *              -1 if the ID was not in the set,
+     *              -2 if the group to delete is the main group
+     */
+    int del_group(int group_id)
+    {
+        if( group_id == gid )
+        {
+            return -2;
+        }
+
+        return del_collection_id(group_id);
+    }
+
+    // *************************************************************************
+    // Quotas
+    // *************************************************************************
+
+    /**
      *  Object quotas, provides set and check interface
      */
-    Quotas quota;
+    UserQuotas quota;
+
+    /**
+     *  Writes/updates the User quotas fields in the database.
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int update_quotas(SqlDB *db)
+    {
+        return quota.update(oid, db);
+    };
+
+    // *************************************************************************
+    // Login token
+    // *************************************************************************
+
+    /**
+     * The login token object, provides the set & reset interface for the token
+     */
+    LoginToken login_token;
 
 private:
     // -------------------------------------------------------------------------
@@ -203,50 +272,7 @@ private:
     // Authentication session (Private)
     // *************************************************************************
 
-    /**
-     * Until when the session_token is valid
-     */
-    time_t session_expiration_time;
-
-    /**
-     * Last authentication token validated by the driver, can
-     * be trusted until the session_expiration_time
-     */
-    string session_token;
-
-    /**
-     * Checks if a session token is authorized and still valid
-     *
-     * @param token The authentication token
-     * @return true if the token is still valid
-     */
-    bool valid_session(const string& token)
-    {
-        return (( session_token == token ) &&
-                ( time(0) < session_expiration_time ) );
-    };
-
-    /**
-     * Resets the authentication session
-     */
-    void invalidate_session()
-    {
-        session_token.clear();
-        session_expiration_time = 0;
-    };
-
-    /**
-     * Stores the given session token for a limited time. This eliminates the
-     * need to call the external authentication driver until the time expires.
-     *
-     * @param token The authenticated token
-     * @param validity_time
-     */
-    void set_session(const string& token, time_t validity_time)
-    {
-        session_token           = token;
-        session_expiration_time = time(0) + validity_time;
-    };
+    LoginToken session;
 
     // *************************************************************************
     // DataBase implementation (Private)
@@ -273,6 +299,30 @@ private:
     };
 
     /**
+     *  Reads the User (identified with its OID) from the database.
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int select(SqlDB * db);
+
+    /**
+     *  Reads the User (identified with its OID) from the database.
+     *    @param db pointer to the db
+     *    @param name of the user
+     *    @param uid of the owner
+     *
+     *    @return 0 on success
+     */
+    int select(SqlDB * db, const string& name, int uid);
+
+    /**
+     *  Drops the user from the database
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int drop(SqlDB *db);
+
+    /**
      *  Rebuilds the object from an xml formatted string
      *    @param xml_str The xml-formatted string
      *
@@ -280,6 +330,14 @@ private:
      */
     int from_xml(const string &xml_str);
 
+    /**
+     * Function to print the User object into a string in
+     * XML format
+     *  @param xml the resulting XML string
+     *  @param extended If true, default quotas are included
+     *  @return a reference to the generated string
+     */
+    string& to_xml_extended(string& xml, bool extended) const;
 
 protected:
 
@@ -287,33 +345,26 @@ protected:
     // Constructor
     // *************************************************************************
 
-    User(int           id, 
-         int           _gid, 
-         const string& _uname, 
+    User(int           id,
+         int           _gid,
+         const string& _uname,
          const string& _gname,
          const string& _password,
          const string& _auth_driver,
          bool          _enabled):
         PoolObjectSQL(id,USER,_uname,-1,_gid,"",_gname,table),
-        quota("/USER/DATASTORE_QUOTA",
-            "/USER/NETWORK_QUOTA",
-            "/USER/IMAGE_QUOTA",
-            "/USER/VM_QUOTA"),
+        ObjectCollection("GROUPS"),
+        quota(),
         password(_password),
         auth_driver(_auth_driver),
-        enabled(_enabled),
-        session_expiration_time(0),
-        session_token("")
+        enabled(_enabled)
     {
         obj_template = new UserTemplate;
     };
 
     virtual ~User()
     {
-        if (obj_template != 0)
-        {
-            delete obj_template;
-        }
+        delete obj_template;
     };
 
     // *************************************************************************
@@ -331,13 +382,11 @@ protected:
      *    @param db pointer to the db
      *    @return 0 on success
      */
-    int insert(SqlDB *db, string& error_str)
-    {
-        return insert_replace(db, false, error_str);
-    };
+    int insert(SqlDB *db, string& error_str);
 
     /**
-     *  Writes/updates the User data fields in the database.
+     *  Writes/updates the User data fields in the database. This method does
+     *  not update the user's quotas
      *    @param db pointer to the db
      *    @return 0 on success
      */
@@ -345,7 +394,8 @@ protected:
     {
         string error_str;
         return insert_replace(db, true, error_str);
-    }
+    };
+
 };
 
 #endif /*USER_H_*/

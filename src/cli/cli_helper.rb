@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -14,6 +14,8 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+require 'csv'
+
 module CLIHelper
     LIST = {
         :name  => "list",
@@ -21,6 +23,12 @@ module CLIHelper
         :large => "--list x,y,z",
         :format => Array,
         :description => "Selects columns to display with list command"
+    }
+
+    CSV_OPT = {
+        :name  => "csv",
+        :large => "--csv",
+        :description => "Write table in csv format"
     }
 
     #ORDER = {
@@ -31,13 +39,14 @@ module CLIHelper
     #    :description => "Order by these columns, column starting with - means decreasing order"
     #}
     #
-    #FILTER = {
-    #    :name  => "filter",
-    #    :short => "-f x,y,z",
-    #    :large => "--filter x,y,z",
-    #    :format => Array,
-    #    :description => "Filter data. An array is specified with column=value pairs."
-    #}
+    FILTER = {
+        :name  => "filter",
+        :short => "-f x,y,z",
+        :large => "--filter x,y,z",
+        :format => Array,
+        :description => "Filter data. An array is specified with\n"<<
+                        " "*31<<"column=value pairs."
+    }
     #
     #HEADER = {
     #    :name  => "header",
@@ -55,7 +64,7 @@ module CLIHelper
     }
 
     #OPTIONS = [LIST, ORDER, FILTER, HEADER, DELAY]
-    OPTIONS = [LIST, DELAY]
+    OPTIONS = [LIST, DELAY, FILTER, CSV_OPT]
 
     # Sets bold font
     def CLIHelper.scr_bold
@@ -82,6 +91,36 @@ module CLIHelper
         print "\33[#{x};#{y}H"
     end
 
+    def CLIHelper.scr_red
+        print "\33[31m"
+    end
+
+    def CLIHelper.scr_green
+        print "\33[32m"
+    end
+
+    ANSI_RED="\33[31m"
+    ANSI_GREEN="\33[32m"
+    ANSI_RESET="\33[0m"
+
+    OK_STATES=%w{runn rdy on}
+    BAD_STATES=%w{fail err err}
+
+    def CLIHelper.color_state(stat)
+        if $stdout.tty?
+            case stat.strip
+            when *OK_STATES
+                ANSI_GREEN+stat+ANSI_RESET
+            when *BAD_STATES
+                ANSI_RED+stat+ANSI_RESET
+            else
+                stat
+            end
+        else
+            stat
+        end
+    end
+
     # Print header
     def CLIHelper.print_header(str, underline=true)
         if $stdout.tty?
@@ -95,8 +134,35 @@ module CLIHelper
         puts
     end
 
+    module HashWithSearch
+        def dsearch(path)
+            stems=path.split('/')
+            hash=self
+
+            stems.delete_if {|s| s.nil? || s.empty? }
+
+            stems.each do |stem|
+                if Hash===hash
+                    if hash[stem]
+                        hash=hash[stem]
+                    else
+                        hash=nil
+                        break
+                    end
+                else
+                    hash=nil
+                    break
+                end
+            end
+
+            hash
+        end
+    end
+
     class ShowTable
         require 'yaml'
+
+        attr_reader :default_columns
 
         def initialize(conf=nil, ext=nil, &block)
             @columns = Hash.new
@@ -137,7 +203,23 @@ module CLIHelper
 
         def show(data, options={})
             update_columns(options)
-            print_table(data, options)
+
+            if Hash===data
+                @data=data
+                @data.extend(HashWithSearch)
+
+                pool=@data.keys.first
+                return print_table(nil, options) if !pool
+
+                element=pool.split('_')[0..-2].join('_')
+
+                pool_data=@data.dsearch("#{pool}/#{element}")
+                pool_data=[pool_data].flatten if pool_data
+
+                print_table(pool_data, options)
+            else
+                print_table(data, options)
+            end
         end
 
         def top(options={}, &block)
@@ -145,10 +227,10 @@ module CLIHelper
 
             begin
                 while true
+                    data = block.call
+
                     CLIHelper.scr_cls
                     CLIHelper.scr_move(0,0)
-
-                    data = block.call
 
                     show(data, options)
                     sleep delay
@@ -158,24 +240,51 @@ module CLIHelper
             end
         end
 
+        def describe_columns
+            str="%-20s: %-20s"
+
+            @columns.each do |column, d|
+                puts str % [column, d[:desc]]
+            end
+        end
+
         private
 
         def print_table(data, options)
-            CLIHelper.print_header(header_str)
+            CLIHelper.print_header(header_str) if !options[:csv]
             data ? print_data(data, options) : puts
         end
 
         def print_data(data, options)
             ncolumns=@default_columns.length
             res_data=data_array(data, options)
-            print res_data.collect{|l|
-                (0..ncolumns-1).collect{ |i|
-                    dat=l[i]
-                    col=@default_columns[i]
-                    format_str(col, dat)
-                }.join(' ')
-            }.join("\n")
-            puts
+
+            if options[:stat_column]
+                stat_column=@default_columns.index(
+                    options[:stat_column].upcase.to_sym)
+            else
+                stat_column=@default_columns.index(:STAT)
+            end
+
+            begin
+                if options[:csv]
+                    puts CSV.generate_line(@default_columns)
+                    res_data.each {|l| puts CSV.generate_line(l) }
+                else
+                    res_data.each{|l|
+                        puts (0..ncolumns-1).collect{ |i|
+                            dat=l[i]
+                            col=@default_columns[i]
+
+                            str=format_str(col, dat)
+                            str=CLIHelper.color_state(str) if i==stat_column
+
+                            str
+                        }.join(' ').rstrip
+                    }
+                end
+            rescue Errno::EPIPE
+            end
         end
 
         def data_array(data, options)
@@ -197,6 +306,9 @@ module CLIHelper
             if @columns[field]
                 minus=( @columns[field][:left] ? "-" : "" )
                 size=@columns[field][:size]
+                if @columns[field][:donottruncate]
+                    return "%#{minus}#{size}s" % [ data.to_s ]
+                end
                 return "%#{minus}#{size}.#{size}s" % [ data.to_s ]
             else
                 exit -1, "Column #{field} not defined."
@@ -233,7 +345,47 @@ module CLIHelper
             }.compact.join(' ')
         end
 
-        # TBD def filter_data!
+        def filter_data!(data, filter)
+            # TBD: add more operators
+            # operators=/(==|=|!=|<|<=|>|>=)/
+            operators=/(=)/
+
+            stems=filter.map do |s|
+                m=s.match(/^(.*?)#{operators}(.*?)$/)
+                if m
+                    left, operator, right=m[1..3]
+                    index=@default_columns.index(left.to_sym)
+
+                    if index
+                        {
+                            :left       => left,
+                            :operator   => operator,
+                            :right      => right,
+                            :index      => index
+                        }
+                    else
+                        STDERR.puts "Column '#{left}' not found"
+                        exit(-1)
+                    end
+                else
+                    STDERR.puts "Expression '#{s}' incorrect"
+                    exit(-1)
+                end
+            end
+
+            data.reject! do |d|
+                pass=true
+
+                stems.each do |s|
+                    if d[s[:index]]!=s[:right]
+                        pass=false
+                        break
+                    end
+                end
+
+                !pass
+            end
+        end
 
         # TBD def sort_data!
     end

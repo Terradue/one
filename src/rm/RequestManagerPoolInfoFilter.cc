@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -23,7 +23,7 @@ using namespace std;
 
 const int RequestManagerPoolInfoFilter::ALL  = -2;
 
-const int RequestManagerPoolInfoFilter::MINE = -3;      
+const int RequestManagerPoolInfoFilter::MINE = -3;
 
 const int RequestManagerPoolInfoFilter::MINE_GROUP = -1;
 
@@ -31,7 +31,7 @@ const int RequestManagerPoolInfoFilter::MINE_GROUP = -1;
 
 const int VirtualMachinePoolInfo::ALL_VM   = -2;
 
-const int VirtualMachinePoolInfo::NOT_DONE = -1;      
+const int VirtualMachinePoolInfo::NOT_DONE = -1;
 
 /* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
@@ -50,6 +50,40 @@ void RequestManagerPoolInfoFilter::request_execute(
 /* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
 
+bool RequestManagerPoolInfoFilter::use_filter(RequestAttributes& att,
+    PoolObjectSQL::ObjectType aobj,
+    bool disable_all_acl,
+    bool disable_cluster_acl,
+    bool disable_group_acl,
+    const string& and_str,
+    string& where_str)
+{
+    bool all;
+
+    string acl_str;
+    string usr_str;
+
+
+    PoolSQL::acl_filter(att.uid, att.group_ids, aobj, all,
+        disable_all_acl, disable_cluster_acl, disable_group_acl, acl_str);
+
+    PoolSQL::usr_filter(att.uid, att.group_ids, ALL, all, acl_str, where_str);
+
+    if (!and_str.empty())
+    {
+        ostringstream filter;
+
+        filter << "( " << where_str << " ) AND ( " << and_str << " )";
+
+        where_str = filter.str();
+    }
+
+    return all;
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
 void VirtualMachinePoolInfo::request_execute(
         xmlrpc_c::paramList const& paramList,
         RequestAttributes& att)
@@ -62,7 +96,7 @@ void VirtualMachinePoolInfo::request_execute(
     ostringstream state_filter;
 
     if (( state < VirtualMachinePoolInfo::ALL_VM ) ||
-        ( state > VirtualMachine::FAILED ))
+        ( state > VirtualMachine::UNDEPLOYED ))
     {
         failure_response(XML_RPC_API,
                          request_error("Incorrect filter_flag, state",""),
@@ -111,12 +145,56 @@ void VirtualMachinePoolAccounting::request_execute(
         return;
     }
 
-    where_filter(att, filter_flag, -1, -1, "", "", where);
+    where_filter(att, filter_flag, -1, -1, "", "", false, false, false, where);
 
     rc = (static_cast<VirtualMachinePool *>(pool))->dump_acct(oss,
-                                                              where, 
-                                                              time_start, 
+                                                              where,
+                                                              time_start,
                                                               time_end);
+    if ( rc != 0 )
+    {
+        failure_response(INTERNAL,request_error("Internal Error",""), att);
+        return;
+    }
+
+    success_response(oss.str(), att);
+
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+void VirtualMachinePoolShowback::request_execute(
+        xmlrpc_c::paramList const& paramList,
+        RequestAttributes& att)
+{
+    int filter_flag = xmlrpc_c::value_int(paramList.getInt(1));
+    int start_month = xmlrpc_c::value_int(paramList.getInt(2));
+    int start_year  = xmlrpc_c::value_int(paramList.getInt(3));
+    int end_month   = xmlrpc_c::value_int(paramList.getInt(4));
+    int end_year    = xmlrpc_c::value_int(paramList.getInt(5));
+
+    ostringstream oss;
+    string        where;
+    int           rc;
+
+    if ( filter_flag < MINE )
+    {
+        failure_response(XML_RPC_API,
+                request_error("Incorrect filter_flag",""),
+                att);
+        return;
+    }
+
+    where_filter(att, filter_flag, -1, -1, "", "", false, false, false, where);
+
+    rc = (static_cast<VirtualMachinePool *>(pool))->dump_showback(oss,
+                                                              where,
+                                                              start_month,
+                                                              start_year,
+                                                              end_month,
+                                                              end_year);
     if ( rc != 0 )
     {
         failure_response(INTERNAL,request_error("Internal Error",""), att);
@@ -149,7 +227,7 @@ void VirtualMachinePoolMonitoring::request_execute(
         return;
     }
 
-    where_filter(att, filter_flag, -1, -1, "", "", where);
+    where_filter(att, filter_flag, -1, -1, "", "", false, false, false, where);
 
     rc = (static_cast<VirtualMachinePool *>(pool))->dump_monitoring(oss, where);
 
@@ -185,7 +263,7 @@ void HostPoolMonitoring::request_execute(
     string        where;
     int           rc;
 
-    where_filter(att, ALL, -1, -1, "", "", where);
+    where_filter(att, ALL, -1, -1, "", "", false, false, false, where);
 
     rc = (static_cast<HostPool *>(pool))->dump_monitoring(oss, where);
 
@@ -243,6 +321,34 @@ void ClusterPoolInfo::request_execute(
 /* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
 
+void DocumentPoolInfo::request_execute(
+        xmlrpc_c::paramList const& paramList,
+        RequestAttributes& att)
+{
+    int filter_flag = xmlrpc_c::value_int(paramList.getInt(1));
+    int start_id    = xmlrpc_c::value_int(paramList.getInt(2));
+    int end_id      = xmlrpc_c::value_int(paramList.getInt(3));
+    int type        = xmlrpc_c::value_int(paramList.getInt(4));
+
+    ostringstream oss;
+    oss << "type = " << type;
+
+    dump(att, filter_flag, start_id, end_id, oss.str(), "");
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+void ZonePoolInfo::request_execute(
+        xmlrpc_c::paramList const& paramList,
+        RequestAttributes& att)
+{
+    dump(att, ALL, -1, -1, "", "");
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
 void RequestManagerPoolInfoFilter::where_filter(
         RequestAttributes& att,
         int                filter_flag,
@@ -250,6 +356,9 @@ void RequestManagerPoolInfoFilter::where_filter(
         int                end_id,
         const string&      and_clause,
         const string&      or_clause,
+        bool               disable_all_acl,
+        bool               disable_cluster_acl,
+        bool               disable_group_acl,
         string&            filter_str)
 {
     bool empty = true;
@@ -261,14 +370,15 @@ void RequestManagerPoolInfoFilter::where_filter(
 
     ostringstream filter;
 
-    PoolSQL::acl_filter(att.uid, att.gid, auth_object, all, acl_str);
+    PoolSQL::acl_filter(att.uid, att.group_ids, auth_object, all,
+        disable_all_acl, disable_cluster_acl, disable_group_acl, acl_str);
 
-    PoolSQL::usr_filter(att.uid, att.gid, filter_flag, all, acl_str, uid_str);
+    PoolSQL::usr_filter(att.uid, att.group_ids, filter_flag, all, acl_str, uid_str);
 
     PoolSQL::oid_filter(start_id, end_id, oid_str);
 
-    // ------------------------------------------------------------------------- 
-    //                          Compound WHERE clause 
+    // -------------------------------------------------------------------------
+    //                          Compound WHERE clause
     //   WHERE ( id_str ) AND ( uid_str ) AND ( and_clause ) OR ( or_clause )
     // -------------------------------------------------------------------------
 
@@ -325,7 +435,7 @@ void RequestManagerPoolInfoFilter::dump(
         const string&      or_clause)
 {
     ostringstream oss;
-    string        where_string;
+    string        where_string, limit_clause;
     int           rc;
 
     if ( filter_flag < MINE )
@@ -342,9 +452,19 @@ void RequestManagerPoolInfoFilter::dump(
                  end_id,
                  and_clause,
                  or_clause,
+                 false,
+                 false,
+                 false,
                  where_string);
 
-    rc = pool->dump(oss, where_string);
+    if ( end_id < -1 )
+    {
+        oss << start_id << "," << -end_id;
+        limit_clause = oss.str();
+        oss.str("");
+    }
+
+    rc = pool->dump(oss, where_string, limit_clause);
 
     if ( rc != 0 )
     {
@@ -355,4 +475,79 @@ void RequestManagerPoolInfoFilter::dump(
     success_response(oss.str(), att);
 
     return;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+void VirtualNetworkPoolInfo::request_execute(
+        xmlrpc_c::paramList const& paramList, RequestAttributes& att)
+{
+    int filter_flag = xmlrpc_c::value_int(paramList.getInt(1));
+    int start_id    = xmlrpc_c::value_int(paramList.getInt(2));
+    int end_id      = xmlrpc_c::value_int(paramList.getInt(3));
+
+    if ( filter_flag < MINE )
+    {
+        failure_response(XML_RPC_API,
+                request_error("Incorrect filter_flag",""),
+                att);
+        return;
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /*  Build where filters to get ois from:                                  */
+    /*    - vnets (owner, permissions & ACL)                                  */
+    /*    - reservations (owner, permission & not VNET\* nor VNET/% ACLs)     */
+    /* ---------------------------------------------------------------------- */
+
+    string  where_vnets, where_reserv;
+    ostringstream where_string;
+
+    where_filter(att, filter_flag, start_id, end_id, "pid = -1", "", false,
+        false, false, where_vnets);
+
+    where_filter(att, filter_flag, start_id, end_id, "pid != -1", "", true,
+        true, false, where_reserv);
+
+    where_string << "( " << where_vnets << " ) OR ( " << where_reserv << " ) ";
+
+    /* ---------------------------------------------------------------------- */
+    /*  Build pagination limits                                               */
+    /* ---------------------------------------------------------------------- */
+
+    ostringstream limit_clause;
+
+    if ( end_id < -1 )
+    {
+        limit_clause << start_id << "," << -end_id;
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /*  Get the VNET pool                                                     */
+    /* ---------------------------------------------------------------------- */
+
+    ostringstream pool_oss;
+
+    int rc = pool->dump(pool_oss, where_string.str(), limit_clause.str());
+
+    if ( rc != 0 )
+    {
+        failure_response(INTERNAL,request_error("Internal Error",""), att);
+        return;
+    }
+
+    success_response(pool_oss.str(), att);
+
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+void VdcPoolInfo::request_execute(
+        xmlrpc_c::paramList const& paramList,
+        RequestAttributes& att)
+{
+    dump(att, ALL, -1, -1, "", "");
 }

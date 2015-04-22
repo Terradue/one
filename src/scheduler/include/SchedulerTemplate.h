@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,23 +21,25 @@
 
 
 class SchedulerTemplate : public NebulaTemplate
-{    
+{
 public:
 
     SchedulerTemplate(const string& etc_location):
         NebulaTemplate(etc_location, conf_name)
         {};
-    
+
     ~SchedulerTemplate(){};
 
     string get_policy() const;
+
+    string get_ds_policy() const;
 
 private:
     /**
      *  Name for the configuration file, oned.conf
      */
     static const char * conf_name;
-    
+
     /**
      *  Sets the defaults value for the template
      */

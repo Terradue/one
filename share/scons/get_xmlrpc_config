@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -134,17 +134,17 @@ end
 
 # Array with flags/libs to test
 Configs=[
-    # Configuration for fedora
-    {
-        :description => "pkg-config",
-        :client => exec_command("pkg-config xmlrpc_client++ xmlrpc++ --libs"),
-        :server => exec_command("pkg-config xmlrpc_server_abyss++ --static --libs")
-    },
     # Configuration using xmlrpc-c-config
     {
         :description => "xmlrpc-c-config",
         :client => exec_command("xmlrpc-c-config c++2 client --libs --cflags"),
         :server => exec_command("xmlrpc-c-config c++2 abyss-server --libs --cflags")
+    },
+    # Configuration for fedora
+    {
+        :description => "pkg-config",
+        :client => exec_command("pkg-config xmlrpc_client++ xmlrpc++ --libs"),
+        :server => exec_command("pkg-config xmlrpc_server_abyss++ --static --libs")
     },
     # Debian lenny
     {

@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- */
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 # not use this file except in compliance with the License. You may obtain    */
 # a copy of the License at                                                   */
@@ -44,11 +44,13 @@ class DatastoreDriver < OpenNebulaDriver
 
     # Image Driver Protocol constants
     ACTION = {
-        :cp   => "CP",
-        :rm   => "RM",
-        :mkfs => "MKFS",
-        :log  => "LOG",
-        :stat => "STAT"
+        :cp      => "CP",
+        :rm      => "RM",
+        :mkfs    => "MKFS",
+        :log     => "LOG",
+        :stat    => "STAT",
+        :clone   => "CLONE",
+        :monitor => "MONITOR"
     }
 
     # Register default actions for the protocol
@@ -58,10 +60,12 @@ class DatastoreDriver < OpenNebulaDriver
             :threaded => true,
             :retries => 0,
             :local_actions => {
-                ACTION[:stat] => nil,
-                ACTION[:cp]   => nil,
-                ACTION[:rm]   => nil,
-                ACTION[:mkfs] => nil
+                ACTION[:stat]    => nil,
+                ACTION[:cp]      => nil,
+                ACTION[:rm]      => nil,
+                ACTION[:mkfs]    => nil,
+                ACTION[:clone]   => nil,
+                ACTION[:monitor] => nil
             }
         }.merge!(options)
 
@@ -77,10 +81,12 @@ class DatastoreDriver < OpenNebulaDriver
             @types = ds_type
         end
 
-        register_action(ACTION[:cp].to_sym,   method("cp"))
-        register_action(ACTION[:rm].to_sym,   method("rm"))
+        register_action(ACTION[:cp].to_sym, method("cp"))
+        register_action(ACTION[:rm].to_sym, method("rm"))
         register_action(ACTION[:mkfs].to_sym, method("mkfs"))
-        register_action(ACTION[:stat].to_sym, method("stat"))    
+        register_action(ACTION[:stat].to_sym, method("stat"))
+        register_action(ACTION[:clone].to_sym, method("clone"))
+        register_action(ACTION[:monitor].to_sym, method("monitor"))
     end
 
     ############################################################################
@@ -107,6 +113,16 @@ class DatastoreDriver < OpenNebulaDriver
         do_image_action(id, ds, :stat, "#{drv_message} #{id}")
     end
 
+    def clone(id, drv_message)
+        ds = get_ds_type(drv_message)
+        do_image_action(id, ds, :clone, "#{drv_message} #{id}")
+    end
+
+    def monitor(id, drv_message)
+        ds = get_ds_type(drv_message)
+        do_image_action(id, ds, :monitor, "#{drv_message} #{id}", true)
+    end
+
     private
 
     def is_available?(ds, id, action)
@@ -119,7 +135,7 @@ class DatastoreDriver < OpenNebulaDriver
         end
     end
 
-    def do_image_action(id, ds, action, arguments)
+    def do_image_action(id, ds, action, arguments, encode64=false)
         return if not is_available?(ds,id,action)
 
         path = File.join(@local_scripts_path, ds)
@@ -130,6 +146,8 @@ class DatastoreDriver < OpenNebulaDriver
         rc = LocalCommand.run(cmd, log_method(id))
 
         result, info = get_info_from_execution(rc)
+
+        info = Base64::encode64(info).strip.delete("\n") if encode64
 
         send_message(ACTION[action], result, id, info)
     end

@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -36,10 +36,14 @@ cmd = CommandParser::CmdParser.new(ARGV) do
     
     helper = OneAclHelper.new
 
+    before_proc do
+        helper.set_client(options)
+    end
+
     ########################################################################
     # Global Options
     ########################################################################
-    set :option, CommandParser::OPTIONS
+    set :option, CommandParser::OPTIONS+OpenNebulaHelper::CLIENT_OPTIONS
 
     ########################################################################
     # Formatters for arguments
@@ -65,10 +69,10 @@ cmd = CommandParser::CmdParser.new(ARGV) do
             if OpenNebula.is_error?(new_args)
                 next -1, new_args.message
             end
-        when 3
+        when 3, 4
             new_args=args
         else
-            next -1, "Wrong number of arguments, must be 1 or 3"
+            next -1, "Wrong number of arguments, must be 1 or 4"
         end
 
         helper.create_resource(options) do |rule|
@@ -90,7 +94,8 @@ cmd = CommandParser::CmdParser.new(ARGV) do
         Lists the ACL rule set
     EOT
 
-    command :list, list_desc,:options=>OpenNebulaHelper::XML do
+    command :list, list_desc,:options=>[OpenNebulaHelper::XML,
+            OpenNebulaHelper::DESCRIBE] do
         helper.list_pool( options )
     end
 end

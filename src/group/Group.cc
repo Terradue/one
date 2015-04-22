@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -21,6 +21,7 @@
 #include <sstream>
 
 #include "Group.h"
+#include "Nebula.h"
 
 const char * Group::table = "group_pool";
 
@@ -28,13 +29,80 @@ const char * Group::db_names =
         "oid, name, body, uid, gid, owner_u, group_u, other_u";
 
 const char * Group::db_bootstrap = "CREATE TABLE IF NOT EXISTS group_pool ("
-    "oid INTEGER PRIMARY KEY, name VARCHAR(128), body TEXT, uid INTEGER, "
+    "oid INTEGER PRIMARY KEY, name VARCHAR(128), body MEDIUMTEXT, uid INTEGER, "
     "gid INTEGER, owner_u INTEGER, group_u INTEGER, other_u INTEGER, "
     "UNIQUE(name))";
 
 /* ************************************************************************ */
 /* Group :: Database Access Functions                                       */
 /* ************************************************************************ */
+
+int Group::select(SqlDB * db)
+{
+    int rc;
+
+    rc = PoolObjectSQL::select(db);
+
+    if ( rc != 0 )
+    {
+        return rc;
+    }
+
+    return quota.select(oid, db);
+}
+
+/* -------------------------------------------------------------------------- */
+
+int Group::select(SqlDB * db, const string& name, int uid)
+{
+    int rc;
+
+    rc = PoolObjectSQL::select(db,name,uid);
+
+    if ( rc != 0 )
+    {
+        return rc;
+    }
+
+    return quota.select(oid, db);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Group::drop(SqlDB * db)
+{
+    int rc;
+
+    rc = PoolObjectSQL::drop(db);
+
+    if ( rc == 0 )
+    {
+        rc += quota.drop(db);
+    }
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Group::insert(SqlDB *db, string& error_str)
+{
+    int rc;
+
+    rc = insert_replace(db, false, error_str);
+
+    if (rc == 0)
+    {
+        rc = quota.insert(oid, db, error_str);
+    }
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
 
 int Group::insert_replace(SqlDB *db, bool replace, string& error_str)
 {
@@ -128,21 +196,47 @@ error_common:
 
 string& Group::to_xml(string& xml) const
 {
+    return to_xml_extended(xml, false);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+string& Group::to_xml_extended(string& xml) const
+{
+    return to_xml_extended(xml, true);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+string& Group::to_xml_extended(string& xml, bool extended) const
+{
     ostringstream   oss;
     string          collection_xml;
-    string          quota_xml;
+    string          admins_xml;
+    string          template_xml;
 
     ObjectCollection::to_xml(collection_xml);
-    
-    quota.to_xml(quota_xml);
 
     oss <<
     "<GROUP>"    <<
-        "<ID>"   << oid  << "</ID>"   <<
-        "<NAME>" << name << "</NAME>" <<
-        collection_xml <<
-        quota_xml <<
-    "</GROUP>";
+        "<ID>"   << oid  << "</ID>"        <<
+        "<NAME>" << name << "</NAME>"      <<
+        obj_template->to_xml(template_xml) <<
+        collection_xml                     <<
+        admins.to_xml(admins_xml);
+
+    if (extended)
+    {
+        string quota_xml;
+        string def_quota_xml;
+
+        oss << quota.to_xml(quota_xml)
+            << Nebula::instance().get_default_group_quota().to_xml(def_quota_xml);
+    }
+
+    oss << "</GROUP>";
 
     xml = oss.str();
 
@@ -156,6 +250,7 @@ int Group::from_xml(const string& xml)
 {
     int rc = 0;
     vector<xmlNodePtr> content;
+    vector<xmlNodePtr>::iterator it;
 
     // Initialize the internal XML object
     update_from_str(xml);
@@ -170,7 +265,7 @@ int Group::from_xml(const string& xml)
     // Set the Group ID as the group it belongs to
     set_group(oid, name);
 
-    // Get associated classes
+    // Set of IDs
     ObjectXML::get_nodes("/GROUP/USERS", content);
 
     if (content.empty())
@@ -178,12 +273,36 @@ int Group::from_xml(const string& xml)
         return -1;
     }
 
-    // Set of IDs
     rc += ObjectCollection::from_xml_node(content[0]);
 
     ObjectXML::free_nodes(content);
+    content.clear();
 
-    rc += quota.from_xml(this); 
+    // Set of Admin IDs
+    ObjectXML::get_nodes("/GROUP/ADMINS", content);
+
+    if (content.empty())
+    {
+        return -1;
+    }
+
+    rc += admins.from_xml_node(content[0]);
+
+    ObjectXML::free_nodes(content);
+    content.clear();
+
+    // Get associated metadata for the group
+    ObjectXML::get_nodes("/GROUP/TEMPLATE", content);
+
+    if (content.empty())
+    {
+        return -1;
+    }
+
+    rc += obj_template->from_xml_node(content[0]);
+
+    ObjectXML::free_nodes(content);
+    content.clear();
 
     if (rc != 0)
     {
@@ -196,3 +315,177 @@ int Group::from_xml(const string& xml)
 /* ------------------------------------------------------------------------ */
 /* ------------------------------------------------------------------------ */
 
+int Group::add_admin(int user_id, string& error_msg)
+{
+    int rc;
+    ostringstream oss;
+
+    if ( collection_contains(user_id) == false )
+    {
+        oss << "User " << user_id << " is not part of Group "
+            << oid << ".";
+
+        error_msg = oss.str();
+
+        return -1;
+    }
+
+    rc = admins.add_collection_id(user_id);
+
+    if (rc == -1)
+    {
+        oss << "User " << user_id << " is already an administrator of Group "
+            << oid << ".";
+
+        error_msg = oss.str();
+
+        return -1;
+    }
+
+    add_admin_rules(user_id);
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
+
+void Group::add_admin_rules(int user_id)
+{
+    int     rc;
+    string  error_msg;
+
+    AclManager* aclm = Nebula::instance().get_aclm();
+
+    // #<uid> USER/@<gid> USE+MANAGE+ADMIN+CREATE *
+    rc = aclm->add_rule(
+            AclRule::INDIVIDUAL_ID |
+            user_id,
+
+            PoolObjectSQL::USER |
+            AclRule::GROUP_ID |
+            oid,
+
+            AuthRequest::USE |
+            AuthRequest::MANAGE |
+            AuthRequest::ADMIN |
+            AuthRequest::CREATE,
+
+            AclRule::ALL_ID,
+
+            error_msg);
+
+    if (rc < 0)
+    {
+        NebulaLog::log("GROUP",Log::ERROR,error_msg);
+    }
+
+    // #<uid> VM+NET+IMAGE+TEMPLATE+DOCUMENT+SECGROUP/@<gid> USE+MANAGE *
+    rc = aclm->add_rule(
+            AclRule::INDIVIDUAL_ID |
+            user_id,
+
+            PoolObjectSQL::VM |
+            PoolObjectSQL::NET |
+            PoolObjectSQL::IMAGE |
+            PoolObjectSQL::TEMPLATE |
+            PoolObjectSQL::DOCUMENT |
+            PoolObjectSQL::SECGROUP |
+            AclRule::GROUP_ID |
+            oid,
+
+            AuthRequest::USE |
+            AuthRequest::MANAGE,
+
+            AclRule::ALL_ID,
+
+            error_msg);
+
+    if (rc < 0)
+    {
+        NebulaLog::log("GROUP",Log::ERROR,error_msg);
+    }
+}
+
+/* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
+
+int Group::del_admin(int user_id, string& error_msg)
+{
+    int rc = admins.del_collection_id(user_id);
+
+    if (rc == -1)
+    {
+        ostringstream oss;
+        oss << "User " << user_id << " is not an administrator of Group "
+            << oid << ".";
+
+        error_msg = oss.str();
+
+        return -1;
+    }
+
+    del_admin_rules(user_id);
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
+
+void Group::del_admin_rules(int user_id)
+{
+    int     rc;
+    string  error_msg;
+
+    AclManager* aclm = Nebula::instance().get_aclm();
+
+    // #<uid> USER/@<gid> USE+MANAGE+ADMIN+CREATE *
+    rc = aclm->del_rule(
+            AclRule::INDIVIDUAL_ID |
+            user_id,
+
+            PoolObjectSQL::USER |
+            AclRule::GROUP_ID |
+            oid,
+
+            AuthRequest::USE |
+            AuthRequest::MANAGE |
+            AuthRequest::ADMIN |
+            AuthRequest::CREATE,
+
+            AclRule::ALL_ID,
+
+            error_msg);
+
+    if (rc < 0)
+    {
+        NebulaLog::log("GROUP",Log::ERROR,error_msg);
+    }
+
+    // #<uid> VM+NET+IMAGE+TEMPLATE+DOCUMENT+SECGROUP/@<gid> USE+MANAGE *
+    rc = aclm->del_rule(
+            AclRule::INDIVIDUAL_ID |
+            user_id,
+
+            PoolObjectSQL::VM |
+            PoolObjectSQL::NET |
+            PoolObjectSQL::IMAGE |
+            PoolObjectSQL::TEMPLATE |
+            PoolObjectSQL::DOCUMENT |
+            PoolObjectSQL::SECGROUP |
+            AclRule::GROUP_ID |
+            oid,
+
+            AuthRequest::USE |
+            AuthRequest::MANAGE,
+
+            AclRule::ALL_ID,
+
+            error_msg);
+
+    if (rc < 0)
+    {
+        NebulaLog::log("GROUP",Log::ERROR,error_msg);
+    }
+}

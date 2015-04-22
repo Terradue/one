@@ -16,13 +16,14 @@ digraph OpenNebula {
         fontcolor="white", fontsize= "24.0"];
 
     ANY [ shape="box" ];
-    "ANY \\ {suspended,done}" [ shape="box" ];
+    "ANY \\ {suspended,poweroff,done}" [ shape="box" ];
 
     subgraph { rank = min; user}
-#    subgraph { rank = same; pending; hold; color="white"}
-    subgraph { rank = same; prolog; boot; color="white" }
-    subgraph { rank = same; migrate; save; shutdown; unknown; color="white" }
-    subgraph { rank = max; suspended; done; failure; stopped; color="white" }
+    subgraph { rank = same; pending; hold; color="white"}
+#    subgraph { rank = same; prolog; boot; color="white" }
+    subgraph { rank = same; migrate; save; shutdown; unknown; hotplug; snapshot;
+        color="white" }
+    subgraph { rank = max; suspended; done; failure; stopped; poweroff; undeployed; color="white" }
 
 #   create
     user -> pending [label="create"];
@@ -34,12 +35,17 @@ digraph OpenNebula {
 
 #   shutdown
     running     -> shutdown [label="shutdown"];
-    shutdown    -> epilog [style="dashed"];
-    epilog      -> done [style="dashed"];
+    shutdown    -> epilog [label="shutdown", style="dashed"];
+    epilog      -> done [label="shutdown", style="dashed"];
+    unknown     -> epilog [label="shutdown --hard"];
+
+#   poweroff
+    running     -> shutdown [label="poweroff"];
+    shutdown    -> poweroff [label="poweroff", style="dashed"];
 
 #   livemigrate
-    running     -> migrate [label="livemigrate"];
-    migrate     -> running [label="livemigrate", style="dashed"];
+    running     -> migrate [label="migrate\n--live"];
+    migrate     -> running [label="migrate\n--live", style="dashed"];
 
 #   migrate
     running     -> save [label="migrate"];
@@ -57,8 +63,10 @@ digraph OpenNebula {
     save        -> epilog [label="stop", style="dashed"];
     epilog      -> stopped [label="stop", style="dashed"];
 
-#   cancel
-    running     -> shutdown [label="cancel"];
+#   undeploy
+    running     -> shutdown [label="undeploy"];
+    shutdown    -> epilog [label="undeploy", style="dashed"];
+    epilog      -> undeployed [label="undeploy", style="dashed"];
 
 #   suspend
     running     -> save [label="suspend"];
@@ -66,20 +74,31 @@ digraph OpenNebula {
 
 #   resume
     stopped     -> pending [label="resume"];
+    undeployed  -> pending [label="resume"];
     suspended   -> boot [label="resume"];
+    poweroff    -> boot [label="resume"];
 
 #   delete
     ANY         -> done [label="delete"];
 
 #   restart
-    unknown     -> boot [label="restart"];
-    boot        -> boot [label="restart"];
+    unknown     -> boot [label="boot"];
+    boot        -> boot [label="boot"];
 
 #   reboot
     running     -> running [label="reboot"];
 
+#   disk-attach nic-attach
+#    running     -> hotplug [label="disk / nic -\n attach / detach"]
+    running     -> hotplug [label="disk / nic\nattach"]
+    hotplug     -> running [style="dashed"];
+
+#   snapshot
+    running     -> snapshot [label="snapshot-*"]
+    snapshot    -> running [style="dashed"];
+
 #   resubmit
-    "ANY \\ {suspended,done}" -> pending [label="resubmit"];
+    "ANY \\ {suspended,poweroff,done}" -> pending [label="delete --recreate"];
 
 #   failures and misc.
     ANY         -> failure [style="dotted"];

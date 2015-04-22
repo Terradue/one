@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -32,7 +32,7 @@ class VirtualNetworkDriver
         @ssh_stream = options[:ssh_stream]
         @message    = options[:message]
 
-        @vm_encoded = Base64.encode64(@message.elements['VM'].to_s).delete("\n")
+        @vm_encoded = Base64.encode64(@message).delete("\n")
 
         initialize_helper("vnm/#{directory}", options)
     end

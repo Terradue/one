@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -51,13 +51,32 @@ public:
         SHUTDOWN_FAILURE, /**< Sent by the VMM when a shutdown action fails   */
         CANCEL_SUCCESS,   /**< Sent by the VMM when a cancel action succeeds  */
         CANCEL_FAILURE,   /**< Sent by the VMM when a cancel action fails     */
-        MONITOR_FAILURE,  /**< Sent by the VMM when a VM has failed while active */
         MONITOR_SUSPEND,  /**< Sent by the VMM when a VM is paused while active */
-        MONITOR_DONE,     /**< Sent by the VMM when a VM is not found */
+        MONITOR_DONE,     /**< Sent by the VMM when a Host cannot be monitored*/
+        MONITOR_POWEROFF, /**< Sent by the VMM when a VM is not found */
+        MONITOR_POWERON,  /**< Sent by the VMM when a VM is found again */
         PROLOG_SUCCESS,   /**< Sent by the TM when the prolog phase succeeds  */
         PROLOG_FAILURE,   /**< Sent by the TM when the prolog phase fails     */
         EPILOG_SUCCESS,   /**< Sent by the TM when the epilog phase succeeds  */
         EPILOG_FAILURE,   /**< Sent by the TM when the epilog phase fails     */
+        ATTACH_SUCCESS,   /**< Sent by the VMM when an attach action succeeds */
+        ATTACH_FAILURE,   /**< Sent by the VMM when an attach action fails    */
+        DETACH_SUCCESS,   /**< Sent by the VMM when a detach action succeeds  */
+        DETACH_FAILURE,   /**< Sent by the VMM when a detach action fails     */
+        ATTACH_NIC_SUCCESS,/**< Sent by the VMM when an attach nic action succeeds */
+        ATTACH_NIC_FAILURE,/**< Sent by the VMM when an attach nic action fails    */
+        DETACH_NIC_SUCCESS,/**< Sent by the VMM when a detach nic action succeeds  */
+        DETACH_NIC_FAILURE,/**< Sent by the VMM when a detach nic action fails     */
+        CLEANUP_SUCCESS,  /**< Sent by the VMM when a cleanup action succeeds */
+        CLEANUP_FAILURE,  /**< Sent by the VMM when a cleanup action fails    */
+        SAVEAS_HOT_SUCCESS,/**< Sent by the VMM when hot saveas succeeds      */
+        SAVEAS_HOT_FAILURE,/**< Sent by the VMM when hot saveas fails         */
+        SNAPSHOT_CREATE_SUCCESS, /**< Sent by the VMM on snap. create success */
+        SNAPSHOT_CREATE_FAILURE, /**< Sent by the VMM on snap. create failure */
+        SNAPSHOT_REVERT_SUCCESS, /**< Sent by the VMM on snap. revert success */
+        SNAPSHOT_REVERT_FAILURE, /**< Sent by the VMM on snap. revert failure */
+        SNAPSHOT_DELETE_SUCCESS, /**< Sent by the VMM on snap. revert success */
+        SNAPSHOT_DELETE_FAILURE, /**< Sent by the VMM on snap. revert failure */
         DEPLOY,           /**< Sent by the DM to deploy a VM on a host        */
         SUSPEND,          /**< Sent by the DM to suspend an running VM        */
         RESTORE,          /**< Sent by the DM to restore a suspended VM       */
@@ -66,6 +85,10 @@ public:
         MIGRATE,          /**< Sent by the DM to migrate a VM to other host   */
         LIVE_MIGRATE,     /**< Sent by the DM to live-migrate a VM            */
         SHUTDOWN,         /**< Sent by the DM to shutdown a running VM        */
+        UNDEPLOY,         /**< Sent by the DM to undeploy a running VM        */
+        UNDEPLOY_HARD,    /**< Sent by the DM to force undeploy a running VM  */
+        POWEROFF,         /**< Sent by the DM to power off a running VM       */
+        POWEROFF_HARD,    /**< Sent by the DM to power off hard a running VM  */
         RESTART,          /**< Sent by the DM to restart a deployed VM        */
         DELETE,           /**< Sent by the DM to delete a VM                  */
         CLEAN,            /**< Sent by the DM to cleanup a VM for resubmission*/
@@ -98,6 +121,19 @@ public:
     {
         return lcm_thread;
     };
+
+    /**
+     *  Recovers a VM by self-triggering the associated lost transition.
+     *    @param vm to be recovered
+     *    @param success trigger successful transition if true, fail otherwise
+     */
+    void  recover(VirtualMachine * vm, bool success);
+
+	/**
+	 *  Retries the last VM operation that lead to a failure. The underlying
+	 *  driver actions may be invoked and should be "re-entrant".
+	 */
+    void retry(VirtualMachine * vm);
 
 private:
     /**
@@ -138,9 +174,13 @@ private:
     /**
      *  Cleans up a VM, canceling any pending or ongoing action and closing
      *  the history registers
-     *      @param vm with the lock aquired
+     *
+     * @param vm with the lock acquired
+     * @param dispose true if the vm will end in DONE, false to resubmit to PENDING
+     * @param image_id If the VM is in the middle of a save as operation, an
+     * image may need to be set to error state.
      */
-    void clean_up_vm (VirtualMachine *vm);
+    void clean_up_vm (VirtualMachine *vm, bool dispose, int& image_id);
 
     void save_success_action(int vid);
 
@@ -158,11 +198,13 @@ private:
 
     void cancel_failure_action(int vid);
 
-    void monitor_failure_action(int vid);
-
     void monitor_suspend_action(int vid);
 
     void monitor_done_action(int vid);
+
+    void monitor_poweroff_action(int vid);
+
+    void monitor_poweron_action(int vid);
 
     void prolog_success_action(int vid);
 
@@ -171,6 +213,40 @@ private:
     void epilog_success_action(int vid);
 
     void epilog_failure_action(int vid);
+
+    void attach_success_action(int vid);
+
+    void attach_failure_action(int vid);
+
+    void detach_success_action(int vid);
+
+    void detach_failure_action(int vid);
+
+    void saveas_hot_success_action(int vid);
+
+    void saveas_hot_failure_action(int vid);
+
+    void attach_nic_success_action(int vid);
+
+    void attach_nic_failure_action(int vid);
+
+    void detach_nic_success_action(int vid);
+
+    void detach_nic_failure_action(int vid);
+
+    void cleanup_callback_action(int vid);
+
+    void snapshot_create_success(int vid);
+
+    void snapshot_create_failure(int vid);
+
+    void snapshot_revert_success(int vid);
+
+    void snapshot_revert_failure(int vid);
+
+    void snapshot_delete_success(int vid);
+
+    void snapshot_delete_failure(int vid);
 
     void deploy_action(int vid);
 
@@ -190,7 +266,13 @@ private:
 
     void shutdown_action(int vid);
 
-    void failure_action(VirtualMachine * vm);
+    void undeploy_action(int vid, bool hard);
+
+    void poweroff_action(int vid);
+
+    void poweroff_hard_action(int vid);
+
+    void poweroff_action(int vid, bool hard);
 
     void restart_action(int vid);
 

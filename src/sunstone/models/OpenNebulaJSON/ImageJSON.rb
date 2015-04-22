@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -56,8 +56,10 @@ module OpenNebulaJSON
                  when "unpublish"     then self.unpublish
                  when "update"        then self.update(action_hash['params'])
                  when "chown"         then self.chown(action_hash['params'])
-                 when "chmod"         then self.chmod_octet(action_hash['params'])
+                 when "chmod"         then self.chmod_json(action_hash['params'])
                  when "chtype"        then self.chtype(action_hash['params'])
+                 when "clone"         then self.clone(action_hash['params'])
+                 when "rename"        then self.rename(action_hash['params'])
                  else
                      error_msg = "#{action_hash['perform']} action not " <<
                          " available for this resource"
@@ -77,12 +79,36 @@ module OpenNebulaJSON
             super(params['owner_id'].to_i,params['group_id'].to_i)
         end
 
-        def chmod_octet(params=Hash.new)
-            super(params['octet'])
+        def chmod_json(params=Hash.new)
+            if params['octet']
+                self.chmod_octet(params['octet'])
+            else
+                self.chmod((params['owner_u']||-1),
+                    (params['owner_m']||-1),
+                    (params['owner_a']||-1),
+                    (params['group_u']||-1),
+                    (params['group_m']||-1),
+                    (params['group_a']||-1),
+                    (params['other_u']||-1),
+                    (params['other_m']||-1),
+                    (params['other_a']||-1))
+            end
         end
 
         def chtype(params=Hash.new)
             super(params['type'])
+        end
+
+        def clone(params=Hash.new)
+            if params['target_ds']
+                super(params['name'], params['target_ds'].to_i)
+            else
+                super(params['name'])
+            end
+        end
+
+        def rename(params=Hash.new)
+            super(params['name'])
         end
     end
 end

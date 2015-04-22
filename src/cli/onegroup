@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -36,14 +36,19 @@ cmd=CommandParser::CmdParser.new(ARGV) do
 
     helper = OneGroupHelper.new
 
+    before_proc do
+        helper.set_client(options)
+    end
+
     ########################################################################
     # Global Options
     ########################################################################
-    set :option, CommandParser::OPTIONS
+    set :option, CommandParser::OPTIONS+OpenNebulaHelper::CLIENT_OPTIONS
 
     list_options = CLIHelper::OPTIONS
     list_options << OpenNebulaHelper::XML
     list_options << OpenNebulaHelper::NUMERIC
+    list_options << OpenNebulaHelper::DESCRIBE
 
     ########################################################################
     # Formatters for arguments
@@ -56,17 +61,76 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         helper.list_to_id(arg)
     end
 
+    set :format, :userid, OpenNebulaHelper.rname_to_id_desc("USER") do |arg|
+        OpenNebulaHelper.rname_to_id(arg, "USER")
+    end
+
     ########################################################################
     # Commands
     ########################################################################
 
     create_desc = <<-EOT.unindent
-        Creates a new Group
+        Creates a new Group. A group name can be passed as the only argument,
+        or via command line arguments
+
+        Examples:
+
+          - create a group with an admin user and allow group users
+            to only create new templates and VMs
+
+            onegroup create --name groupA
+                            --admin_user admin_userA --admin_password somestr
+                            --resources TEMPLATE+VM
+
     EOT
 
-    command :create, create_desc, :name do
-        helper.create_resource(options) do |group|
-            group.allocate(args[0])
+    command :create, create_desc, [:group_name, nil], :options =>
+            OpenNebulaHelper::GROUP_OPTIONS do
+
+
+        if !args[0] && options.empty?
+            STDERR.puts "Please use either a group name or command arguments."<<
+            " Run onegroup create -h for more information"
+            next -1
+        end
+
+        if options && options[:admin_user]
+            if !options[:admin_password]
+                STDERR.puts "Admin user needs password"
+                next -1
+            end
+
+            admin_user=Hash.new
+            admin_user[:name]       = options[:admin_user]
+            admin_user[:password]   = options[:admin_password]
+            admin_user[:auth_driver]= options[:admin_driver] if options[:admin_driver]
+
+            options[:group_admin] = admin_user
+        end
+
+        if !options.empty?
+            helper.create_complete_resource(options)
+        elsif args[0]
+            options[:name] = args[0]
+            helper.create_complete_resource(options)
+        end
+    end
+
+    update_desc = <<-EOT.unindent
+        Update the template contents. If a path is not provided the editor will
+        be launched to modify the current content.
+    EOT
+
+    command :update, update_desc, :groupid, [:file, nil],
+    :options=>OpenNebulaHelper::APPEND do
+        helper.perform_action(args[0],options,"modified") do |obj|
+            if options[:append]
+                str = OpenNebulaHelper.append_template(args[0], obj, args[1])
+            else
+                str = OpenNebulaHelper.update_template(args[0], obj, args[1])
+            end
+
+            obj.update(str, options[:append])
         end
     end
 
@@ -97,13 +161,40 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         helper.show_resource(group,options)
     end
 
+    add_admin_desc = <<-EOT.unindent
+        Adds a User to the Group administrators set
+    EOT
+
+    command :addadmin, add_admin_desc, [:range, :groupid_list], :userid do
+        helper.perform_actions(args[0],options,"admin added") do |obj|
+            obj.add_admin(args[1].to_i)
+        end
+    end
+
+    del_admin_desc = <<-EOT.unindent
+        Removes a User from the Group administrators set
+    EOT
+
+    command :deladmin, del_admin_desc, [:range, :groupid_list], :userid do
+        helper.perform_actions(args[0],options,"admin deleted") do |obj|
+            obj.del_admin(args[1].to_i)
+        end
+    end
+
     quota_desc = <<-EOT.unindent
-        Set the quota limits for the group. If a path is not provided the editor 
-        will be launched to modify the current quotas.
+        Set the quota limits for the group. If a path is not provided the
+        editor will be launched to modify the current quotas.
     EOT
 
     command :quota, quota_desc, :groupid, [:file, nil] do
         helper.perform_action(args[0], options, "modified") do |group|
+            rc = group.info
+
+            if OpenNebula.is_error?(rc)
+                puts rc.message
+                exit -1
+            end
+
             str = OneQuotaHelper.set_quota(group, args[1])
             rc  = group.set_quota(str)
 
@@ -112,5 +203,54 @@ cmd=CommandParser::CmdParser.new(ARGV) do
                 exit -1
             end
         end
-    end  
+    end
+
+    batchquota_desc = <<-EOT.unindent
+        Sets the quota limits in batch for various groups. If a path is not
+        provided the editor will be launched to create new quotas.
+    EOT
+
+    command :batchquota, batchquota_desc, [:range, :groupid_list],
+            [:file, nil] do
+        batch_str = OneQuotaHelper.get_batch_quota(args[1])
+
+        helper.perform_actions(args[0], options, "modified") do |group|
+            str = OneQuotaHelper.merge_quota(group, batch_str)
+
+            if OpenNebula.is_error?(str)
+                str
+            else
+                rc  = group.set_quota(str)
+                rc
+            end
+        end
+    end
+
+
+    defaultquota_desc = <<-EOT.unindent
+        Sets the default quota limits for the groups. If a path is not provided
+        the editor will be launched to modify the current default quotas.
+    EOT
+
+    command :defaultquota, defaultquota_desc, [:file, nil] do
+        system = System.new(OneGroupHelper.get_client(options))
+
+        default_quotas = system.get_group_quotas()
+
+        if OpenNebula.is_error?(default_quotas)
+            puts default_quotas.message
+            exit(-1)
+        end
+
+        str = OneQuotaHelper.set_quota(default_quotas, args[0], true)
+
+        rc  = system.set_group_quotas(str)
+
+        if OpenNebula.is_error?(rc)
+            puts rc.message
+            exit(-1)
+        end
+
+        exit 0
+    end
 end

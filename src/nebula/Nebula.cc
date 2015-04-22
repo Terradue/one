@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -36,7 +36,15 @@ using namespace std;
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void Nebula::start()
+void Nebula::bootstrap_db()
+{
+    start(true);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void Nebula::start(bool bootstrap_only)
 {
     int             rc;
     int             fd;
@@ -85,18 +93,28 @@ void Nebula::start()
 
     try
     {
-        string           log_fname;
-        Log::MessageType clevel;
+        Log::MessageType   clevel;
+        NebulaLog::LogType log_system;
 
-        log_fname = log_location + "oned.log";
-        clevel    = get_debug_level();
+        log_system = get_log_system();
+        clevel     = get_debug_level();
 
         // Initializing ONE Daemon log system
+        if ( log_system != NebulaLog::UNDEFINED )
+        {
+            string log_fname;
+            log_fname = log_location + "oned.log";
 
-        NebulaLog::init_log_system(NebulaLog::FILE_TS,
-                                   clevel,
-                                   log_fname.c_str(),
-                                   ios_base::trunc);
+            NebulaLog::init_log_system(log_system,
+                                       clevel,
+                                       log_fname.c_str(),
+                                       ios_base::trunc,
+                                       "oned");
+        }
+        else
+        {
+            throw runtime_error("Unknown LOG_SYSTEM.");
+        }
 
         os << "Starting " << version() << endl;
         os << "----------------------------------------\n";
@@ -111,10 +129,32 @@ void Nebula::start()
         os << "Log level:" << clevel << " [0=ERROR,1=WARNING,2=INFO,3=DEBUG]";
 
         NebulaLog::log("ONE",Log::INFO,os);
+
+        os.str("");
+        os << "Support for xmlrpc-c > 1.31: ";
+
+#ifdef OLD_XMLRPC
+        os << "no. MAX_CONN and MAX_CONN_BACKLOG configuration will not be used";
+#else
+        os << "yes";
+#endif
+
+        NebulaLog::log("ONE",Log::INFO,os);
     }
     catch(runtime_error&)
     {
         throw;
+    }
+
+    // -----------------------------------------------------------
+    // Load the OpenNebula master key and keep it in memory
+    // -----------------------------------------------------------
+
+    rc = nebula_configuration->load_key();
+
+    if ( rc != 0 )
+    {
+        throw runtime_error("Could not load nebula master key file.");
     }
 
     // -----------------------------------------------------------
@@ -123,7 +163,73 @@ void Nebula::start()
     xmlInitParser();
 
     // -----------------------------------------------------------
-    // Pools
+    // Init federation configuration
+    // -----------------------------------------------------------
+
+    vector<const Attribute *> atts;
+
+    federation_enabled  = false;
+    federation_master   = false;
+    zone_id             = 0;
+    master_oned         = "";
+
+    rc = nebula_configuration->get("FEDERATION", atts);
+
+    if (rc != 0)
+    {
+        const VectorAttribute * vatt = static_cast<const VectorAttribute *>
+                                          (atts[0]);
+
+        string mode;
+        mode = vatt->vector_value("MODE");
+        one_util::toupper(mode);
+
+        if (mode == "STANDALONE")
+        {
+            federation_enabled = false;
+            federation_master = false;
+            zone_id = 0;
+        }
+        else if (mode == "MASTER")
+        {
+            federation_enabled = true;
+            federation_master = true;
+        }
+        else if (mode == "SLAVE")
+        {
+            federation_enabled = true;
+            federation_master = false;
+        }
+        else
+        {
+            throw runtime_error(
+                "FEDERATION MODE must be one of STANDALONE, MASTER, SLAVE.");
+        }
+
+        if (federation_enabled)
+        {
+            rc = vatt->vector_value("ZONE_ID", zone_id);
+
+            if (rc != 0)
+            {
+                throw runtime_error("FEDERATION ZONE_ID must be set for "
+                    "federated instances.");
+            }
+
+            master_oned = vatt->vector_value("MASTER_ONED");
+
+            if (master_oned.empty() && !federation_master)
+            {
+                throw runtime_error(
+                    "FEDERATION MASTER_ONED endpoint is missing.");
+            }
+        }
+    }
+
+    Log::set_zone_id(zone_id);
+
+    // -----------------------------------------------------------
+    // Database
     // -----------------------------------------------------------
     try
     {
@@ -201,59 +307,78 @@ void Nebula::start()
             ostringstream   oss;
 
             db = new MySqlDB(server,port,user,passwd,db_name);
-
-            oss << "CREATE DATABASE IF NOT EXISTS " << db_name;
-            rc = db->exec(oss);
-
-            if ( rc != 0 )
-            {
-                throw runtime_error("Could not create database.");
-            }
-
-            oss.str("");
-            oss << "USE " << db_name;
-            rc = db->exec(oss);
-            if ( rc != 0 )
-            {
-                throw runtime_error("Could not open database.");
-            }
         }
+
+        // ---------------------------------------------------------------------
+        // Prepare the SystemDB and check versions
+        // ---------------------------------------------------------------------
+
+        bool local_bootstrap;
+        bool shared_bootstrap;
 
         NebulaLog::log("ONE",Log::INFO,"Checking database version.");
-        rc = check_db_version();
 
+        system_db = new SystemDB(db);
+
+        rc = system_db->check_db_version(is_federation_slave(),
+                                         local_bootstrap,
+                                         shared_bootstrap);
         if( rc == -1 )
         {
-            throw runtime_error("Database version mismatch.");
+            throw runtime_error("Database version mismatch. Check oned.log.");
         }
 
-        if( rc == -2 )
-        {
-            rc = 0;
+        rc = 0;
 
-            NebulaLog::log("ONE",Log::INFO,"Bootstrapping OpenNebula database.");
+        if (local_bootstrap)
+        {
+            NebulaLog::log("ONE",Log::INFO,
+                    "Bootstrapping OpenNebula database, stage 1.");
 
             rc += VirtualMachinePool::bootstrap(db);
             rc += HostPool::bootstrap(db);
             rc += VirtualNetworkPool::bootstrap(db);
-            rc += GroupPool::bootstrap(db);
-            rc += UserPool::bootstrap(db);
             rc += ImagePool::bootstrap(db);
             rc += VMTemplatePool::bootstrap(db);
-            rc += AclManager::bootstrap(db);
             rc += DatastorePool::bootstrap(db);
             rc += ClusterPool::bootstrap(db);
+            rc += DocumentPool::bootstrap(db);
+            rc += UserQuotas::bootstrap(db);
+            rc += GroupQuotas::bootstrap(db);
+            rc += SecurityGroupPool::bootstrap(db);
 
-            // Create the versioning table only if bootstrap went well
+            // Create the system tables only if bootstrap went well
+            if (rc == 0)
+            {
+                rc += system_db->local_bootstrap();
+            }
+
+            // Insert default system attributes
+            rc += default_user_quota.insert();
+            rc += default_group_quota.insert();
+        }
+
+        if (shared_bootstrap)
+        {
+            NebulaLog::log("ONE",Log::INFO,
+                    "Bootstrapping OpenNebula database, stage 2.");
+
+            rc += GroupPool::bootstrap(db);
+            rc += UserPool::bootstrap(db);
+            rc += AclManager::bootstrap(db);
+            rc += ZonePool::bootstrap(db);
+            rc += VdcPool::bootstrap(db);
+
+            // Create the system tables only if bootstrap went well
             if ( rc == 0 )
             {
-                rc += bootstrap();
+                rc += system_db->shared_bootstrap();
             }
+        }
 
-            if ( rc != 0 )
-            {
-                throw runtime_error("Error bootstrapping database.");
-            }
+        if ( rc != 0 )
+        {
+            throw runtime_error("Error bootstrapping database.");
         }
     }
     catch (exception&)
@@ -261,71 +386,14 @@ void Nebula::start()
         throw;
     }
 
-    try
+    if (bootstrap_only)
     {
-        int     size;
+        //XML Library
+        xmlCleanupParser();
 
-        string  mac_prefix;
-        string  default_image_type;
-        string  default_device_prefix;
+        NebulaLog::log("ONE", Log::INFO, "Database bootstrap finalized, exiting.\n");
 
-        time_t  expiration_time;
-        time_t  vm_expiration;
-        time_t  host_expiration;
-
-        vector<const Attribute *> vm_hooks;
-        vector<const Attribute *> host_hooks;
-        vector<const Attribute *> vm_restricted_attrs;
-        vector<const Attribute *> img_restricted_attrs;
-
-        clpool  = new ClusterPool(db);
-
-        nebula_configuration->get("VM_HOOK", vm_hooks);
-        nebula_configuration->get("HOST_HOOK", host_hooks);
-
-        nebula_configuration->get("VM_RESTRICTED_ATTR", vm_restricted_attrs);
-        nebula_configuration->get("IMAGE_RESTRICTED_ATTR", img_restricted_attrs);
-
-        nebula_configuration->get("VM_MONITORING_EXPIRATION_TIME",vm_expiration);
-        nebula_configuration->get("HOST_MONITORING_EXPIRATION_TIME",host_expiration);
-
-        vmpool = new VirtualMachinePool(db, 
-                                        vm_hooks, 
-                                        hook_location, 
-                                        remotes_location,
-                                        vm_restricted_attrs,
-                                        vm_expiration);
-        hpool  = new HostPool(  db,
-                                host_hooks,
-                                hook_location,
-                                remotes_location,
-                                host_expiration);
-
-        nebula_configuration->get("MAC_PREFIX", mac_prefix);
-        nebula_configuration->get("NETWORK_SIZE", size);
-
-        vnpool = new VirtualNetworkPool(db,mac_prefix,size);
-        gpool  = new GroupPool(db);
-
-        nebula_configuration->get("SESSION_EXPIRATION_TIME", expiration_time);
-        upool  = new UserPool(db, expiration_time);
-
-        nebula_configuration->get("DEFAULT_IMAGE_TYPE", default_image_type);
-        nebula_configuration->get("DEFAULT_DEVICE_PREFIX",
-                                  default_device_prefix);
-
-        ipool  = new ImagePool(db,
-                               default_image_type,
-                               default_device_prefix,
-                               img_restricted_attrs);
-
-        tpool  = new VMTemplatePool(db);
-
-        dspool = new DatastorePool(db);
-    }
-    catch (exception&)
-    {
-        throw;
+        return;
     }
 
     // -----------------------------------------------------------
@@ -359,27 +427,203 @@ void Nebula::start()
     MadManager::mad_manager_system_init();
 
     time_t timer_period;
+    time_t monitor_period;
 
     nebula_configuration->get("MANAGER_TIMER", timer_period);
+    nebula_configuration->get("MONITORING_INTERVAL", monitor_period);
+
+    // ---- ACL Manager ----
+    try
+    {
+        aclm = new AclManager(db, zone_id, is_federation_slave(), timer_period);
+    }
+    catch (bad_alloc&)
+    {
+        throw;
+    }
+
+    rc = aclm->start();
+
+    if ( rc != 0 )
+    {
+       throw runtime_error("Could not start the ACL Manager");
+    }
+
+    // -----------------------------------------------------------
+    // Pools
+    // -----------------------------------------------------------
+    try
+    {
+        int     size;
+
+        string  mac_prefix;
+        string  default_image_type;
+        string  default_device_prefix;
+        string  default_cdrom_device_prefix;
+
+        time_t  expiration_time;
+        time_t  vm_expiration;
+        time_t  host_expiration;
+
+        bool    vm_submit_on_hold;
+        float   cpu_cost;
+        float   mem_cost;
+
+        vector<const Attribute *> vm_hooks;
+        vector<const Attribute *> host_hooks;
+        vector<const Attribute *> vnet_hooks;
+        vector<const Attribute *> user_hooks;
+        vector<const Attribute *> group_hooks;
+        vector<const Attribute *> image_hooks;
+
+        vector<const Attribute *> vm_restricted_attrs;
+        vector<const Attribute *> img_restricted_attrs;
+        vector<const Attribute *> vnet_restricted_attrs;
+
+        vector<const Attribute *> inherit_image_attrs;
+        vector<const Attribute *> inherit_datastore_attrs;
+        vector<const Attribute *> inherit_vnet_attrs;
+
+        vector<const Attribute *> default_cost;
+
+        clpool  = new ClusterPool(db);
+        docpool = new DocumentPool(db);
+        zonepool= new ZonePool(db, is_federation_slave());
+        vdcpool = new VdcPool(db, is_federation_slave());
+
+        nebula_configuration->get("VM_HOOK", vm_hooks);
+        nebula_configuration->get("HOST_HOOK",  host_hooks);
+        nebula_configuration->get("VNET_HOOK",  vnet_hooks);
+        nebula_configuration->get("USER_HOOK",  user_hooks);
+        nebula_configuration->get("GROUP_HOOK", group_hooks);
+        nebula_configuration->get("IMAGE_HOOK", image_hooks);
+
+        nebula_configuration->get("VM_RESTRICTED_ATTR", vm_restricted_attrs);
+        nebula_configuration->get("IMAGE_RESTRICTED_ATTR", img_restricted_attrs);
+        nebula_configuration->get("VNET_RESTRICTED_ATTR", vnet_restricted_attrs);
+
+        nebula_configuration->get("INHERIT_IMAGE_ATTR", inherit_image_attrs);
+        nebula_configuration->get("INHERIT_DATASTORE_ATTR", inherit_datastore_attrs);
+        nebula_configuration->get("INHERIT_VNET_ATTR", inherit_vnet_attrs);
+
+        nebula_configuration->get("VM_MONITORING_EXPIRATION_TIME",vm_expiration);
+        nebula_configuration->get("HOST_MONITORING_EXPIRATION_TIME",host_expiration);
+
+        nebula_configuration->get("VM_SUBMIT_ON_HOLD",vm_submit_on_hold);
+
+        rc = nebula_configuration->get("DEFAULT_COST", default_cost);
+
+        cpu_cost = 0;
+        mem_cost = 0;
+
+        if (rc != 0)
+        {
+            const VectorAttribute * vatt = static_cast<const VectorAttribute *>
+                                              (default_cost[0]);
+
+            rc = vatt->vector_value("CPU_COST", cpu_cost);
+
+            if (rc != 0)
+            {
+                cpu_cost = 0;
+            }
+
+            rc = vatt->vector_value("MEMORY_COST", mem_cost);
+
+            if (rc != 0)
+            {
+                mem_cost = 0;
+            }
+        }
+
+        vmpool = new VirtualMachinePool(db,
+                                        vm_hooks,
+                                        hook_location,
+                                        remotes_location,
+                                        vm_restricted_attrs,
+                                        vm_expiration,
+                                        vm_submit_on_hold,
+                                        cpu_cost,
+                                        mem_cost);
+
+        hpool  = new HostPool(db,
+                              host_hooks,
+                              hook_location,
+                              remotes_location,
+                              host_expiration);
+
+        nebula_configuration->get("MAC_PREFIX", mac_prefix);
+        nebula_configuration->get("NETWORK_SIZE", size);
+
+        vnpool = new VirtualNetworkPool(db,
+                                        mac_prefix,
+                                        size,
+                                        vnet_restricted_attrs,
+                                        vnet_hooks,
+                                        remotes_location,
+                                        inherit_vnet_attrs);
+
+        gpool  = new GroupPool(db, group_hooks,
+                            remotes_location, is_federation_slave());
+
+        nebula_configuration->get("SESSION_EXPIRATION_TIME", expiration_time);
+
+        upool = new UserPool(db, expiration_time, user_hooks,
+                            remotes_location, is_federation_slave());
+
+        nebula_configuration->get("DEFAULT_IMAGE_TYPE", default_image_type);
+        nebula_configuration->get("DEFAULT_DEVICE_PREFIX",
+                                  default_device_prefix);
+        nebula_configuration->get("DEFAULT_CDROM_DEVICE_PREFIX",
+                                  default_cdrom_device_prefix);
+        ipool  = new ImagePool(db,
+                               default_image_type,
+                               default_device_prefix,
+                               default_cdrom_device_prefix,
+                               img_restricted_attrs,
+                               image_hooks,
+                               remotes_location,
+                               inherit_image_attrs,
+                               inherit_datastore_attrs);
+
+        tpool  = new VMTemplatePool(db);
+
+        dspool = new DatastorePool(db);
+
+        default_user_quota.select();
+        default_group_quota.select();
+
+        secgrouppool = new SecurityGroupPool(db);
+    }
+    catch (exception&)
+    {
+        throw runtime_error("Error Initializing OpenNebula pools");
+    }
+
 
     // ---- Virtual Machine Manager ----
     try
     {
-        time_t                    poll_period;
         vector<const Attribute *> vmm_mads;
-        int                       vm_limit;
+        int    vm_limit;
 
-        nebula_configuration->get("VM_POLLING_INTERVAL", poll_period);
+        bool   do_poll;
+        time_t poll_period = 0;
 
         nebula_configuration->get("VM_PER_INTERVAL", vm_limit);
 
         nebula_configuration->get("VM_MAD", vmm_mads);
+
+        nebula_configuration->get("VM_INDIVIDUAL_MONITORING", do_poll);
+
+        poll_period = monitor_period * 2.5;
 
         vmm = new VirtualMachineManager(
             vmpool,
             hpool,
             timer_period,
             poll_period,
+            do_poll,
             vm_limit,
             vmm_mads);
     }
@@ -416,19 +660,22 @@ void Nebula::start()
     try
     {
         vector<const Attribute *>   im_mads;
-        time_t                      monitor_period;
-        int                         host_limit;
 
-        nebula_configuration->get("HOST_MONITORING_INTERVAL", monitor_period);
+        int host_limit;
+        int monitor_threads;
 
         nebula_configuration->get("HOST_PER_INTERVAL", host_limit);
+
+        nebula_configuration->get("MONITORING_THREADS", monitor_threads);
 
         nebula_configuration->get("IM_MAD", im_mads);
 
         im = new InformationManager(hpool,
+                                    clpool,
                                     timer_period,
                                     monitor_period,
                                     host_limit,
+                                    monitor_threads,
                                     remotes_location,
                                     im_mads);
     }
@@ -534,23 +781,6 @@ void Nebula::start()
         }
     }
 
-    // ---- ACL Manager ----
-    try
-    {
-        aclm = new AclManager(db);
-    }
-    catch (bad_alloc&)
-    {
-        throw;
-    }
-
-    rc = aclm->start();
-
-    if ( rc != 0 )
-    {
-       throw runtime_error("Could not start the ACL Manager");
-    }
-
     // ---- Image Manager ----
     try
     {
@@ -558,7 +788,11 @@ void Nebula::start()
 
         nebula_configuration->get("DATASTORE_MAD", image_mads);
 
-        imagem = new ImageManager(ipool,image_mads);
+        imagem = new ImageManager(timer_period,
+                                  monitor_period,
+                                  ipool,
+                                  dspool,
+                                  image_mads);
     }
     catch (bad_alloc&)
     {
@@ -572,14 +806,79 @@ void Nebula::start()
        throw runtime_error("Could not start the Image Manager");
     }
 
+    // -----------------------------------------------------------
+    // Load mads
+    // -----------------------------------------------------------
+
+    sleep(1);
+
+    rc = 0;
+
+    if (vmm->load_mads(0) != 0)
+    {
+        goto error_mad;
+    }
+
+    if (im->load_mads(0) != 0)
+    {
+        goto error_mad;
+    }
+
+    if (tm->load_mads(0) != 0)
+    {
+        goto error_mad;
+    }
+
+    if (hm->load_mads(0) != 0)
+    {
+        goto error_mad;
+    }
+
+    if (imagem->load_mads(0) != 0)
+    {
+        goto error_mad;
+    }
+
+    if ( authm != 0 )
+    {
+        if (authm->load_mads(0) != 0)
+        {
+            goto error_mad;
+        }
+    }
+
     // ---- Request Manager ----
     try
     {
-        int             rm_port = 0;
+        int  rm_port = 0;
+        int  max_conn;
+        int  max_conn_backlog;
+        int  keepalive_timeout;
+        int  keepalive_max_conn;
+        int  timeout;
+        bool rpc_log;
+        string log_call_format;
+        string rpc_filename = "";
+        int  message_size;
 
         nebula_configuration->get("PORT", rm_port);
+        nebula_configuration->get("MAX_CONN", max_conn);
+        nebula_configuration->get("MAX_CONN_BACKLOG", max_conn_backlog);
+        nebula_configuration->get("KEEPALIVE_TIMEOUT", keepalive_timeout);
+        nebula_configuration->get("KEEPALIVE_MAX_CONN", keepalive_max_conn);
+        nebula_configuration->get("TIMEOUT", timeout);
+        nebula_configuration->get("RPC_LOG", rpc_log);
+        nebula_configuration->get("LOG_CALL_FORMAT", log_call_format);
+        nebula_configuration->get("MESSAGE_SIZE", message_size);
 
-        rm = new RequestManager(rm_port, log_location + "one_xmlrpc.log");
+        if (rpc_log)
+        {
+            rpc_filename = log_location + "one_xmlrpc.log";
+        }
+
+        rm = new RequestManager(rm_port, max_conn, max_conn_backlog,
+            keepalive_timeout, keepalive_max_conn, timeout, rpc_filename,
+            log_call_format, message_size);
     }
     catch (bad_alloc&)
     {
@@ -592,24 +891,6 @@ void Nebula::start()
     if ( rc != 0 )
     {
        throw runtime_error("Could not start the Request Manager");
-    }
-
-    // -----------------------------------------------------------
-    // Load mads
-    // -----------------------------------------------------------
-
-    sleep(2);
-
-    vmm->load_mads(0);
-
-    im->load_mads(0);
-    tm->load_mads(0);
-    hm->load_mads(0);
-    imagem->load_mads(0);
-
-    if ( authm != 0 )
-    {
-        authm->load_mads(0);
     }
 
     // -----------------------------------------------------------
@@ -637,6 +918,7 @@ void Nebula::start()
     rm->finalize();
     hm->finalize();
     imagem->finalize();
+    aclm->finalize();
 
     //sleep to wait drivers???
 
@@ -650,105 +932,20 @@ void Nebula::start()
     pthread_join(hm->get_thread_id(),0);
     pthread_join(imagem->get_thread_id(),0);
 
+    if(is_federation_slave())
+    {
+        pthread_join(aclm->get_thread_id(),0);
+    }
+
     //XML Library
     xmlCleanupParser();
 
     NebulaLog::log("ONE", Log::INFO, "All modules finalized, exiting.\n");
+
+    return;
+
+error_mad:
+    NebulaLog::log("ONE", Log::ERROR, "Could not load driver");
+    throw runtime_error("Could not load an OpenNebula driver");
 }
 
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-int Nebula::bootstrap()
-{
-    int             rc;
-    ostringstream   oss;
-
-    oss <<  "CREATE TABLE pool_control (tablename VARCHAR(32) PRIMARY KEY, "
-            "last_oid BIGINT UNSIGNED)";
-
-    rc = db->exec(oss);
-
-    oss.str("");
-    oss <<  "CREATE TABLE db_versioning (oid INTEGER PRIMARY KEY, "
-            "version VARCHAR(256), timestamp INTEGER, comment VARCHAR(256))";
-
-    rc += db->exec(oss);
-
-    oss.str("");
-    oss << "INSERT INTO db_versioning (oid, version, timestamp, comment) "
-        << "VALUES (0, '" << db_version() << "', " << time(0)
-        << ", '" << version() << " daemon bootstrap')";
-
-    rc += db->exec(oss);
-
-    return rc;
-}
-
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-int Nebula::check_db_version()
-{
-    int             rc;
-    ostringstream   oss;
-
-
-    string loaded_db_version = "";
-
-    // Try to read latest version
-    set_callback( static_cast<Callbackable::Callback>(&Nebula::select_cb),
-                  static_cast<void *>(&loaded_db_version) );
-
-    oss << "SELECT version FROM db_versioning "
-        << "WHERE oid=(SELECT MAX(oid) FROM db_versioning)";
-
-    db->exec(oss, this);
-
-    oss.str("");
-    unset_callback();
-
-    if( loaded_db_version == "" )
-    {
-        // Table user_pool is present for all OpenNebula versions, and it
-        // always contains at least the oneadmin user.
-        oss << "SELECT MAX(oid) FROM user_pool";
-        rc = db->exec(oss);
-
-        oss.str("");
-
-        if( rc != 0 )   // Database needs bootstrap
-        {
-            return -2;
-        }
-    }
-
-    if( db_version() != loaded_db_version )
-    {
-        oss << "Database version mismatch. "
-            << "Installed " << version() << " uses DB version '" << db_version()
-            << "', and existing DB version is '"
-            << loaded_db_version << "'.";
-
-        NebulaLog::log("ONE",Log::ERROR,oss);
-        return -1;
-    }
-
-    return 0;
-}
-
-int Nebula::select_cb(void *_loaded_db_version, int num, char **values,
-                      char **names)
-{
-    istringstream   iss;
-    string *        loaded_db_version;
-
-    loaded_db_version = static_cast<string *>(_loaded_db_version);
-
-    if ( (values[0]) && (num == 1) )
-    {
-        *loaded_db_version = values[0];
-    }
-
-    return 0;
-};

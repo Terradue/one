@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -42,6 +42,8 @@ module OpenNebulaJSON
                  when "deldatastore" then self.deldatastore(action_hash['params'])
                  when "addvnet" then self.addvnet(action_hash['params'])
                  when "delvnet" then self.delvnet(action_hash['params'])
+                 when "update"  then self.update(action_hash['params'])
+                 when "rename"  then self.rename(action_hash['params'])
 
                  else
                      error_msg = "#{action_hash['perform']} action not " <<
@@ -72,6 +74,14 @@ module OpenNebulaJSON
 
         def delvnet(params=Hash.new)
             super(params['vnet_id'].to_i)
+        end
+
+        def update(params=Hash.new)
+            super(params['template_raw'])
+        end
+
+        def rename(params=Hash.new)
+            super(params['name'])
         end
     end
 end

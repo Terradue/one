@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -20,6 +20,7 @@
 #include "PoolSQL.h"
 #include "ImageTemplate.h"
 #include "NebulaLog.h"
+#include "ObjectCollection.h"
 
 using namespace std;
 
@@ -36,14 +37,17 @@ public:
     {
         OS        = 0, /** < Base OS image */
         CDROM     = 1, /** < An ISO9660 image */
-        DATABLOCK = 2  /** < User persistent data device */
+        DATABLOCK = 2, /** < User persistent data device */
+        KERNEL    = 3, /** < Kernel files */
+        RAMDISK   = 4, /** < Initrd files */
+        CONTEXT   = 5  /** < Context files */
     };
 
     /**
      *  Return the string representation of an ImageType
      *    @param ob the type
      *    @return the string
-     */ 
+     */
     static string type_to_str(ImageType ob)
     {
         switch (ob)
@@ -51,6 +55,9 @@ public:
             case OS:        return "OS" ; break;
             case CDROM:     return "CDROM" ; break;
             case DATABLOCK: return "DATABLOCK" ; break;
+            case KERNEL:    return "KERNEL" ; break;
+            case RAMDISK:   return "RAMDISK" ; break;
+            case CONTEXT:   return "CONTEXT" ; break;
             default:        return "";
         }
     };
@@ -59,35 +66,55 @@ public:
      *  Return the string representation of an ImageType
      *    @param ob the type
      *    @return the string
-     */ 
-    static ImageType str_to_type(string& str_type);    
+     */
+    static ImageType str_to_type(string& str_type);
 
     /**
-     *  Type of Disks (used by the VMM_MAD). Values: BLOCK, CDROM or 
+     *  Type of Disks (used by the VMM_MAD). Values: BLOCK, CDROM or
      *  FILE
      */
     enum DiskType
     {
-        FILE   = 0, /** < File-based disk */
-        CD_ROM = 1, /** < An ISO9660 disk */
-        BLOCK  = 2  /** < Block-device disk */
+        FILE          = 0, /** < File-based disk */
+        CD_ROM        = 1, /** < An ISO9660 disk */
+        BLOCK         = 2, /** < Block-device disk */
+        RBD           = 3, /** < CEPH RBD disk */
+        RBD_CDROM     = 4, /** < CEPH RBD CDROM disk */
+        GLUSTER       = 5, /** < Gluster Block Device */
+        GLUSTER_CDROM = 6, /** < Gluster CDROM Device Device */
+        SHEEPDOG      = 7, /** < Sheepdog Block Device */
+        SHEEPDOG_CDROM = 8, /** < Sheepdog CDROM Device Device */
+        NONE          = 255 /** < No disk type, error situation */
     };
 
     /**
      *  Return the string representation of a DiskType
      *    @param ob the type
      *    @return the string
-     */ 
+     */
     static string disk_type_to_str(DiskType ob)
     {
         switch (ob)
         {
-            case FILE:   return "FILE" ; break;
-            case CD_ROM: return "CDROM" ; break;
-            case BLOCK:  return "BLOCK" ; break;
-            default:     return "";
+            case FILE:              return "FILE" ; break;
+            case CD_ROM:            return "CDROM" ; break;
+            case BLOCK:             return "BLOCK" ; break;
+            case RBD:               return "RBD" ; break;
+            case RBD_CDROM:         return "RBD_CDROM" ; break;
+            case GLUSTER:           return "GLUSTER" ; break;
+            case GLUSTER_CDROM:     return "GLUSTER_CDROM" ; break;
+            case SHEEPDOG:	    return "SHEEPDOG" ; break;
+            case SHEEPDOG_CDROM:    return "SHEEPDOG_CDROM" ; break;
+            default:                return "";
         }
     };
+
+    /**
+     *  Return the string representation of a DiskType
+     *    @param s_disk_type string representing the DiskTypr
+     *    @return the DiskType (defaults to FILE)
+     */
+    static DiskType str_to_disk_type(string& s_disk_type);
 
     /**
      *  Image State
@@ -99,7 +126,32 @@ public:
         USED      = 2, /** < Image in use */
         DISABLED  = 3, /** < Image can not be instantiated by a VM */
         LOCKED    = 4, /** < FS operation for the Image in process */
-        ERROR     = 5  /** < Error state the operation FAILED*/
+        ERROR     = 5, /** < Error state the operation FAILED*/
+        CLONE     = 6, /** < Image is being cloned */
+        DELETE    = 7, /** < DS is deleting the image */
+        USED_PERS = 8  /** < Image is in use and persistent */
+    };
+
+    /**
+     * Returns the string representation of an ImageState
+     * @param state The state
+     * @return the string representation
+     */
+    static string state_to_str(ImageState state)
+    {
+        switch(state)
+        {
+            case INIT:      return "INIT";      break;
+            case READY:     return "READY";     break;
+            case USED:      return "USED";      break;
+            case DISABLED:  return "DISABLED";  break;
+            case LOCKED:    return "LOCKED";    break;
+            case ERROR:     return "ERROR";     break;
+            case CLONE:     return "CLONE";     break;
+            case DELETE:    return "DELETE";    break;
+            case USED_PERS: return "USED";      break;
+            default:        return "";
+        }
     };
 
     // *************************************************************************
@@ -158,10 +210,10 @@ public:
     }
 
     /**
-     *  Returns the size of the image 
-     *     @return size in mb
+     *  Returns the size of the image
+     *     @return size in MB
      */
-    int get_size() const
+    long long get_size() const
     {
         return size_mb;
     }
@@ -177,7 +229,7 @@ public:
     /**
      *  Sets the size for the image
      */
-    void set_size(unsigned int _size_mb)
+    void set_size(long long _size_mb)
     {
         size_mb = _size_mb;
     }
@@ -186,7 +238,7 @@ public:
      *  Returns the type of the image
      *     @return type
      */
-    ImageType get_type()
+    ImageType get_type() const
     {
         return type;
     }
@@ -194,7 +246,7 @@ public:
      *  Returns the image state
      *     @return state of image
      */
-    ImageState get_state()
+    ImageState get_state() const
     {
         return state;
     }
@@ -209,27 +261,81 @@ public:
     }
 
     /**
-     *
+     *  Return the ID of the image we are cloning this one from (if any)
      */
-    int dec_running ()
+    int get_cloning_id() const
     {
-        return --running_vms;
+        return cloning_id;
     }
 
     /**
-     *
+     *  Sets the ID of the image we are cloning this one from (if any)
      */
-    int inc_running()
+    void set_cloning_id(int id)
     {
-        return ++running_vms;
+        cloning_id = id;
     }
 
     /**
-     *
+     *  Clear the cloning state of the image
      */
-    int get_running()
+    void clear_cloning_id()
+    {
+        cloning_id = -1;
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /*   Access Image Counters (running vms and cloning operations )          */
+    /* ---------------------------------------------------------------------- */
+
+    int dec_running (int vm_id)
+    {
+        if ( vm_collection.del_collection_id(vm_id) == 0 )
+        {
+            running_vms--;
+        }
+
+        return running_vms;
+    }
+
+    int inc_running(int vm_id)
+    {
+        if ( vm_collection.add_collection_id(vm_id) == 0 )
+        {
+            running_vms++;
+        }
+
+        return running_vms;
+    }
+
+    int get_running() const
     {
         return running_vms;
+    }
+
+    int get_cloning() const
+    {
+        return cloning_ops;
+    }
+
+    int dec_cloning(int img_id)
+    {
+        if ( img_clone_collection.del_collection_id(img_id) == 0 )
+        {
+            cloning_ops--;
+        }
+
+        return cloning_ops;
+    }
+
+    int inc_cloning(int img_id)
+    {
+        if ( img_clone_collection.add_collection_id(img_id) == 0 )
+        {
+            cloning_ops++;
+        }
+
+        return cloning_ops;
     }
 
     /**
@@ -246,7 +352,7 @@ public:
      */
     bool isPublic()
     {
-       return (group_u == 1 || other_u == 1); 
+       return (group_u == 1 || other_u == 1);
     }
 
     /**
@@ -261,32 +367,15 @@ public:
     }
 
     /**
-     *  Set permissions for the Image. Extends the PoolSQLObject method
-     *  by checking the persistent state of the image.
+     *  Check if the image is a hot snapshot
+     *  @return true if image is a hot snapshot
      */
-    int set_permissions(int _owner_u,
-                        int _owner_m,
-                        int _owner_a,
-                        int _group_u,
-                        int _group_m,
-                        int _group_a,
-                        int _other_u,
-                        int _other_m,
-                        int _other_a,
-                        string& error_str)
+    bool isHot()
     {
-        if ( isPersistent() && (_group_u == 1 || _other_u == 1) )
-        {
-            error_str = "Image cannot be public and persistent.";
+        ImageTemplate * it = static_cast<ImageTemplate *>(obj_template);
 
-            return -1;
-        } 
-
-        return PoolObjectSQL::set_permissions(_owner_u, _owner_m, _owner_a,
-                                              _group_u, _group_m, _group_a,
-                                              _other_u, _other_m, _other_a,
-                                              error_str);
-    };
+        return it->is_saving_hot();
+    }
 
     /**
      *  Set/Unset an image as persistent
@@ -297,34 +386,40 @@ public:
      */
     int persistent(bool persis, string& error_str)
     {
-        if ( running_vms != 0 )
-        {
-            goto error_vms;
-        }
+        ostringstream oss;
 
-        if (persis == true)
+        switch(state)
         {
-            
-            if ( isPublic() )
-            {
-                goto error_public;
-            }
-            
-            persistent_img = 1;
-        }
-        else
-        {
-            persistent_img = 0;
+            case USED:
+            case CLONE:
+            case USED_PERS:
+                goto error_state;
+                break;
+
+            case INIT:
+            case READY:
+            case DISABLED:
+            case LOCKED:
+            case ERROR:
+            case DELETE:
+                if (persis == true)
+                {
+                    persistent_img = 1;
+                }
+                else
+                {
+                    persistent_img = 0;
+                }
+
+                break;
         }
 
         return 0;
 
-    error_vms:
-        error_str = "Image cannot be in 'used' state.";
-        goto error_common;
+    error_state:
+        oss << "Image cannot be in state " << state_to_str(state) << ".";
+        error_str = oss.str();
 
-    error_public:
-        error_str = "Image cannot be public and persistent.";
         goto error_common;
 
     error_common:
@@ -335,19 +430,21 @@ public:
     /**
      * Modifies the given disk attribute adding the following attributes:
      *  * SOURCE: the file-path.
-     *  * BUS:    will only be set if the Image's definition includes it.
      *  * TARGET: will only be set if the Image's definition includes it.
      *
      * @param disk attribute for the VM template
      * @param img_type will be set to the used image's type
      * @param dev_prefix will be set to the defined dev_prefix,
      *   or the default one
+     * @param inherit_attrs Attributes to be inherited from the image template
+     *   into the disk
      *
      * @return 0 on success, -1 otherwise
      */
-    int disk_attribute( VectorAttribute * disk,
-                        ImageType&        img_type,
-                        string&           dev_prefix);
+    int disk_attribute( VectorAttribute *       disk,
+                        ImageType&              img_type,
+                        string&                 dev_prefix,
+                        const vector<string>&   inherit_attrs);
 
     /**
      *  Factory method for image templates
@@ -366,13 +463,29 @@ public:
     };
 
     /**
-     * Returns the Datastore ID
+     * Returns the Datastore name
      */
     const string& get_ds_name() const
     {
         return ds_name;
     };
-    
+
+    /**
+     * Updates the Datastore name
+     */
+    void set_ds_name(const string& name)
+    {
+        ds_name = name;
+    };
+
+    /**
+     * Clones this image template including image specific attributes: NAME,
+     * TYPE, PATH, FSTYPE, SIZE and PERSISTENT
+     * @param new_name Value for the NAME attribute
+     * @return Pointer to the new tempalte 0 in case of success
+     */
+    ImageTemplate * clone_template(const string& new_name) const;
+
 private:
 
     // -------------------------------------------------------------------------
@@ -423,7 +536,7 @@ private:
     /**
      *  Size of the image in MB
      */
-    unsigned int size_mb;
+    long long size_mb;
 
      /**
       *  Image state
@@ -436,6 +549,17 @@ private:
     int running_vms;
 
     /**
+     * Number of pending cloning operations
+     */
+    int cloning_ops;
+
+    /**
+     * Indicates if this Image is a clone of another one.
+     * Once the clone process is complete, it should be set to -1
+     */
+    int cloning_id;
+
+    /**
      * Datastore ID
      */
     int ds_id;
@@ -444,6 +568,16 @@ private:
      * Datastore name
      */
     string ds_name;
+
+    /**
+     *  Stores a collection with the VMs using the image
+     */
+    ObjectCollection vm_collection;
+
+    /**
+     *  Stores a collection with the Images cloning this image
+     */
+    ObjectCollection img_clone_collection;
 
     // *************************************************************************
     // DataBase implementation (Private)
@@ -486,6 +620,7 @@ protected:
           int            gid,
           const string&  uname,
           const string&  gname,
+          int            umask,
           ImageTemplate* img_template);
 
     virtual ~Image();

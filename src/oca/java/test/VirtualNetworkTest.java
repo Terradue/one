@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,16 +39,14 @@ public class VirtualNetworkTest
 
     private static String template =
                         "NAME = " + name + "\n"+
-                        "TYPE = RANGED\n" +
                         "BRIDGE = vbr0\n" +
-                        "NETWORK_SIZE    = C\n" +
-                        "NETWORK_ADDRESS = 192.168.0.0\n";
+                        "NETWORK_ADDRESS = 192.168.0.0\n"+
+                        "AR = [ TYPE = IP4, IP = 192.168.0.1, SIZE = 254 ]\n";
 
-    private static String fixed_template =
+    private static String second_template =
                         "NAME   = \"Net number one\"\n" +
-                        "TYPE   = FIXED\n" +
                         "BRIDGE = br1\n" +
-                        "LEASES = [IP=130.10.0.1]";
+                        "AR = [ TYPE = IP4, IP=130.10.0.1, SIZE = 1]";
 
     /**
      * @throws java.lang.Exception
@@ -93,17 +91,6 @@ public class VirtualNetworkTest
     @Test
     public void allocate()
     {
-//        String template =   "NAME = " + name + "\n"+
-//                            "TYPE = RANGED\n" +
-//                            "PUBLIC = NO\n" +
-//                            "BRIDGE = vbr0\n" +
-//                            "NETWORK_SIZE    = C\n" +
-//                            "NETWORK_ADDRESS = 192.168.0.0\n";
-//
-//        res = VirtualNetwork.allocate(client, template);
-//        assertTrue( !res.isError() );
-//        assertTrue( res.getMessage().equals("0") );
-
         vnetPool.info();
 
         boolean found = false;
@@ -119,10 +106,7 @@ public class VirtualNetworkTest
     public void info()
     {
         res = vnet.info();
-        assertTrue( !res.isError() );
-
-//        assertTrue( vnet.getId().equals("0") );
-//        assertTrue( vnet.id() == 0 );
+        assertTrue( res.getErrorMessage(), !res.isError() );
         assertTrue( vnet.getName().equals(name) );
     }
 
@@ -130,9 +114,8 @@ public class VirtualNetworkTest
     public void attributes()
     {
         res = vnet.info();
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-//        assertTrue( vnet.xpath("ID").equals("0") );
         assertTrue( vnet.xpath("NAME").equals(name) );
         assertTrue( vnet.xpath("BRIDGE").equals("vbr0") );
     }
@@ -141,95 +124,87 @@ public class VirtualNetworkTest
     public void delete()
     {
         res = vnet.delete();
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         res = vnet.info();
         assertTrue( res.isError() );
     }
 
     @Test
-    public void addLeases()
+    public void addAr()
     {
-        res = VirtualNetwork.allocate(client, fixed_template);
-        assertTrue( !res.isError() );
+        res = VirtualNetwork.allocate(client, second_template);
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        VirtualNetwork fixed_vnet =
+        VirtualNetwork second_vnet =
             new VirtualNetwork(Integer.parseInt(res.getMessage()), client);
 
-        res = fixed_vnet.addLeases("130.10.0.5");
-        assertTrue( !res.isError() );
+        res = second_vnet.addAr("AR = [IP = 130.10.0.5, SIZE = 1, TYPE = IP4]");
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        res = fixed_vnet.addLeases("130.10.0.6", "50:20:20:20:20:20");
-        assertTrue( !res.isError() );
+        res = second_vnet.addAr("AR = [IP = 130.10.0.6, MAC = 50:20:20:20:20:20, SIZE = 1, TYPE = IP4]");
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        res = fixed_vnet.addLeases("130.10.0.6");
+        res = second_vnet.addAr("130.10.0.6");
         assertTrue( res.isError() );
 
-        fixed_vnet.delete();
+        second_vnet.delete();
     }
 
     @Test
-    public void rmLeases()
+    public void rmAr()
     {
-        res = VirtualNetwork.allocate(client, fixed_template);
-        assertTrue( !res.isError() );
+        res = VirtualNetwork.allocate(client, second_template);
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        VirtualNetwork fixed_vnet =
+        VirtualNetwork second_vnet =
             new VirtualNetwork(Integer.parseInt(res.getMessage()), client);
 
-        res = fixed_vnet.rmLeases("130.10.0.1");
-        assertTrue( !res.isError() );
+        res = second_vnet.rmAr(0);
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        res = fixed_vnet.rmLeases("130.10.0.5");
+        res = second_vnet.rmAr(0);
         assertTrue( res.isError() );
 
-        fixed_vnet.delete();
+        second_vnet.delete();
     }
 
     @Test
-    public void holdFixed()
+    public void updateAr()
     {
-        res = VirtualNetwork.allocate(client, fixed_template);
-        assertTrue( !res.isError() );
+        String new_template = 
+            "AR = [ AR_ID = 0, ATT2 = NEW_VAL, ATT3 = VAL3 ]";
 
-        VirtualNetwork fixed_vnet =
-            new VirtualNetwork(Integer.parseInt(res.getMessage()), client);
+        res = vnet.updateAr(new_template);
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        res = fixed_vnet.hold("130.10.0.1");
-        assertTrue( !res.isError() );
-
-        res = fixed_vnet.hold("130.10.0.5");
-        assertTrue( res.isError() );
-
-        res = fixed_vnet.release("130.10.0.1");
-        assertTrue( !res.isError() );
-
-        res = fixed_vnet.release("130.10.0.1");
-        assertTrue( res.isError() );
-
-        res = fixed_vnet.release("130.10.0.5");
-        assertTrue( res.isError() );
-
-        fixed_vnet.delete();
+        res = vnet.info();
+        assertTrue( res.getErrorMessage(), !res.isError() );
+        assertTrue( vnet.xpath("AR_POOL/AR[AR_ID=0]/ATT1").equals( "" ) );
+        assertTrue( vnet.xpath("AR_POOL/AR[AR_ID=0]/ATT2").equals( "NEW_VAL" ) );
+        assertTrue( vnet.xpath("AR_POOL/AR[AR_ID=0]/ATT3").equals( "VAL3" ) );
     }
 
     @Test
-    public void holdRanged()
+    public void hold()
     {
         res = vnet.hold("192.168.0.10");
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        res = vnet.hold("192.168.0.11", 0);
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         res = vnet.hold("192.168.100.1");
         assertTrue( res.isError() );
 
         res = vnet.release("192.168.0.10");
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        res = vnet.release("192.168.0.11", 0);
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         res = vnet.release("192.168.0.10");
-        assertTrue( res.isError() );
-
-        res = vnet.release("192.168.100.1");
-        assertTrue( res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         vnet.delete();
     }
@@ -241,13 +216,15 @@ public class VirtualNetworkTest
                 "ATT3 = VAL3";
 
         res = vnet.update(new_template);
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         res = vnet.info();
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
         assertTrue( vnet.xpath("TEMPLATE/ATT1").equals( "" ) );
         assertTrue( vnet.xpath("TEMPLATE/ATT2").equals( "NEW_VAL" ) );
         assertTrue( vnet.xpath("TEMPLATE/ATT3").equals( "VAL3" ) );
     }
+
+    // TODO: reserve, free
 
 }

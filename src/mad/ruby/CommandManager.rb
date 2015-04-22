@@ -1,5 +1,5 @@
 # --------------------------------------------------------------------------
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
@@ -86,9 +86,8 @@ class GenericCommand
 
         if @code!=0
             log("Command execution fail: #{command}")
+            log(@stderr)
         end
-
-        log(@stderr)
 
         return @code
     end
@@ -206,7 +205,7 @@ private
         SSHCommand.run("mkdir -p #{remote_dir}",host,logger)
 
         # Use SCP to sync:
-        sync_cmd = "scp -r #{REMOTES_LOCATION}/. #{host}:#{remote_dir}"
+        sync_cmd = "scp -rp #{REMOTES_LOCATION}/. #{host}:#{remote_dir}"
 
         # Use rsync to sync:
         # sync_cmd = "rsync -Laz #{REMOTES_LOCATION} #{host}:#{@remote_dir}"

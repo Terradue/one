@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -100,32 +100,8 @@ extern "C"
 stmt:   expr                { result = static_cast<int>($1);}
         |                   { result = 0; }
         ;
-                            //TODO Pass Xpath base for search
-expr:   STRING              { float val = 0.0;
 
-                              ostringstream  xpath_t;
-                              ostringstream  xpath_s;
-
-                              vector<string> results;
-
-                              xpath_t << "/HOST/TEMPLATE/" << $1;
-                              xpath_s << "/HOST/HOST_SHARE/" << $1;
-
-                              results = (*oxml)[xpath_t.str().c_str()];
-
-                              if (results.size() == 0)
-                              {
-                                  results = (*oxml)[xpath_s.str().c_str()];
-                              }
-
-                              if (results.size() != 0)
-                              {
-                                  istringstream iss(results[0]);
-                                  iss >> val;
-                              }
-
-                              $$ = val;
-                            }
+expr:   STRING              { float val; oxml->search($1, val); $$ = val; }
         | FLOAT             { $$ = $1; }
         | INTEGER           { $$ = static_cast<float>($1); }
         | expr '+' expr     { $$ = $1 + $3;}

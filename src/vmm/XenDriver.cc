@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -16,9 +16,16 @@
 
 #include "XenDriver.h"
 #include "Nebula.h"
+#include "NebulaUtil.h"
 #include <sstream>
 #include <fstream>
 #include <math.h>
+
+
+string on_off_string(bool value)
+{
+    return value? "1" : "0";
+}
 
 int XenDriver::deployment_description(
     const VirtualMachine *  vm,
@@ -42,6 +49,11 @@ int XenDriver::deployment_description(
     string root       = "";
     string kernel_cmd = "";
     string bootloader = "";
+    string hvm        = "";
+    string boot       = "";
+    int    is_hvm     = 0;
+
+    vector<string> boots;
 
     const VectorAttribute * disk;
     const VectorAttribute * context;
@@ -50,6 +62,7 @@ int XenDriver::deployment_description(
     string ro         = "";
     string type       = "";
     string driver     = "";
+    int    disk_id;
     string default_driver = "";
     string mode;
 
@@ -60,6 +73,8 @@ int XenDriver::deployment_description(
     string bridge     = "";
     string model      = "";
 
+    string default_model = "";
+
     const VectorAttribute * graphics;
 
     string listen     = "";
@@ -67,8 +82,27 @@ int XenDriver::deployment_description(
     string passwd     = "";
     string keymap     = "";
 
+    const VectorAttribute * input;
+
+    string  bus        = "";
+
+    const VectorAttribute * features;
+
+    bool pae            = false;
+    bool acpi           = false;
+    bool apic           = false;
+    string device_model = "";
+    bool localtime      = false;
+
+    int pae_found           = -1;
+    int acpi_found          = -1;
+    int apic_found          = -1;
+    int device_model_found  = -1;
+    int localtime_found     = -1;
+
     const VectorAttribute * raw;
     string data;
+    string default_raw;
 
     // ------------------------------------------------------------------------
 
@@ -151,6 +185,8 @@ int XenDriver::deployment_description(
             root       = os->vector_value("ROOT");
             kernel_cmd = os->vector_value("KERNEL_CMD");
             bootloader = os->vector_value("BOOTLOADER");
+            hvm        = os->vector_value("HVM");
+            boot       = os->vector_value("BOOT");
         }
     }
 
@@ -172,6 +208,11 @@ int XenDriver::deployment_description(
     if ( root.empty() )
     {
         get_default("OS","ROOT",root);
+    }
+
+    if ( hvm.empty() )
+    {
+        get_default("OS","HVM",hvm);
     }
 
     if ( kernel_cmd.empty() )
@@ -200,11 +241,49 @@ int XenDriver::deployment_description(
     }
     else if ( !bootloader.empty() ) //Host loader boot method
     {
-        file << "bootloader = \"" << bootloader << "\"" << endl;
+        file << "bootloader = '" << bootloader << "'" << endl;
     }
-    else
+    else //No kernel & no bootloader use hvm
     {
-        goto error_boot;
+        is_hvm = 1;
+        file << "builder = 'hvm'" << endl;
+
+        if ( !boot.empty() )
+        {
+            file << "boot = '";
+
+            boots = one_util::split(boot, ',');
+
+            for (vector<string>::const_iterator it=boots.begin(); it!=boots.end(); it++)
+            {
+                string boot_option = *it;
+
+                one_util::tolower(boot_option);
+
+                if ( boot_option == "hd" )
+                {
+                    file << "c";
+                }
+                else if ( boot_option == "fd" )
+                {
+                    file << "a";
+                }
+                else if ( boot_option == "cdrom" )
+                {
+                    file << "d";
+                }
+                else if ( boot_option == "network" )
+                {
+                    file << "n";
+                }
+                else
+                {
+                    goto error_boot;
+                }
+            }
+
+            file << "'" << endl;
+        }
     }
 
     attrs.clear();
@@ -220,6 +299,10 @@ int XenDriver::deployment_description(
     if (default_driver.empty())
     {
         default_driver = "tap:aio:";
+    }
+    else if (*default_driver.rbegin() != ':' )
+    {
+        default_driver += ':';
     }
 
     file << "disk = [" << endl;
@@ -237,22 +320,20 @@ int XenDriver::deployment_description(
         type   = disk->vector_value("TYPE");
         ro     = disk->vector_value("READONLY");
         driver = disk->vector_value("DRIVER");
+        disk->vector_value_str("DISK_ID", disk_id);
 
         if ( target.empty() )
         {
             goto error_disk;
         }
 
-        if (type.empty() == false)
-        {
-            transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
-        }
+        one_util::toupper(type);
 
         mode = "w";
 
         if ( !ro.empty() )
         {
-            transform(ro.begin(),ro.end(),ro.begin(),(int(*)(int))toupper);
+            one_util::toupper(ro);
 
             if ( ro == "YES" )
             {
@@ -263,6 +344,11 @@ int XenDriver::deployment_description(
         if ( !driver.empty() )
         {
             file << "    '" << driver;
+
+            if (*driver.rbegin() != ':')
+            {
+                file << ":";
+            }
         }
         else
         {
@@ -276,10 +362,15 @@ int XenDriver::deployment_description(
             }
         }
 
-        file << vm->get_remote_system_dir() << "/disk." << i << ","
-             << target << ","
-             << mode
-             << "'," << endl;
+        file << vm->get_remote_system_dir() << "/disk." << disk_id << ","
+             << target;
+
+        if ( type == "CDROM" )
+        {
+            file << ":cdrom";
+        }
+
+        file << "," << mode << "'," << endl;
     }
 
     attrs.clear();
@@ -294,6 +385,8 @@ int XenDriver::deployment_description(
         target  = context->vector_value("TARGET");
         driver  = context->vector_value("DRIVER");
 
+        context->vector_value_str("DISK_ID", disk_id);
+
         if ( !target.empty() )
         {
             file << "    '";
@@ -301,14 +394,19 @@ int XenDriver::deployment_description(
             if ( !driver.empty() )
             {
                 file << driver;
+
+                if (*driver.rbegin() != ':')
+                {
+                    file << ":";
+                }
             }
             else
             {
                 file << default_driver;
             }
 
-            file << vm->get_remote_system_dir() << "/disk." << num <<","<< target <<","
-                 << "r'," << endl;
+            file << vm->get_remote_system_dir() << "/disk." << disk_id
+                 << "," << target << "," << "r'," << endl;
         }
         else
         {
@@ -326,6 +424,8 @@ int XenDriver::deployment_description(
     // ------------------------------------------------------------------------
 
     num = vm->get_template_attribute("NIC",attrs);
+
+    get_default("NIC", "MODEL", default_model);
 
     file << "vif = [" << endl;
 
@@ -347,9 +447,20 @@ int XenDriver::deployment_description(
         bridge = nic->vector_value("BRIDGE");
         model  = nic->vector_value("MODEL");
 
-        if( !model.empty() )
+        string * the_model = 0;
+
+        if (!model.empty())
         {
-            file << "model=" << model;
+            the_model = &model;
+        }
+        else if (!default_model.empty())
+        {
+            the_model = &default_model;
+        }
+
+        if (the_model != 0)
+        {
+            file << "model=" << *the_model;
             pre_char = ',';
         }
 
@@ -396,11 +507,25 @@ int XenDriver::deployment_description(
 
             if ( type == "vnc" || type == "VNC" )
             {
-                file << "vfb = ['type=vnc";
+                if ( !is_hvm )
+                {
+                    file << "vfb = ['type=vnc";
+                }
+                else
+                {
+                    file << "vnc = '1'" << endl;
+                }
 
                 if ( !listen.empty() )
                 {
-                    file << ",vnclisten=" << listen;
+                    if ( is_hvm )
+                    {
+                        file << "vnclisten = '" << listen << "'" << endl;
+                    }
+                    else
+                    {
+                        file << ",vnclisten=" << listen;
+                    }
                 }
 
                 if ( !port.empty() )
@@ -415,20 +540,46 @@ int XenDriver::deployment_description(
                         goto error_vncdisplay;
                     }
 
-                    file << ",vncdisplay=" << display - 5900;
+                    if ( is_hvm )
+                    {
+                        file << "vncunused = '0'" << endl;
+                        file << "vncdisplay = '" << display - 5900 << "'" << endl;
+                    }
+                    else
+                    {
+                        file << ",vncunused=0";
+                        file << ",vncdisplay=" << display - 5900;
+                    }
                 }
 
                 if ( !passwd.empty() )
                 {
-                    file << ",vncpasswd=" << passwd;
+                    if ( is_hvm )
+                    {
+                        file << "vncpasswd = '" << passwd << "'" << endl;
+                    }
+                    else
+                    {
+                        file << ",vncpasswd=" << passwd;
+                    }
                 }
 
                 if ( !keymap.empty() )
                 {
-                    file << ",keymap=" << keymap ;
+                    if ( is_hvm )
+                    {
+                        file << "keymap = '" << keymap << "'" << endl;
+                    }
+                    else
+                    {
+                        file << ",keymap=" << keymap;
+                    }
                 }
 
-                file <<"']" << endl;
+                if ( !is_hvm )
+                {
+                    file <<"']" << endl;
+                }
             }
             else
             {
@@ -439,6 +590,119 @@ int XenDriver::deployment_description(
     }
 
     attrs.clear();
+
+    // ------------------------------------------------------------------------
+    // Input (only usb tablet)
+    // ------------------------------------------------------------------------
+
+    if ( vm->get_template_attribute("INPUT",attrs) > 0 )
+    {
+        input = dynamic_cast<const VectorAttribute *>(attrs[0]);
+
+        if ( input != 0 )
+        {
+            type = input->vector_value("TYPE");
+            bus  = input->vector_value("BUS");
+
+            if ( type == "tablet" && bus == "usb" )
+            {
+                file << "usb = 1" << endl;
+                file << "usbdevice = 'tablet'" << endl;
+            }
+            else
+            {
+                vm->log("VMM", Log::WARNING,
+                    "Not supported input, only usb tablet, ignored.");
+            }
+        }
+    }
+
+    attrs.clear();
+
+    // ------------------------------------------------------------------------
+    // Features (only for HVM)
+    // ------------------------------------------------------------------------
+
+    if ( is_hvm )
+    {
+        num = vm->get_template_attribute("FEATURES",attrs);
+
+        if ( num > 0 )
+        {
+            features = dynamic_cast<const VectorAttribute *>(attrs[0]);
+
+            if ( features != 0 )
+            {
+                pae_found  = features->vector_value("PAE", pae);
+                acpi_found = features->vector_value("ACPI", acpi);
+                apic_found = features->vector_value("APIC", apic);
+                localtime_found =
+                    features->vector_value("LOCALTIME", localtime);
+
+                device_model = features->vector_value("DEVICE_MODEL");
+                if ( device_model != "" )
+                {
+                    device_model_found = 0;
+                }
+            }
+        }
+
+        if ( pae_found != 0 && get_default("FEATURES", "PAE", pae) )
+        {
+            pae_found = 0;
+        }
+
+        if ( acpi_found != 0 && get_default("FEATURES", "ACPI", acpi) )
+        {
+            acpi_found = 0;
+        }
+
+        if ( apic_found != 0 && get_default("FEATURES", "APIC", apic) )
+        {
+            apic_found = 0;
+        }
+
+        if ( device_model_found != 0 )
+        {
+            get_default("FEATURES", "DEVICE_MODEL", device_model);
+            if ( device_model != "" )
+            {
+                device_model_found = 0;
+            }
+        }
+
+        if ( localtime_found != 0 )
+        {
+            get_default("FEATURES", "LOCALTIME", localtime);
+        }
+
+        if ( pae_found == 0)
+        {
+            file << "pae = " << on_off_string(pae) << endl;
+        }
+
+        if ( acpi_found == 0)
+        {
+            file << "acpi = " << on_off_string(acpi) << endl;
+        }
+
+        if ( apic_found == 0)
+        {
+            file << "apic = " << on_off_string(apic) << endl;
+        }
+
+        if ( device_model_found == 0)
+        {
+            file << "device_model = '" << device_model << "'" << endl;
+        }
+
+        if ( localtime )
+        {
+            file << "localtime = '1'" << endl;
+        }
+
+        attrs.clear();
+    }
 
     // ------------------------------------------------------------------------
     // Raw XEN attributes
@@ -466,6 +730,13 @@ int XenDriver::deployment_description(
         }
     }
 
+    get_default("RAW", default_raw);
+
+    if ( !default_raw.empty() )
+    {
+        file << default_raw << endl;
+    }
+
     file.close();
 
     return 0;
@@ -474,14 +745,13 @@ error_file:
     vm->log("VMM", Log::ERROR, "Could not open Xen deployment file.");
     return -1;
 
-error_memory:
-    vm->log("VMM", Log::ERROR, "No memory defined and no default provided.");
+error_boot:
+    vm->log("VMM", Log::ERROR, "Boot option not supported.");
     file.close();
     return -1;
 
-error_boot:
-    vm->log("VMM", Log::ERROR,
-            "No kernel or bootloader defined and no default provided.");
+error_memory:
+    vm->log("VMM", Log::ERROR, "No memory defined and no default provided.");
     file.close();
     return -1;
 

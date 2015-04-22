@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -22,6 +22,11 @@
 
 #include "ObjectXML.h"
 #include "HostPoolXML.h"
+#include "Resource.h"
+
+#include "VirtualMachineTemplate.h"
+
+class ImageDatastorePoolXML;
 
 using namespace std;
 
@@ -29,17 +34,32 @@ class VirtualMachineXML : public ObjectXML
 {
 public:
 
-    VirtualMachineXML(const string &xml_doc):ObjectXML(xml_doc)
+    VirtualMachineXML(const string &xml_doc): ObjectXML(xml_doc)
     {
         init_attributes();
     };
 
-    VirtualMachineXML(const xmlNodePtr node):ObjectXML(node)
+    VirtualMachineXML(const xmlNodePtr node): ObjectXML(node)
     {
         init_attributes();
     }
 
-    ~VirtualMachineXML();
+    ~VirtualMachineXML()
+    {
+        if (vm_template != 0)
+        {
+            delete vm_template;
+        }
+
+        if (user_template != 0)
+        {
+            delete user_template;
+        }
+    }
+
+    //--------------------------------------------------------------------------
+    // Get Methods for VirtualMachineXML class
+    //--------------------------------------------------------------------------
 
     int get_oid() const
     {
@@ -61,41 +81,24 @@ public:
         return hid;
     };
 
+    int get_dsid() const
+    {
+        return dsid;
+    };
+
     bool is_resched() const
     {
         return (resched == 1);
     }
 
-    /**
-     *  Adds a new host to the list of suitable hosts to start this VM
-     *    @param  hid of the selected host
-     */
-    void add_host(int hid);
-
-    /**
-     *  Gets the matching hosts ids
-     *    @param mh vector with the hids of the matching hosts
-     */
-    void get_matching_hosts(vector<int>& mh);
-
-    /**
-     *  Sets the priorities for each matching host
-     */
-    void set_priorities(vector<float>& total);
-
-    /**
-     *
-     */
-    int get_host(int& hid,
-                 HostPoolXML * hpool,
-                 map<int,int>& host_vms,
-                 int max_vms);
-
-    void get_requirements (int& cpu, int& memory, int& disk);
-
     const string& get_rank()
     {
         return rank;
+    };
+
+    const string& get_ds_rank()
+    {
+        return ds_rank;
     };
 
     const string& get_requirements()
@@ -103,21 +106,209 @@ public:
         return requirements;
     };
 
+    const string& get_ds_requirements()
+    {
+        return ds_requirements;
+    }
+
+    void get_requirements (int& cpu, int& memory, long long& disk);
+
+    map<int,long long> get_storage_usage();
+
+    /**
+     * Checks if the VM can be deployed in a public cloud provider
+     * @return true if the VM can be deployed in a public cloud provider
+     */
+    bool is_public_cloud() const
+    {
+        return public_cloud;
+    };
+
+    //--------------------------------------------------------------------------
+    // Matched Resources Interface
+    //--------------------------------------------------------------------------
+
+    /**
+     *  Adds a matching host if it is not equal to the actual one
+     *    @param oid of the host
+     */
+    void add_match_host(int oid)
+    {
+        if (( resched == 1 && hid != oid ) || ( resched == 0 ))
+        {
+            match_hosts.add_resource(oid);
+        }
+    };
+
+    /**
+     *  Adds a matching datastore
+     *    @param oid of the datastore
+     */
+    void add_match_datastore(int oid)
+    {
+        match_datastores.add_resource(oid);
+    }
+
+    /**
+     *  Returns a vector of matched hosts
+     */
+    const vector<Resource *> get_match_hosts()
+    {
+        return match_hosts.get_resources();
+    }
+
+    /**
+     *  Returns a vector of matched datastores
+     */
+    const vector<Resource *> get_match_datastores()
+    {
+        return match_datastores.get_resources();
+    }
+
+    /**
+     *  Sort the matched hosts for the VM
+     */
+    void sort_match_hosts()
+    {
+        match_hosts.sort_resources();
+    }
+
+    /**
+     *  Sort the matched datastores for the VM
+     */
+    void sort_match_datastores()
+    {
+        match_datastores.sort_resources();
+    }
+
+    /**
+     *  Removes the matched hosts
+     */
+    void clear_match_hosts()
+    {
+        match_hosts.clear();
+    }
+
+    /**
+     *  Removes the matched datastores
+     */
+    void clear_match_datastores()
+    {
+        match_datastores.clear();
+    }
+
+    /**
+     * Marks the VM to be only deployed on public cloud hosts
+     */
+    void set_only_public_cloud();
+
+    /**
+     * Returns true is the VM can only be deployed in public cloud hosts
+     * @return true is the VM can only be deployed in public cloud hosts
+     */
+    bool is_only_public_cloud() const;
+
+    //--------------------------------------------------------------------------
+    // Capacity Interface
+    //--------------------------------------------------------------------------
+
+    /**
+     *  Tests if the Image DS have enough free space to host the VM
+     *    @param img_datastores Image Datastores
+     *    @param error_msg error reason
+     *    @return true if the Image Datastores can host the VM
+     */
+    bool test_image_datastore_capacity(
+            ImageDatastorePoolXML * img_dspool, string & error_msg) const;
+
+    /**
+     *  Tests if the Image DS have enough free space to host the VM
+     *    @param img_datastores Image Datastores
+     *    @return true if the Image Datastores can host the VM
+     */
+    bool test_image_datastore_capacity(
+            ImageDatastorePoolXML * img_dspool) const
+    {
+        string tmp_st;
+        return test_image_datastore_capacity(img_dspool, tmp_st);
+    }
+
+    /**
+     *  Adds the VM disk requirements to each Image Datastore counter
+     *    @param img_datastores Image Datastores
+     */
+    void add_image_datastore_capacity(ImageDatastorePoolXML * img_dspool);
+
+    //--------------------------------------------------------------------------
+    // Action Interface
+    //--------------------------------------------------------------------------
+
+    /**
+     *  Get the user template of the VM
+     *    @return the template as a XML string
+     */
+    string& get_template(string& xml_str)
+    {
+        if (user_template != 0)
+        {
+            user_template->to_xml(xml_str);
+        }
+        else
+        {
+            xml_str = "";
+        }
+
+        return xml_str;
+    }
+
+    /**
+     * Removes (but does not delete) the scheduled actions of the VM
+     *
+     * @param attributes to hold the VM actions
+     */
+    void get_actions(vector<Attribute *>& attributes) const
+    {
+        attributes.clear();
+
+        user_template->remove("SCHED_ACTION", attributes);
+    }
+
+    /**
+     * Sets an attribute in the VM Template, it must be allocated in the heap
+     *
+     * @param attributes to hold the VM actions
+     */
+    void set_attribute(Attribute* att)
+    {
+        return user_template->set(att);
+    }
+
+    /**
+     *  Checks the action to be performed and returns the corresponding XML-RPC
+     *  method name.
+     *    @param action_st, the action to be performed. The XML-RPC name is
+     *    returned here
+     *    @return 0 on success.
+     */
+    static int parse_action_name(string& action_st);
+
     /**
      *  Function to write a Virtual Machine in an output stream
      */
-    friend ostream& operator<<(ostream& os, VirtualMachineXML& vm)
-    {
-        vector<VirtualMachineXML::Host *>::reverse_iterator  i;
-        vector<int>::iterator j;
+    friend ostream& operator<<(ostream& os, VirtualMachineXML& vm);
 
-        for (i=vm.hosts.rbegin();i!=vm.hosts.rend();i++)
-        {
-            os << "\t" << (*i)->priority << "\t" << (*i)->hid << endl;
-        }
+    /**
+     * Adds a message to the VM's USER_TEMPLATE/SCHED_MESSAGE attribute
+     *   @param st Message to set
+     */
+    void log(const string &st);
 
-        return os;
-    };
+    /**
+     * Clears the VM's USER_TEMPLATE/SCHED_MESSAGE attribute
+     * @return true if the template was modified, false if SCHED_MESSAGE did not
+     * need to be deleted
+     */
+    bool clear_log();
 
 protected:
 
@@ -126,55 +317,41 @@ protected:
      */
     void init_attributes();
 
-    //--------------------------------------------------------------------------
-    //--------------------------------------------------------------------------
-    struct Host
-    {
-        int     hid;
-        float   priority;
+    void init_storage_usage();
 
-        Host(int _hid):
-            hid(_hid),
-            priority(0){};
+    ResourceMatch match_hosts;
 
-        ~Host(){};
+    ResourceMatch match_datastores;
 
-        bool operator<(const Host& b) const { //Sort by priority
-            return priority < b.priority;
-        }
-    };
+    bool only_public_cloud;
 
-    static bool host_cmp (const Host * a, const Host * b )
-    {
-        return (*a < *b );
-    };
-    //--------------------------------------------------------------------------
-    //--------------------------------------------------------------------------
+    /* ----------------------- VIRTUAL MACHINE ATTRIBUTES ------------------- */
+    int   oid;
 
-    // ----------------------- VIRTUAL MACHINE ATTRIBUTES --------------------
-    /**
-     *
-     */
-    int     oid;
+    int   uid;
+    int   gid;
 
-    int     uid;
-    int     gid;
+    int   hid;
+    int   dsid;
 
-    int     hid;
+    int   resched;
 
-    int     resched;
+    int         memory;
+    float       cpu;
+    long long   system_ds_usage;
 
-    int     memory;
-    float   cpu;
+    map<int,long long> ds_usage;
 
-    string  rank;
-    string  requirements;
+    bool   public_cloud;
 
-    /**
-     *  Matching hosts
-     */
-    vector<VirtualMachineXML::Host *>   hosts;
+    string rank;
+    string requirements;
 
+    string ds_requirements;
+    string ds_rank;
+
+    VirtualMachineTemplate * vm_template;   /**< The VM template */
+    VirtualMachineTemplate * user_template; /**< The VM user template */
 };
 
 #endif /* VM_XML_H_ */

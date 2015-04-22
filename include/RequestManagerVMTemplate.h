@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -57,32 +57,12 @@ public:
     VMTemplateInstantiate():
         RequestManagerVMTemplate("TemplateInstantiate",
                                  "Instantiates a new virtual machine using a template",
-                                 "A:sis")
+                                 "A:sisbs")
     {
         auth_op = AuthRequest::USE;
     };
 
     ~VMTemplateInstantiate(){};
-
-    void request_execute(xmlrpc_c::paramList const& _paramList,
-                         RequestAttributes& att);
-};
-
-/* ------------------------------------------------------------------------- */
-/* ------------------------------------------------------------------------- */
-
-class VMTemplateClone : public RequestManagerVMTemplate
-{
-public:
-    VMTemplateClone():
-        RequestManagerVMTemplate("VMTemplateClone",
-                                 "Clone an existing virtual machine template",
-                                 "A:sis")
-    {
-        auth_op = AuthRequest::USE;
-    };
-
-    ~VMTemplateClone(){};
 
     void request_execute(xmlrpc_c::paramList const& _paramList,
                          RequestAttributes& att);

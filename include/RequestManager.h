@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -42,13 +42,18 @@ class RequestManager : public ActionListener
 {
 public:
 
-    RequestManager(int _port, const string _xml_log_file)
-            :port(_port), socket_fd(-1), xml_log_file(_xml_log_file)
-    {
-        am.addListener(this);
-    };
+    RequestManager(
+            int _port,
+            int _max_conn,
+            int _max_conn_backlog,
+            int _keepalive_timeout,
+            int _keepalive_max_conn,
+            int _timeout,
+            const string _xml_log_file,
+            const string call_log_format,
+            int message_size);
 
-    ~RequestManager(){}; 
+    ~RequestManager(){};
 
     /**
      *  This functions starts the associated listener thread (XML server), and
@@ -105,6 +110,31 @@ private:
      *  FD for the XML server socket
      */
     int socket_fd;
+
+    /**
+     *  Max connections
+     */
+    int max_conn;
+
+    /*
+     *  Max backlog connections
+     */
+    int max_conn_backlog;
+
+    /*
+     *  Keepalive timeout
+     */
+    int keepalive_timeout;
+
+    /*
+     *  Keepalive max conn
+     */
+    int keepalive_max_conn;
+
+    /*
+     *  Timeout
+     */
+    int timeout;
 
     /**
      *  Filename for the log of the xmlrpc server that listens

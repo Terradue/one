@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -58,7 +58,11 @@ public:
         GROUP       = 0x0000040000000000LL,
         ACL         = 0x0000080000000000LL,
         DATASTORE   = 0x0000100000000000LL,
-        CLUSTER     = 0x0000200000000000LL
+        CLUSTER     = 0x0000200000000000LL,
+        DOCUMENT    = 0x0000400000000000LL,
+        ZONE        = 0x0000800000000000LL,
+        SECGROUP    = 0x0001000000000000LL,
+        VDC         = 0x0002000000000000LL
     };
 
     static string type_to_str(ObjectType ob)
@@ -75,6 +79,10 @@ public:
             case ACL:       return "ACL" ; break;
             case DATASTORE: return "DATASTORE" ; break;
             case CLUSTER:   return "CLUSTER" ; break;
+            case DOCUMENT:  return "DOCUMENT" ; break;
+            case ZONE:      return "ZONE" ; break;
+            case SECGROUP:  return "SECGROUP" ; break;
+            case VDC:       return "VDC" ; break;
             default:        return "";
         }
     };
@@ -108,7 +116,7 @@ public:
              other_u(0),
              other_m(0),
              other_a(0),
-             obj_template(0), 
+             obj_template(0),
              table(_table)
     {
         pthread_mutex_init(&mutex,0);
@@ -133,9 +141,48 @@ public:
         return obj_type;
     };
 
+    /**
+     *  Check if the object name contains invalid characters or exceed the max.
+     *  length. By Default these are not allowed "&|:\;/'#{}()$
+     *    @param obj_name for this object
+     *    @param extra_chars aditional invalid characters to test
+     *    @param error_str describing the error
+     *    @return true if the name is valid
+     */
+    static bool name_is_valid(const string& obj_name, const string& extra_chars,
+                              string& error_str);
+
+    /**
+     *  Check if the object name is valid, no extra characters needed to be
+     *  tested.
+     */
+    static bool name_is_valid(const string& obj_name, string& error_str)
+    {
+        return name_is_valid(obj_name, "", error_str);
+    }
+
     const string& get_name() const
     {
         return name;
+    };
+
+    /**
+     *  Set the name of the object and check if it is valid.
+     *    @param _name the new name
+     *    @param error_str describing the error if any
+     *
+     *    @return 0 if the name was changed
+     */
+    int set_name(const string& _name, string& error_str)
+    {
+        if (!name_is_valid(_name, error_str))
+        {
+            return -1;
+        }
+
+        name = _name;
+
+        return 0;
     };
 
     int get_uid() const
@@ -146,6 +193,16 @@ public:
     int get_gid() const
     {
         return gid;
+    };
+
+    const string& get_uname() const
+    {
+        return uname;
+    };
+
+    const string& get_gname() const
+    {
+        return gname;
     };
 
     /**
@@ -286,7 +343,7 @@ public:
     }
 
     /**
-     *  Gets an removes a string based attribute (single)
+     *  Gets and removes a string based attribute (single)
      *    @param name of the attribute
      *    @param value of the attribute (a string), will be "" if not defined or
      *    not a single attribute
@@ -301,16 +358,111 @@ public:
     }
 
     /**
+     *  Gets and removes a float based attribute (single)
+     *    @param name of the attribute
+     *    @param value of the attribute (a float), will be 0 if not defined or
+     *    not a single attribute
+     *    @return the number of attributes erased
+     */
+    int erase_template_attribute(
+        const char * name,
+        float&       value)
+    {
+        obj_template->get(name,value);
+        return obj_template->erase(name);
+    }
+
+    /**
+     *  Gets and removes a long long based attribute (single)
+     *    @param name of the attribute
+     *    @param value of the attribute (a long long), will be 0 if not defined or
+     *    not a single attribute
+     *    @return the number of attributes erased
+     */
+    int erase_template_attribute(
+        const char * name,
+        long long&   value)
+    {
+        obj_template->get(name,value);
+        return obj_template->erase(name);
+    }
+
+    /**
+     *  Gets and removes a boolean based attribute (single)
+     *    @param name of the attribute
+     *    @param value of the attribute (a boolean), will be false if not defined or
+     *    not a single attribute
+     *    @return the number of attributes erased
+     */
+    int erase_template_attribute(
+        const char * name,
+        bool&        value)
+    {
+        obj_template->get(name,value);
+        return obj_template->erase(name);
+    }
+
+    /**
      *  Gets an int based attribute (single)
      *    @param name of the attribute
      *    @param value of the attribute (an int), will be 0 if not defined or
      *    not a single attribute
+     *
+     *    @return True if the Single attribute was found and is a valid integer
+     *    value
      */
-    void get_template_attribute(
+    bool get_template_attribute(
         const char *    name,
         int&            value) const
     {
-        obj_template->get(name,value);
+        return obj_template->get(name,value);
+    }
+
+    /**
+     *  Gets a long long based attribute (single)
+     *    @param name of the attribute
+     *    @param value of the attribute (long long), will be 0 if not defined or
+     *    not a single attribute
+     *
+     *    @return True if the Single attribute was found and is a valid integer
+     *    value
+     */
+    bool get_template_attribute(
+        const char *    name,
+        long long&      value) const
+    {
+        return obj_template->get(name,value);
+    }
+
+    /**
+     *  Gets a float based attribute (single)
+     *    @param name of the attribute
+     *    @param value of the attribute (a float), will be 0 if not defined or
+     *    not a single attribute
+     *
+     *    @return True if the Single attribute was found and is a valid float
+     *    value
+     */
+    bool get_template_attribute(
+        const char *    name,
+        float&          value) const
+    {
+        return obj_template->get(name,value);
+    }
+
+    /**
+     *  Gets a boolean attribute (single) (YES = true)
+     *    @param name of the attribute
+     *    @param value of the attribute (True if "YES", false otherwise)
+     *
+     *    @return True if the Single attribute was found and is a valid boolean
+     *    value
+     */
+    bool get_template_attribute(
+        const char *    name,
+        bool&           value) const
+    {
+        return obj_template->get(name,value);
     }
 
     /**
@@ -324,13 +476,21 @@ public:
         const string& name,
         const string& value)
     {
-        SingleAttribute * sattr = new SingleAttribute(name,value);
+        return obj_template->replace(name, value);
+    }
 
-        obj_template->erase(sattr->name());
-
-        obj_template->set(sattr);
-
-        return 0;
+    /**
+     *  Removes an attribute from the template. The attributes are returned, and
+     *  MUST be freed by the calling funtion
+     *    @param name of the attribute
+     *    @param values a vector containing a pointer to the attributes
+     *    @return the number of attributes removed
+     */
+    int remove_template_attribute(
+        const string&        name,
+        vector<Attribute *>& values)
+    {
+        return obj_template->remove(name, values);
     }
 
     /**
@@ -343,7 +503,7 @@ public:
     }
 
     /**
-     *  Removes an Image attribute
+     *  Removes an attribute
      *    @param name of the attribute
      */
     int remove_template_attribute(const string& name)
@@ -352,11 +512,45 @@ public:
     }
 
     /**
-     *  Sets an error message for the VM in the template
-     *    @param message
-     *    @return 0 on success
+     *  Sets an error message with timestamp in the template
+     *    @param message Message string
      */
-    void set_template_error_message(const string& message);
+    virtual void set_template_error_message(const string& message);
+
+    /**
+     *  Deletes the error message from the template
+     */
+    virtual void clear_template_error_message();
+
+    /**
+     *  Adds a string attribute
+     *    @param att_name Name for the attribute
+     *    @param att_val Message string
+     */
+    void add_template_attribute(const string& name, const string& value)
+    {
+        obj_template->add(name, value);
+    }
+
+    /**
+     *  Adds an int attribute
+     *    @param att_name Name for the attribute
+     *    @param att_val integer
+     */
+    void add_template_attribute(const string& name, int value)
+    {
+        obj_template->add(name, value);
+    }
+
+    /**
+     *  Adds a float attribute
+     *    @param att_name Name for the attribute
+     *    @param att_val integer
+     */
+    void add_template_attribute(const string& name, float value)
+    {
+        obj_template->add(name, value);
+    }
 
     /**
      *  Factory method for templates, it should be implemented
@@ -371,17 +565,31 @@ public:
     /**
      *  Replace template for this object. Object should be updated
      *  after calling this method
-     *    @param tmpl string representation of the template
+     *    @param tmpl_str new contents
+     *    @param keep_restricted If true, the restricted attributes of the
+     *    current template will override the new template
+     *    @param error string describing the error if any
+     *    @return 0 on success
      */
-    virtual int replace_template(const string& tmpl_str, string& error);
+    virtual int replace_template(const string& tmpl_str, bool keep_restricted, string& error);
 
+    /**
+     *  Append new attributes to this object's template. Object should be updated
+     *  after calling this method
+     *    @param tmpl_str new contents
+     *    @param keep_restricted If true, the restricted attributes of the
+     *    current template will override the new template
+     *    @param error string describing the error if any
+     *    @return 0 on success
+     */
+    virtual int append_template(const string& tmpl_str, bool keep_restricted, string& error);
 
     /**
      *  Fills a auth class to perform an authZ/authN request based on the object
      *  attributes
      *    @param auths to be filled
      */
-    void get_permissions(PoolObjectAuth& auths);
+    virtual void get_permissions(PoolObjectAuth& auths);
 
 protected:
 
@@ -474,6 +682,32 @@ protected:
     };
 
     /**
+     * Initializes the object's permissions, according to the provided umask.
+     *
+     * @param umask Permission mask, similar to unix umask.
+     * For example a umask of 137 will set the permissions "um- u-- ---"
+     */
+    void set_umask(int umask);
+
+    /**
+     *  Sets an error message with timestamp in the template
+     *    @param name of the error attribute
+     *    @param message Message string
+     */
+    virtual void set_template_error_message(const string& name, const string& message);
+
+    /**
+     * Child classes can process the new template set with replace_template or
+     * append_template with this method
+     *    @param error string describing the error if any
+     *    @return 0 on success
+     */
+    virtual int post_update_template(string& error)
+    {
+        return 0;
+    };
+
+    /**
      *  The object's unique ID
      */
     int     oid;
@@ -540,6 +774,10 @@ protected:
     Template * obj_template;
 
 private:
+    /**
+     *  Characters that can not be in a name
+     */
+    static const string INVALID_NAME_CHARS;
 
     /**
      *  The PoolSQL, friend to easily manipulate its Objects
@@ -556,11 +794,6 @@ private:
      *  Pointer to the SQL table for the PoolObjectSQL
      */
     const char * table;
-
-    /**
-     *  Name for the error messages attribute
-     */
-    static const char * error_attribute_name;
 };
 
 #endif /*POOL_OBJECT_SQL_H_*/

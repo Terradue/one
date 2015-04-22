@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -64,6 +64,66 @@ public:
 
     void request_execute(xmlrpc_c::paramList const& _paramList,
                          RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class GroupEditAdmin : public Request
+{
+public:
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+                         RequestAttributes& att);
+
+protected:
+    GroupEditAdmin( const string& method_name,
+                    const string& help,
+                    const string& params)
+        :Request(method_name,params,help)
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_gpool();
+        upool       = nd.get_upool();
+
+        auth_object = PoolObjectSQL::GROUP;
+        auth_op     = AuthRequest::ADMIN;
+    };
+
+    UserPool*   upool;
+
+    virtual int edit_admin(Group* group, int user_id, string& error_msg) = 0;
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class GroupAddAdmin : public GroupEditAdmin
+{
+public:
+    GroupAddAdmin():
+        GroupEditAdmin( "GroupAddAdmin",
+                        "Adds a user to the group admin set",
+                        "A:sii"){};
+
+    ~GroupAddAdmin(){};
+
+    int edit_admin(Group* group, int user_id, string& error_msg);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class GroupDelAdmin : public GroupEditAdmin
+{
+public:
+    GroupDelAdmin():
+        GroupEditAdmin( "GroupDelAdmin",
+                        "Removes a user from the group admin set",
+                        "A:sii"){};
+
+    ~GroupDelAdmin(){};
+
+    int edit_admin(Group* group, int user_id, string& error_msg);
 };
 
 /* -------------------------------------------------------------------------- */

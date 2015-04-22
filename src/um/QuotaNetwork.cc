@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -15,6 +15,7 @@
 /* -------------------------------------------------------------------------- */
 
 #include "QuotaNetwork.h"
+#include "Quotas.h"
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -26,7 +27,7 @@ const int QuotaNetwork::NUM_NET_METRICS  = 1;
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool QuotaNetwork::check(Template * tmpl,  string& error)
+bool QuotaNetwork::check(Template * tmpl, Quotas& default_quotas, string& error)
 {
     vector<Attribute*> nics;
     VectorAttribute *  nic;
@@ -34,7 +35,7 @@ bool QuotaNetwork::check(Template * tmpl,  string& error)
     string net_id;
     int num;
 
-    map<string, int> net_request;
+    map<string, float> net_request;
 
     net_request.insert(make_pair("LEASES",1));
 
@@ -50,10 +51,13 @@ bool QuotaNetwork::check(Template * tmpl,  string& error)
         }
 
         net_id = nic->vector_value("NETWORK_ID");
-        
-        if ( !check_quota(net_id, net_request, error) )
+
+        if ( !net_id.empty() )
         {
-            return false;
+            if ( !check_quota(net_id, net_request, default_quotas, error) )
+            {
+                return false;
+            }
         }
     }
 
@@ -72,7 +76,7 @@ void QuotaNetwork::del(Template * tmpl)
     string net_id;
     int num;
 
-    map<string, int> net_request;
+    map<string, float> net_request;
 
     net_request.insert(make_pair("LEASES",1));
 
@@ -88,9 +92,20 @@ void QuotaNetwork::del(Template * tmpl)
         }
 
         net_id = nic->vector_value("NETWORK_ID");
-        
+
         del_quota(net_id, net_request);
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int QuotaNetwork::get_default_quota(
+        const string& id,
+        Quotas& default_quotas,
+        VectorAttribute **va)
+{
+    return default_quotas.network_get(id, va);
 }
 
 /* -------------------------------------------------------------------------- */

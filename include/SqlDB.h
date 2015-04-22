@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -37,10 +37,10 @@ public:
      *  Performs a DB transaction
      *    @param sql_cmd the SQL command
      *    @param callbak function to execute on each data returned
-     *    @param arg to pass to the callback function
+     *    @param quiet True to log errors with DDEBUG level instead of ERROR
      *    @return 0 on success
      */
-    virtual int exec(ostringstream& cmd, Callbackable* obj=0) = 0;
+    virtual int exec(ostringstream& cmd, Callbackable* obj=0, bool quiet=false) = 0;
 
     /**
      *  This function returns a legal SQL string that can be used in an SQL
@@ -55,6 +55,14 @@ public:
      *    @param str pointer to the str
      */
     virtual void free_str(char * str) = 0;
+
+    /**
+     * Returns true if the syntax INSERT VALUES (data), (data), (data)
+     * is supported
+     *
+     * @return true if supported
+     */
+    virtual bool multiple_values_support() = 0;
 };
 
 #endif /*SQL_DB_H_*/

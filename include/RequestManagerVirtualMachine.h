@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -48,21 +48,62 @@ protected:
     virtual void request_execute(xmlrpc_c::paramList const& _paramList,
             RequestAttributes& att) = 0;
 
-    bool vm_authorization(int id, 
-                          ImageTemplate *        tmpl,
-                          RequestAttributes&     att, 
-                          PoolObjectAuth *       host_perms, 
-                          PoolObjectAuth *       ds_perm,
-                          AuthRequest::Operation op);
+    bool vm_authorization(int id,
+                          ImageTemplate *         tmpl,
+                          VirtualMachineTemplate* vtmpl,
+                          RequestAttributes&      att,
+                          PoolObjectAuth *        host_perms,
+                          PoolObjectAuth *        ds_perm,
+                          AuthRequest::Operation  op);
 
-    int get_host_information(int hid, string& name, string& vmm, string& vnm,
-            RequestAttributes& att, PoolObjectAuth& host_perms);
+    bool quota_resize_authorization(
+            Template *          deltas,
+            RequestAttributes&  att,
+            PoolObjectAuth&     vm_perms);
+
+    bool quota_resize_authorization(
+            int                 oid,
+            Template *          deltas,
+            RequestAttributes&  att);
+
+    int get_host_information(
+        int     hid,
+        string& name,
+        string& vmm,
+        string& vnm,
+        int&    cluster_id,
+        string& ds_location,
+        bool&   is_public_cloud,
+        PoolObjectAuth&    host_perms,
+        RequestAttributes& att);
+
+    int get_ds_information(
+        int ds_id,
+        int& ds_cluster_id,
+        string& tm_mad,
+        RequestAttributes& att);
+
+    int get_default_ds_information(
+        int cluster_id,
+        int& ds_id,
+        string& tm_mad,
+        RequestAttributes& att);
+
+    bool check_host(int     hid,
+                    int     cpu,
+                    int     mem,
+                    int     disk,
+                    string& error);
 
     int add_history(VirtualMachine * vm,
                     int              hid,
+                    int              cid,
                     const string&    hostname,
                     const string&    vmm_mad,
                     const string&    vnm_mad,
+                    const string&    tm_mad,
+                    const string&    ds_location,
+                    int              ds_id,
                     RequestAttributes& att);
 
     VirtualMachine * get_vm(int id, RequestAttributes& att);
@@ -95,7 +136,7 @@ public:
     VirtualMachineDeploy():
         RequestManagerVirtualMachine("VirtualMachineDeploy",
                                      "Deploys a virtual machine",
-                                     "A:sii")
+                                     "A:siibi")
     {
          auth_op = AuthRequest::ADMIN;
     };
@@ -115,7 +156,7 @@ public:
     VirtualMachineMigrate():
         RequestManagerVirtualMachine("VirtualMachineMigrate",
                                      "Migrates a virtual machine",
-                                     "A:siib")
+                                     "A:siibb")
     {
          auth_op = AuthRequest::ADMIN;
     };
@@ -135,7 +176,7 @@ public:
     VirtualMachineSaveDisk():
         RequestManagerVirtualMachine("VirtualMachineSaveDisk",
                            "Saves a disk from virtual machine as a new image",
-                           "A:siiss"){};
+                           "A:siissbb"){};
 
     ~VirtualMachineSaveDisk(){};
 
@@ -160,13 +201,190 @@ public:
 
     ~VirtualMachineMonitoring(){};
 
+    void request_execute(
+            xmlrpc_c::paramList const& paramList, RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineAttach : public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineAttach():
+        RequestManagerVirtualMachine("VirtualMachineAttach",
+                           "Attaches a new disk to the virtual machine",
+                           "A:sis"){};
+
+    ~VirtualMachineAttach(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineDetach : public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineDetach():
+        RequestManagerVirtualMachine("VirtualMachineDetach",
+                           "Detaches a disk from a virtual machine",
+                           "A:sii"){};
+
+    ~VirtualMachineDetach(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineAttachNic : public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineAttachNic():
+        RequestManagerVirtualMachine("VirtualMachineAttachNic",
+                           "Attaches a new NIC to the virtual machine",
+                           "A:sis"){};
+
+    ~VirtualMachineAttachNic(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+class VirtualMachineDetachNic : public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineDetachNic():
+        RequestManagerVirtualMachine("VirtualMachineDetachNic",
+                           "Detaches a NIC from a virtual machine",
+                           "A:sii"){};
+
+    ~VirtualMachineDetachNic(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+class VirtualMachineResize : public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineResize():
+        RequestManagerVirtualMachine("VirtualMachineResize",
+                           "Changes the capacity of the virtual machine",
+                           "A:sisb"){};
+    ~VirtualMachineResize(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineSnapshotCreate: public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineSnapshotCreate():
+        RequestManagerVirtualMachine("VirtualMachineSnapshotCreate",
+                           "Creates a new virtual machine snapshot",
+                           "A:sis"){};
+
+    ~VirtualMachineSnapshotCreate(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineSnapshotRevert: public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineSnapshotRevert():
+        RequestManagerVirtualMachine("VirtualMachineSnapshotRevert",
+                           "Reverts a virtual machine to a snapshot",
+                           "A:sii"){};
+
+    ~VirtualMachineSnapshotRevert(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineSnapshotDelete: public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineSnapshotDelete():
+        RequestManagerVirtualMachine("VirtualMachineSnapshotDelete",
+                           "Deletes a virtual machine snapshot",
+                           "A:sii"){};
+
+    ~VirtualMachineSnapshotDelete(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VirtualMachineRecover: public RequestManagerVirtualMachine
+{
+public:
+    VirtualMachineRecover():
+        RequestManagerVirtualMachine("VirtualMachineRecover",
+                                     "Recovers a virtual machine",
+                                     "A:sii")
+    {
+         auth_op = AuthRequest::ADMIN;
+    };
+
+    ~VirtualMachineRecover(){};
+
+    void request_execute(xmlrpc_c::paramList const& _paramList,
+            RequestAttributes& att);
+};
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+class VirtualMachinePoolCalculateShowback : public RequestManagerVirtualMachine
+{
+public:
+
+    VirtualMachinePoolCalculateShowback():
+        RequestManagerVirtualMachine("VirtualMachinePoolCalculateShowback",
+                                     "Processes all the history records, and stores the monthly cost for each VM",
+                                     "A:sii")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_vmpool();
+        auth_object = PoolObjectSQL::VM;
+    };
+
+    ~VirtualMachinePoolCalculateShowback(){};
+
     /* -------------------------------------------------------------------- */
 
     void request_execute(
             xmlrpc_c::paramList const& paramList, RequestAttributes& att);
 };
 
-/* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 

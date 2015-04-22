@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -21,7 +21,9 @@ include OpenNebulaJSON
 
 require 'OpenNebulaVNC'
 require 'OpenNebulaJSON/JSONUtils'
-include JSONUtils
+#include JSONUtils
+
+require 'SunstoneMarketplace'
 
 class SunstoneServer < CloudServer
     # FLAG that will filter the elements retrieved from the Pools
@@ -29,6 +31,8 @@ class SunstoneServer < CloudServer
 
     # Secs to sleep between checks to see if image upload to repo is finished
     IMAGE_POLL_SLEEP_TIME = 5
+
+    include SunstoneMarketplace
 
     def initialize(client, config, logger)
         super(config, logger)
@@ -38,7 +42,9 @@ class SunstoneServer < CloudServer
     ############################################################################
     #
     ############################################################################
-    def get_pool(kind,gid)
+    def get_pool(kind,gid, client=nil)
+        client = @client if !client
+
         if gid == "0"
             user_flag = Pool::INFO_ALL
         else
@@ -46,27 +52,30 @@ class SunstoneServer < CloudServer
         end
 
         pool = case kind
-            when "group"      then GroupPoolJSON.new(@client)
-            when "cluster"    then ClusterPoolJSON.new(@client)
-            when "host"       then HostPoolJSON.new(@client)
-            when "image"      then ImagePoolJSON.new(@client, user_flag)
-            when "vmtemplate" then TemplatePoolJSON.new(@client, user_flag)
-            when "vm"         then VirtualMachinePoolJSON.new(@client, user_flag)
-            when "vnet"       then VirtualNetworkPoolJSON.new(@client, user_flag)
-            when "user"       then UserPoolJSON.new(@client)
-            when "acl"        then AclPoolJSON.new(@client)
-            when "datastore"  then DatastorePoolJSON.new(@client)
+            when "group"      then GroupPoolJSON.new(client)
+            when "cluster"    then ClusterPoolJSON.new(client)
+            when "host"       then HostPoolJSON.new(client)
+            when "image"      then ImagePoolJSON.new(client, user_flag)
+            when "vmtemplate" then TemplatePoolJSON.new(client, user_flag)
+            when "vm"         then VirtualMachinePoolJSON.new(client, user_flag)
+            when "vnet"       then VirtualNetworkPoolJSON.new(client, user_flag)
+            when "user"       then UserPoolJSON.new(client)
+            when "acl"        then AclPoolJSON.new(client)
+            when "datastore"  then DatastorePoolJSON.new(client)
+            when "zone"       then ZonePoolJSON.new(client)
+            when "security_group"   then SecurityGroupPoolJSON.new(client, user_flag)
+            when "vdc"        then VdcPoolJSON.new(client)
             else
                 error = Error.new("Error: #{kind} resource not supported")
                 return [404, error.to_json]
         end
 
-        rc = pool.info
+        rc = pool.get_hash
 
         if OpenNebula.is_error?(rc)
             return [500, rc.to_json]
         else
-            return [200, pool.to_json]
+            return [200, rc.to_json]
         end
     end
 
@@ -110,6 +119,9 @@ class SunstoneServer < CloudServer
             when "user"       then UserJSON.new(User.build_xml, @client)
             when "acl"        then AclJSON.new(Acl.build_xml, @client)
             when "datastore"  then DatastoreJSON.new(Acl.build_xml, @client)
+            when "zone"       then ZoneJSON.new(Zone.build_xml, @client)
+            when "security_group"   then SecurityGroupJSON.new(SecurityGroup.build_xml, @client)
+            when "vdc"        then VdcJSON.new(Vdc.build_xml, @client)
             else
                 error = Error.new("Error: #{kind} resource not supported")
                 return [404, error.to_json]
@@ -128,18 +140,18 @@ class SunstoneServer < CloudServer
     #
     ############################################################################
     def upload(template, file_path)
-        image_hash = parse_json(template, 'image')
+        image_hash = JSONUtils.parse_json(template, 'image')
         if OpenNebula.is_error?(image_hash)
             return [500, image_hash.to_json]
         end
 
         image_hash['PATH'] = file_path
 
-        ds_id = parse_json(template, 'ds_id')
+        ds_id = JSONUtils.parse_json(template, 'ds_id')
         if OpenNebula.is_error?(ds_id)
             return [500, ds_id.to_json]
         end
-        
+
         new_template = {
             :image => image_hash,
             :ds_id => ds_id,
@@ -207,7 +219,7 @@ class SunstoneServer < CloudServer
             if !ONE_LOCATION
                 vm_log_file = LOG_LOCATION + "/#{id}.log"
             else
-                vm_log_file = LOG_LOCATION + "/#{id}/vm.log"
+                vm_log_file = LOG_LOCATION + "/vms/#{id}/vm.log"
             end
 
             begin
@@ -224,34 +236,18 @@ class SunstoneServer < CloudServer
     ########################################################################
     # VNC
     ########################################################################
-    def startvnc(id, config)
+    def startvnc(id, vnc)
         resource = retrieve_resource("vm", id)
         if OpenNebula.is_error?(resource)
             return [404, resource.to_json]
         end
 
-        vnc_proxy = OpenNebulaVNC.new(config, logger)
-        return vnc_proxy.start(resource)
+        return vnc.proxy(resource)
     end
 
-    ############################################################################
-    #
-    ############################################################################
-    def stopvnc(pipe)
-        begin
-            OpenNebulaVNC.stop(pipe)
-        rescue Exception => e
-            logger.error {e.message}
-            error = Error.new("Error stopping VNC. Please check server logs.")
-            return [500, error.to_json]
-        end
-
-        return [200, nil]
-    end
-
-    ############################################################################
-    #
-    ############################################################################
+    ########################################################################
+    # Accounting & Monitoring
+    ########################################################################
     def get_pool_monitoring(resource, meters)
         #pool_element
         pool = case resource
@@ -286,7 +282,7 @@ class SunstoneServer < CloudServer
                 Host.new_with_id(id, @client)
             else
                 error = Error.new("Monitoring not supported for #{resource}")
-                return [200, error.to_json]
+                return [403, error.to_json]
             end
 
         meters_a = meters.split(',')
@@ -306,6 +302,127 @@ class SunstoneServer < CloudServer
         return [200, meters_h.to_json]
     end
 
+
+    # returns a { monitoring : meter1 : [[ts1, agg_value],[ts2, agg_value]...]
+    #                          meter2 : [[ts1, agg_value],[ts2, agg_value]...]}
+    # with this information we can paint historical graphs of usage
+    def get_user_accounting(options)
+        uid      = options[:id].to_i
+        tstart   = options[:start].to_i
+        tend     = options[:end].to_i
+        interval = options[:interval].to_i
+        meters   = options[:monitor_resources]
+        gid      = options[:gid].to_i
+
+        acct_options = {:start_time => tstart,
+                        :end_time => tend}
+
+        # If we want acct per group, we ask for all VMs visible to user
+        # and then filter by group.
+        if gid
+            uid = Pool::INFO_ALL
+            acct_options[:group] = gid
+        end
+
+        # Init results and request accounting
+        result   = {}
+        meters_a = meters.split(',')
+        meters_a.each do | meter |
+            result[meter] = []
+        end
+        pool     = VirtualMachinePool.new(@client)
+        acct_xml = pool.accounting_xml(uid, acct_options)
+
+        if OpenNebula.is_error?(acct_xml)
+            error = Error.new(acct_xml.message)
+            return [500, error.to_json]
+        end
+
+        xml = XMLElement.new
+        xml.initialize_xml(acct_xml, 'HISTORY_RECORDS')
+
+        # We aggregate the accounting values for each interval withing
+        # the given timeframe
+        while tstart < tend
+
+            tstep = tstart + interval
+            count = Hash.new
+
+            # We count machines which have started before the end of
+            # this interval AND have not finished yet OR machines which
+            # have started before the end of this interval AND
+            # have finished anytime after the start of this interval
+            xml.each("HISTORY[STIME<=#{tstep} and ETIME=0 or STIME<=#{tstep} and ETIME>=#{tstart}]") do |hr|
+
+                meters_a.each do | meter |
+                    count[meter] ||= 0
+                    count[meter] += hr["VM/#{meter}"].to_i if hr["VM/#{meter}"]
+                end
+            end
+
+            # We have aggregated values for this interval
+            # Then we just add them to the results along with a timestamp
+            count.each do | mname, mcount |
+                result[mname] << [tstart, mcount]
+            end
+
+            tstart = tstep
+        end
+
+        return [200, {:monitoring => result}.to_json]
+    end
+
+    def get_vm_accounting(options)
+        pool = VirtualMachinePool.new(@client)
+
+        filter_flag = options[:userfilter] ? options[:userfilter].to_i : VirtualMachinePool::INFO_ALL
+        start_time  = options[:start_time] ? options[:start_time].to_i : -1
+        end_time    = options[:end_time]   ? options[:end_time].to_i : -1
+
+        acct_options = {
+            :start_time => start_time,
+            :end_time   => end_time,
+            :group      => options[:group]
+        }
+
+        rc = pool.accounting(filter_flag, acct_options)
+
+        if OpenNebula.is_error?(rc)
+            error = Error.new(rc.message)
+            return [500, error.to_json]
+        end
+
+        return [200, rc.to_json]
+    end
+
+    def get_vm_showback(options)
+        pool = VirtualMachinePool.new(@client)
+
+        filter_flag = options[:userfilter] ? options[:userfilter].to_i : VirtualMachinePool::INFO_ALL
+        start_month  = options[:start_month] ? options[:start_month].to_i : -1
+        start_year  = options[:start_year] ? options[:start_year].to_i : -1
+        end_month    = options[:end_month]   ? options[:end_month].to_i : -1
+        end_year    = options[:end_year]   ? options[:end_year].to_i : -1
+
+        acct_options = {
+            :start_month => start_month,
+            :start_year => start_year,
+            :end_month   => end_month,
+            :end_year   => end_year,
+            :group      => options[:group]
+        }
+
+        rc = pool.showback(filter_flag, acct_options)
+
+        if OpenNebula.is_error?(rc)
+            error = Error.new(rc.message)
+            return [500, error.to_json]
+        end
+
+        return [200, rc.to_json]
+    end
+
+
     private
 
     ############################################################################
@@ -323,6 +440,9 @@ class SunstoneServer < CloudServer
             when "user"       then UserJSON.new_with_id(id, @client)
             when "acl"        then AclJSON.new_with_id(id, @client)
             when "datastore"  then DatastoreJSON.new_with_id(id, @client)
+            when "zone"       then ZoneJSON.new_with_id(id, @client)
+            when "security_group"   then SecurityGroupJSON.new_with_id(id, @client)
+            when "vdc"        then VdcJSON.new_with_id(id, @client)
             else
                 error = Error.new("Error: #{kind} resource not supported")
                 return error

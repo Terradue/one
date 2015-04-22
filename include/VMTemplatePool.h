@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -27,7 +27,7 @@ class VMTemplatePool : public PoolSQL
 {
 public:
 
-    VMTemplatePool(SqlDB * db) : PoolSQL(db, VMTemplate::table, true){};
+    VMTemplatePool(SqlDB * db) : PoolSQL(db, VMTemplate::table, true, true){};
 
     ~VMTemplatePool(){};
 
@@ -36,6 +36,9 @@ public:
      *  allocated for the object.
      *    @param uid user id (the owner of the Template)
      *    @param gid the id of the group this object is assigned to
+     *    @param uname user name
+     *    @param gname group name
+     *    @param umask permissions umask
      *    @param template_contents a VM Template object
      *    @param oid the id assigned to the Template
      *    @param error_str Returns the error reason, if any
@@ -46,6 +49,7 @@ public:
                  int                      gid,
                  const string&            uname,
                  const string&            gname,
+                 int                      umask,
                  VirtualMachineTemplate * template_contents,
                  int *                    oid,
                  string&                  error_str);
@@ -94,12 +98,14 @@ public:
      *  query
      *  @param oss the output stream to dump the pool contents
      *  @param where filter for the objects, defaults to all
+     *  @param limit parameters used for pagination
      *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& where)
+    int dump(ostringstream& oss, const string& where, const string& limit)
     {
-        return PoolSQL::dump(oss, "VMTEMPLATE_POOL",VMTemplate::table,where);
+        return PoolSQL::dump(oss, "VMTEMPLATE_POOL", VMTemplate::table, where,
+                             limit);
     };
 
     /**
@@ -118,7 +124,7 @@ private:
      */
     PoolObjectSQL * create()
     {
-        return new VMTemplate(-1,-1,-1,"","",0);
+        return new VMTemplate(-1,-1,-1,"","",0,0);
     };
 };
 

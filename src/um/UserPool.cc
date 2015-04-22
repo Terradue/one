@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -22,7 +22,7 @@
 #include "NebulaLog.h"
 #include "Nebula.h"
 #include "AuthManager.h"
-#include "SSLTools.h"
+#include "NebulaUtil.h"
 
 #include <fstream>
 #include <sys/types.h>
@@ -53,8 +53,11 @@ string UserPool::oneadmin_name;
 /* -------------------------------------------------------------------------- */
 
 UserPool::UserPool(SqlDB * db,
-                   time_t  __session_expiration_time):
-                       PoolSQL(db, User::table, true)
+                   time_t  __session_expiration_time,
+                   vector<const Attribute *> hook_mads,
+                   const string&             remotes_location,
+                   bool                      is_federation_slave):
+                       PoolSQL(db, User::table, !is_federation_slave, true)
 {
     int           one_uid    = -1;
     int           server_uid = -1;
@@ -70,9 +73,8 @@ UserPool::UserPool(SqlDB * db,
     const char *  one_auth;
     ifstream      file;
 
-    string        filenames[3];
+    string        filenames[5];
     string        error_str;
-    stringstream  sstr;
 
     Nebula& nd   = Nebula::instance();
 
@@ -80,10 +82,26 @@ UserPool::UserPool(SqlDB * db,
 
     User * oneadmin_user = get(0, true);
 
+    //Slaves do not need to init the pool, just the oneadmin username
+    if (is_federation_slave)
+    {
+        if (oneadmin_user == 0)
+        {
+            throw("Database has not been bootstrapped with master data.");
+        }
+
+        oneadmin_name = oneadmin_user->get_name();
+        oneadmin_user->unlock();
+
+        return;
+    }
+
     if (oneadmin_user != 0)
     {
         oneadmin_name = oneadmin_user->get_name();
         oneadmin_user->unlock();
+
+        register_hooks(hook_mads, remotes_location);
 
         return;
     }
@@ -115,7 +133,7 @@ UserPool::UserPool(SqlDB * db,
     if (!file.good())
     {
         goto error_file;
-    } 
+    }
 
     getline(file,one_token);
 
@@ -138,19 +156,25 @@ UserPool::UserPool(SqlDB * db,
         goto error_one_name;
     }
 
-    srand(time(0));
-    sstr << rand();
-
-    random = SSLTools::sha1_digest( sstr.str() );
+    random = one_util::random_password();
 
     filenames[0] = nd.get_var_location() + "/.one/sunstone_auth";
     filenames[1] = nd.get_var_location() + "/.one/occi_auth";
     filenames[2] = nd.get_var_location() + "/.one/ec2_auth";
+    filenames[3] = nd.get_var_location() + "/.one/onegate_auth";
+    filenames[4] = nd.get_var_location() + "/.one/oneflow_auth";
 
     mkdir(string(nd.get_var_location() + "/.one").c_str(), S_IRWXU);
 
-    for (i=0 ; i < 3; i++)
+    for (i=0 ; i < 5; i++)
     {
+        struct stat file_stat;
+
+        if ( stat(filenames[i].c_str(), &file_stat) == 0 )
+        {
+            goto erro_exists;
+        }
+
         int cfile = creat(filenames[i].c_str(), S_IRUSR | S_IWUSR);
         close(cfile);
 
@@ -184,7 +208,7 @@ UserPool::UserPool(SqlDB * db,
              GroupPool::ONEADMIN_ID,
              SERVER_NAME,
              GroupPool::ONEADMIN_NAME,
-             SSLTools::sha1_digest(random),
+             one_util::sha1_digest(random),
              "server_cipher",
              true,
              error_str);
@@ -193,6 +217,8 @@ UserPool::UserPool(SqlDB * db,
     {
         goto error_serveradmin;
     }
+
+    register_hooks(hook_mads, remotes_location);
 
     return;
 
@@ -220,6 +246,12 @@ error_no_open:
     oss << "Could not create configuration file "<< filenames[i];
     goto error_common;
 
+erro_exists:
+    oss << "Password file " << filenames[i] << " already exists "
+        << "but OpenNebula is boostraping the database. Check your " 
+        << "database configuration in oned.conf.";
+    goto error_common;
+
 error_oneadmin:
     oss << "Error creating oneadmin user: " << error_str;
     goto error_common;
@@ -229,7 +261,7 @@ error_serveradmin:
 
 error_common:
     NebulaLog::log("ONE",Log::ERROR,oss);
-    throw;
+    throw runtime_error(oss.str());
 }
 
 /* -------------------------------------------------------------------------- */
@@ -256,13 +288,22 @@ int UserPool::allocate (
 
     ostringstream   oss;
 
+    if (nd.is_federation_slave())
+    {
+        NebulaLog::log("ONE",Log::ERROR,
+                "UserPool::allocate called, but this "
+                "OpenNebula is a federation slave");
+
+        return -1;
+    }
+
     // Check username and password
     if ( !User::pass_is_valid(password, error_str) )
     {
         goto error_pass;
     }
 
-    if ( !User::name_is_valid(uname, error_str) )
+    if (!PoolObjectSQL::name_is_valid(uname,User::INVALID_NAME_CHARS,error_str))
     {
         goto error_name;
     }
@@ -283,17 +324,23 @@ int UserPool::allocate (
 
     if (auth_driver == UserPool::CORE_AUTH)
     {
-        upass = SSLTools::sha1_digest(password);
+        upass = one_util::sha1_digest(password);
     }
 
     // Build a new User object
     user = new User(-1, gid, uname, gname, upass, auth_driver, enabled);
 
+    // Add the primary group to the collection
+    user->add_collection_id(gid);
+
+    // Set a password for the OneGate tokens
+    user->add_template_attribute("TOKEN_PASSWORD", one_util::random_password());
+
     // Insert the Object in the pool
     *oid = PoolSQL::allocate(user, error_str);
 
     if ( *oid < 0 )
-    { 
+    {
         return *oid;
     }
 
@@ -336,18 +383,62 @@ error_common:
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+int UserPool::drop(PoolObjectSQL * objsql, string& error_msg)
+{
+    if (Nebula::instance().is_federation_slave())
+    {
+        NebulaLog::log("ONE",Log::ERROR,
+                "UserPool::drop called, but this "
+                "OpenNebula is a federation slave");
+
+        return -1;
+    }
+
+    return PoolSQL::drop(objsql, error_msg);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int UserPool::update(User * user)
+{
+    if (Nebula::instance().is_federation_slave())
+    {
+        NebulaLog::log("ONE",Log::ERROR,
+                "UserPool::update called, but this "
+                "OpenNebula is a federation slave");
+
+        return -1;
+    }
+
+    return user->update(db);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int UserPool::update_quotas(User * user)
+{
+    return user->update_quotas(db);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
 bool UserPool::authenticate_internal(User *        user,
                                      const string& token,
+                                     string&       password,
                                      int&          user_id,
                                      int&          group_id,
                                      string&       uname,
-                                     string&       gname)
+                                     string&       gname,
+                                     set<int>&     group_ids,
+                                     int&          umask)
 {
     bool result = false;
 
     ostringstream oss;
 
-    string password;
     string auth_driver;
     string username;
 
@@ -360,21 +451,31 @@ bool UserPool::authenticate_internal(User *        user,
     user_id  = user->oid;
     group_id = user->gid;
 
-    uname  = user->name;
-    gname  = user->gname;
+    group_ids = user->get_groups();
+
+    uname = user->name;
+    gname = user->gname;
 
     auth_driver = user->auth_driver;
 
-    result = user->valid_session(token);
+    //Check if token is a login token
+    result = user->login_token.is_valid(token);
+
+    if (!result) //Not a login token check if the token is a session token
+    {
+        result = user->session.is_valid(token);
+    }
+
+    umask = user->get_umask();
 
     user->unlock();
 
-    if (result)
+    if (result) //Good either a valid session or login_token
     {
         return true;
     }
 
-    AuthRequest ar(user_id, group_id);
+    AuthRequest ar(user_id, group_ids);
 
     if ( auth_driver == UserPool::CORE_AUTH )
     {
@@ -411,7 +512,7 @@ bool UserPool::authenticate_internal(User *        user,
 
     if (user != 0)
     {
-        user->set_session(token, _session_expiration_time);
+        user->session.set(token, _session_expiration_time);
         user->unlock();
     }
 
@@ -438,8 +539,14 @@ auth_failure:
     user_id  = -1;
     group_id = -1;
 
+    password = "";
+
+    group_ids.clear();
+
     uname = "";
     gname = "";
+
+    umask = 0;
 
     return false;
 }
@@ -449,10 +556,13 @@ auth_failure:
 
 bool UserPool::authenticate_server(User *        user,
                                    const string& token,
+                                   string&       password,
                                    int&          user_id,
                                    int&          group_id,
                                    string&       uname,
-                                   string&       gname)
+                                   string&       gname,
+                                   set<int>&     group_ids,
+                                   int&          umask)
 {
     bool result = false;
 
@@ -473,7 +583,7 @@ bool UserPool::authenticate_server(User *        user,
 
     auth_driver = user->auth_driver;
 
-    AuthRequest ar(user->oid, user->gid);
+    AuthRequest ar(user->oid, user->get_groups());
 
     user->unlock();
 
@@ -492,13 +602,19 @@ bool UserPool::authenticate_server(User *        user,
         goto auth_failure_user;
     }
 
+    password = user->get_password();
+
     user_id  = user->oid;
     group_id = user->gid;
+
+    group_ids = user->get_groups();
 
     uname  = user->name;
     gname  = user->gname;
 
-    result = user->valid_session(second_token);
+    result = user->session.is_valid(second_token);
+
+    umask = user->get_umask();
 
     user->unlock();
 
@@ -530,7 +646,7 @@ bool UserPool::authenticate_server(User *        user,
 
     if (user != 0)
     {
-        user->set_session(second_token, _session_expiration_time);
+        user->session.set(second_token, _session_expiration_time);
         user->unlock();
     }
 
@@ -564,21 +680,30 @@ auth_failure:
     user_id  = -1;
     group_id = -1;
 
+    password = "";
+
+    group_ids.clear();
+
     uname = "";
     gname = "";
+
+    umask = 0;
 
     return false;
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
-    
-bool UserPool::authenticate_external(const string& username,
-                                     const string& token,
-                                     int&    user_id,
-                                     int&    group_id,
-                                     string& uname,
-                                     string& gname)
+
+bool UserPool::authenticate_external(const string&  username,
+                                     const string&  token,
+                                     string&        password,
+                                     int&           user_id,
+                                     int&           group_id,
+                                     string&        uname,
+                                     string&        gname,
+                                     set<int>&      group_ids,
+                                     int&           umask)
 {
     ostringstream oss;
     istringstream is;
@@ -587,11 +712,21 @@ bool UserPool::authenticate_external(const string& username,
     string mad_name;
     string mad_pass;
     string error_str;
+    string tmp_str;
 
     Nebula&     nd      = Nebula::instance();
     AuthManager * authm = nd.get_authm();
+    GroupPool *   gpool = nd.get_gpool();
 
-    AuthRequest ar(-1,-1);
+    User*   user;
+    Group*  group;
+
+    int     gid = -1;
+
+    set<int>::iterator it;
+    set<int> empty_set;
+
+    AuthRequest ar(-1,empty_set);
 
     if (authm == 0)
     {
@@ -605,13 +740,18 @@ bool UserPool::authenticate_external(const string& username,
     ar.wait();
 
     if (ar.result != true) //User was not authenticated
-    {   
+    {
         goto auth_failure_driver;
     }
 
     is.str(ar.message);
 
     user_id = -1;
+
+    //--------------------------------------------------------------------------
+    // Parse driver response format is:
+    // <driver> <username> <passwd> [gid...]
+    //--------------------------------------------------------------------------
 
     if ( is.good() )
     {
@@ -625,15 +765,69 @@ bool UserPool::authenticate_external(const string& username,
 
     if ( !is.fail() )
     {
-        getline(is, mad_pass);
+        is >> mad_pass >> ws;
+    }
+
+    while ( is.good() )
+    {
+        int tmp_gid;
+
+        is >> tmp_gid >> ws;
+
+        if ( is.fail() )
+        {
+            error_str = "One or more group IDs are malformed";
+            goto auth_failure_user;
+        }
+
+        if ( gpool->get(tmp_gid, false) == 0 )
+        {
+            error_str = "One or more group IDs do not exist";
+            goto auth_failure_user;
+        }
+
+        if ( gid == -1 ) //Keep the first id for primary group
+        {
+            gid = tmp_gid;
+        }
+
+        group_ids.insert(tmp_gid);
+    }
+
+    //--------------------------------------------------------------------------
+    // Create the user, and set primary group
+    //--------------------------------------------------------------------------
+
+    if ( gid == -1 )
+    {
+        group_id = GroupPool::USERS_ID;
+        gname    = GroupPool::USERS_NAME;
+
+        group_ids.insert( group_id );
+    }
+    else
+    {
+        group_id = gid;
+
+        group = gpool->get(group_id, true);
+
+        if( group == 0 )
+        {
+            error_str = "Primary Group no longer exist";
+            goto auth_failure_user;
+        }
+
+        gname = group->get_name();
+
+        group->unlock();
     }
 
     if ( !is.fail() )
     {
         allocate(&user_id,
-                 GroupPool::USERS_ID,
+                 group_id,
                  mad_name,
-                 GroupPool::USERS_NAME,
+                 gname,
                  mad_pass,
                  driver_name,
                  true,
@@ -645,15 +839,50 @@ bool UserPool::authenticate_external(const string& username,
         goto auth_failure_user;
     }
 
-    group_id = GroupPool::USERS_ID;
+    //--------------------------------------------------------------------------
+    // Add the user to the secondary groups
+    //--------------------------------------------------------------------------
+
+    user = get(user_id,true);
+
+    if ( user == 0 )
+    {
+        error_str = "User object could not be retrieved";
+        goto auth_failure_user;
+    }
+
+    for(it = ++group_ids.begin(); it != group_ids.end(); it++)
+    {
+        group = gpool->get(*it, true);
+
+        if( group == 0 ) //Secondary group no longer exists
+        {
+            continue;
+        }
+
+        group->add_user(user_id);
+
+        gpool->update(group);
+
+        group->unlock();
+
+        user->add_group(*it);
+    }
+
+    update(user);
+
+    user->unlock();
 
     uname = mad_name;
-    gname = GroupPool::USERS_NAME;
+
+    password = mad_pass;
+
+    umask = User::get_default_umask();
 
     return true;
-        
+
 auth_failure_user:
-    oss << "Can't create user: " << error_str << ". Driver response: " 
+    oss << "Can't create user: " << error_str << ". Driver response: "
         << ar.message;
     NebulaLog::log("AuM",Log::ERROR,oss);
 
@@ -674,20 +903,29 @@ auth_failure:
     user_id  = -1;
     group_id = -1;
 
+    password = "";
+
+    group_ids.clear();
+
     uname = "";
     gname = "";
+
+    umask = 0;
 
     return false;
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
- 
-bool UserPool::authenticate(const string& session, 
-                            int&          user_id, 
+
+bool UserPool::authenticate(const string& session,
+                            string&       password,
+                            int&          user_id,
                             int&          group_id,
                             string&       uname,
-                            string&       gname)
+                            string&       gname,
+                            set<int>&     group_ids,
+                            int&          umask)
 {
     User * user = 0;
     string username;
@@ -711,16 +949,19 @@ bool UserPool::authenticate(const string& session,
 
         if ( fnmatch(UserPool::SERVER_AUTH, driver.c_str(), 0) == 0 )
         {
-            ar = authenticate_server(user,token,user_id,group_id,uname,gname);
+            ar = authenticate_server(user, token, password, user_id, group_id,
+                uname, gname, group_ids, umask);
         }
         else
         {
-            ar = authenticate_internal(user,token,user_id,group_id,uname,gname);
+            ar = authenticate_internal(user, token, password, user_id, group_id,
+                uname, gname, group_ids, umask);
         }
     }
     else
     {
-        ar = authenticate_external(username,token,user_id,group_id,uname,gname);
+        ar = authenticate_external(username, token, password, user_id, group_id,
+            uname, gname, group_ids, umask);
     }
 
    return ar;
@@ -762,3 +1003,73 @@ int UserPool::authorize(AuthRequest& ar)
 
     return rc;
 }
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int UserPool::dump(ostringstream& oss, const string& where, const string& limit)
+{
+    int     rc;
+    string  def_quota_xml;
+
+    ostringstream cmd;
+
+    cmd << "SELECT " << User::table << ".body, "
+        << UserQuotas::db_table << ".body"<< " FROM " << User::table
+        << " LEFT JOIN " << UserQuotas::db_table << " ON "
+        << User::table << ".oid=" << UserQuotas::db_table << ".user_oid";
+
+    if ( !where.empty() )
+    {
+        cmd << " WHERE " << where;
+    }
+
+    cmd << " ORDER BY oid";
+
+    if ( !limit.empty() )
+    {
+        cmd << " LIMIT " << limit;
+    }
+
+    oss << "<USER_POOL>";
+
+    set_callback(static_cast<Callbackable::Callback>(&UserPool::dump_cb),
+                 static_cast<void *>(&oss));
+
+    rc = db->exec(cmd, this);
+
+    unset_callback();
+
+    oss << Nebula::instance().get_default_user_quota().to_xml(def_quota_xml);
+
+    oss << "</USER_POOL>";
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int UserPool::dump_cb(void * _oss, int num, char **values, char **names)
+{
+    ostringstream * oss;
+
+    oss = static_cast<ostringstream *>(_oss);
+
+    if ( (!values[0]) || (num != 2) )
+    {
+        return -1;
+    }
+
+    *oss << values[0];
+
+    if (values[1] != NULL)
+    {
+        *oss << values[1];
+    }
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */

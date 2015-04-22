@@ -1,7 +1,7 @@
 # SConstruct for share/man
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -24,17 +24,32 @@ gzip_bld = Builder(action = 'gzip -c $SOURCE > $TARGET',
 
 env.Append(BUILDERS = {'Man' : gzip_bld})
 
+env.Man('econe-allocate-address')
+env.Man('econe-associate-address')
+env.Man('econe-attach-volume')
+env.Man('econe-create-keypair')
+env.Man('econe-create-volume')
+env.Man('econe-delete-keypair')
+env.Man('econe-delete-volume')
+env.Man('econe-describe-addresses')
 env.Man('econe-describe-images')
 env.Man('econe-describe-instances')
+env.Man('econe-describe-keypairs')
+env.Man('econe-describe-volumes')
+env.Man('econe-detach-volume')
+env.Man('econe-disassociate-address')
+env.Man('econe-reboot-instances')
 env.Man('econe-register')
+env.Man('econe-release-address')
 env.Man('econe-run-instances')
+env.Man('econe-start-instances')
+env.Man('econe-stop-instances')
 env.Man('econe-terminate-instances')
 env.Man('econe-upload')
-env.Man('occi-compute')
-env.Man('occi-network')
-env.Man('occi-storage')
+
+env.Man('oneacct')
+env.Man('oneshowback')
 env.Man('oneacl')
-env.Man('oneauth')
 env.Man('onecluster')
 env.Man('onedatastore')
 env.Man('onedb')
@@ -46,5 +61,10 @@ env.Man('onevm')
 env.Man('onevnet')
 env.Man('onegroup')
 env.Man('onezone')
+env.Man('onevcenter')
+env.Man('onesecgroup')
 env.Man('onevdc')
+
+env.Man('oneflow')
+env.Man('oneflow-template')
 

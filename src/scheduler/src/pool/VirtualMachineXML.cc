@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -17,16 +17,23 @@
 #include <algorithm>
 
 #include "VirtualMachineXML.h"
+#include "DatastoreXML.h"
+#include "DatastorePoolXML.h"
+#include "NebulaUtil.h"
 
 void VirtualMachineXML::init_attributes()
 {
-    vector<string> result;
+    vector<string>     result;
+    vector<xmlNodePtr> nodes;
+
+    string automatic_requirements;
 
     oid = atoi(((*this)["/VM/ID"] )[0].c_str());
     uid = atoi(((*this)["/VM/UID"])[0].c_str());
     gid = atoi(((*this)["/VM/GID"])[0].c_str());
 
     result = ((*this)["/VM/TEMPLATE/MEMORY"]);
+
     if (result.size() > 0)
     {
         memory = atoi(result[0].c_str());
@@ -37,6 +44,7 @@ void VirtualMachineXML::init_attributes()
     }
 
     result = ((*this)["/VM/TEMPLATE/CPU"]);
+
     if (result.size() > 0)
     {
         istringstream   iss;
@@ -48,35 +56,109 @@ void VirtualMachineXML::init_attributes()
         cpu = 0;
     }
 
-    result = ((*this)["/VM/TEMPLATE/RANK"]);
+    // ------------------------ RANK & DS_RANK ---------------------------------
+
+    result = ((*this)["/VM/USER_TEMPLATE/SCHED_RANK"]);
+
     if (result.size() > 0)
     {
         rank = result[0];
     }
     else
     {
-        rank = "";
+        // Compatibility with previous versions
+        result = ((*this)["/VM/USER_TEMPLATE/RANK"]);
+
+        if (result.size() > 0)
+        {
+            rank = result[0];
+        }
     }
 
-    result = ((*this)["/VM/TEMPLATE/REQUIREMENTS"]);
+    result = ((*this)["/VM/USER_TEMPLATE/SCHED_DS_RANK"]);
+
     if (result.size() > 0)
     {
-        requirements = result[0];
+        ds_rank = result[0];
     }
-    else
+
+    // ------------------- HOST REQUIREMENTS -----------------------------------
+
+    result = ((*this)["/VM/TEMPLATE/AUTOMATIC_REQUIREMENTS"]);
+
+    if (result.size() > 0)
     {
-        requirements = "";
-    }    
+        automatic_requirements = result[0];
+    }
+
+    result = ((*this)["/VM/USER_TEMPLATE/SCHED_REQUIREMENTS"]);
+
+    if (result.size() > 0)
+    {
+        if ( !automatic_requirements.empty() )
+        {
+            ostringstream oss;
+
+            oss << automatic_requirements << " & ( " << result[0] << " )";
+
+            requirements = oss.str();
+        }
+        else
+        {
+            requirements = result[0];
+        }
+    }
+    else if ( !automatic_requirements.empty() )
+    {
+        requirements = automatic_requirements;
+    }
+
+    // ------------------- DS REQUIREMENTS -------------------------------------
+
+    result = ((*this)["/VM/USER_TEMPLATE/SCHED_DS_REQUIREMENTS"]);
+
+    if (result.size() > 0)
+    {
+        if ( !automatic_requirements.empty() )
+        {
+            ostringstream oss;
+
+            oss << automatic_requirements << " & ( " << result[0] << " )";
+
+            ds_requirements = oss.str();
+        }
+        else
+        {
+            ds_requirements = result[0];
+        }
+    }
+    else if ( !automatic_requirements.empty() )
+    {
+        ds_requirements = automatic_requirements;
+    }
+
+    // ---------------- HISTORY HID, DSID, RESCHED & TEMPLATE ------------------
 
     result = ((*this)["/VM/HISTORY_RECORDS/HISTORY/HID"]);
 
-    if (result.size() > 0) 
+    if (result.size() > 0)
     {
         hid = atoi(result[0].c_str());
     }
     else
     {
         hid = -1;
+    }
+
+    result = ((*this)["/VM/HISTORY_RECORDS/HISTORY/DS_ID"]);
+
+    if (result.size() > 0)
+    {
+        dsid = atoi(result[0].c_str());
+    }
+    else
+    {
+        dsid = -1;
     }
 
     result = ((*this)["/VM/RESCHED"]);
@@ -88,126 +170,106 @@ void VirtualMachineXML::init_attributes()
     else
     {
         resched = 0;
-    }    
+    }
+
+    if (get_nodes("/VM/TEMPLATE", nodes) > 0)
+    {
+        vm_template = new VirtualMachineTemplate;
+
+        vm_template->from_xml_node(nodes[0]);
+
+        free_nodes(nodes);
+    }
+    else
+    {
+        vm_template = 0;
+    }
+
+    nodes.clear();
+
+    if (get_nodes("/VM/USER_TEMPLATE", nodes) > 0)
+    {
+        user_template = new VirtualMachineTemplate;
+
+        user_template->from_xml_node(nodes[0]);
+
+        free_nodes(nodes);
+    }
+    else
+    {
+        user_template = 0;
+    }
+
+    if (vm_template != 0)
+    {
+        init_storage_usage();
+    }
+    else
+    {
+        system_ds_usage = 0;
+    }
+
+    vector<Attribute*> attrs;
+    user_template->get("PUBLIC_CLOUD", attrs);
+
+    public_cloud = (attrs.size() > 0);
+
+    if (public_cloud == false)
+    {
+        attrs.clear();
+        user_template->get("EC2", attrs);
+
+        public_cloud = (attrs.size() > 0);
+    }
+
+    only_public_cloud = false;
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-VirtualMachineXML::~VirtualMachineXML()
+ostream& operator<<(ostream& os, VirtualMachineXML& vm)
 {
-    vector<VirtualMachineXML::Host *>::iterator	jt;
+    const vector<Resource *> resources = vm.match_hosts.get_resources();
 
-    for (jt=hosts.begin();jt!=hosts.end();jt++)
+    vector<Resource *>::const_reverse_iterator  i;
+
+    if (resources.empty())
     {
-        delete *jt;
+        return os;
     }
 
-    hosts.clear();
-}
+    os << "Virtual Machine: " << vm.oid << endl << endl;
 
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
+    os << "\tPRI\tID - HOSTS"<< endl
+       << "\t------------------------"  << endl;
 
-void VirtualMachineXML::add_host(int host_id)
-{
-    if (( resched == 1 && host_id != hid ) || ( resched == 0 ))
+    for (i = resources.rbegin(); i != resources.rend() ; i++)
     {
-        VirtualMachineXML::Host * ss;
-
-        ss = new VirtualMachineXML::Host(host_id);
-
-        hosts.push_back(ss);            
-    }
-}
-
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-void VirtualMachineXML::get_matching_hosts(vector<int>& mh)
-{
-    vector<VirtualMachineXML::Host *>::iterator i;
-
-    for(i=hosts.begin();i!=hosts.end();i++)
-    {
-        mh.push_back((*i)->hid);
-    }
-}
-
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-void VirtualMachineXML::set_priorities(vector<float>& total)
-{
-    if ( hosts.size() != total.size() )
-    {
-        NebulaLog::log("VM",Log::ERROR,"Wrong size for priority vector");
-        return;
+        os << "\t" << (*i)->priority << "\t" << (*i)->oid << endl;
     }
 
-    for (unsigned int i=0; i<hosts.size(); i++)
+    os << endl;
+
+    os << "\tPRI\tID - DATASTORES"<< endl
+       << "\t------------------------"  << endl;
+
+    const vector<Resource *> ds_resources = vm.match_datastores.get_resources();
+
+    for (i = ds_resources.rbegin(); i != ds_resources.rend() ; i++)
     {
-        hosts[i]->priority = total[i];
+        os << "\t" << (*i)->priority << "\t" << (*i)->oid << endl;
     }
 
-    //Sort the shares using the priority
-    sort(hosts.begin(),hosts.end(),VirtualMachineXML::host_cmp);
-}
+    os << endl;
+
+    return os;
+};
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int VirtualMachineXML::get_host(int&          hid,
-                                HostPoolXML * hpool,
-                                map<int,int>& host_vms,
-                                int           max_vms)
-{
-    vector<VirtualMachineXML::Host *>::reverse_iterator  i;
-
-    vector<int>::iterator   j;
-    HostXML *         host;
-
-    int cpu;
-    int mem;
-    int dsk;
-
-    pair<map<int,int>::iterator,bool> rc;
-
-    get_requirements(cpu,mem,dsk);
-
-    for (i=hosts.rbegin();i!=hosts.rend();i++)
-    {
-        host = hpool->get( (*i)->hid );
-
-        if ( host == 0 )
-        {
-            continue;
-        }
-
-        if (host->test_capacity(cpu,mem,dsk)==true)
-        {
-            rc = host_vms.insert(make_pair((*i)->hid,0));
-
-            if ( rc.first->second < max_vms )
-            {
-                host->add_capacity(cpu,mem,dsk);
-                hid  = (*i)->hid;
-
-                rc.first->second++;
-                return 0;
-            }
-        }
-    }
-
-    hid  = -1;
-
-    return -1;
-}
-
-/* -------------------------------------------------------------------------- */
-/* -------------------------------------------------------------------------- */
-
-void VirtualMachineXML::get_requirements (int& cpu, int& memory, int& disk)
+void VirtualMachineXML::get_requirements (int& cpu, int& memory, long long& disk)
 {
     if (this->memory == 0 || this->cpu == 0)
     {
@@ -219,6 +281,246 @@ void VirtualMachineXML::get_requirements (int& cpu, int& memory, int& disk)
     }
 
     cpu    = (int) (this->cpu * 100);//now in 100%
-    memory = this->memory * 1024;    //now in bytes
-    disk   = 0;
+    memory = this->memory * 1024;    //now in Kilobytes
+    disk   = this->system_ds_usage;  // MB
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+// TODO: use VirtualMachine::isVolatile(disk)
+bool isVolatile(const VectorAttribute * disk)
+{
+    string type = disk->vector_value("TYPE");
+
+    one_util::toupper(type);
+
+    return ( type == "SWAP" || type == "FS");
+}
+
+map<int,long long> VirtualMachineXML::get_storage_usage()
+{
+    return ds_usage;
+}
+
+void VirtualMachineXML::init_storage_usage()
+{
+    vector<Attribute  *>            disks;
+    vector<Attribute*>::iterator    it;
+
+    long long   size;
+    string      st;
+    int         ds_id;
+    bool        clone;
+
+    system_ds_usage = 0;
+
+    int num = vm_template->remove("DISK", disks);
+
+    for (it=disks.begin(); it != disks.end(); it++)
+    {
+        const VectorAttribute * disk = dynamic_cast<const VectorAttribute*>(*it);
+
+        if (disk == 0)
+        {
+            continue;
+        }
+
+        if (disk->vector_value("SIZE", size) != 0)
+        {
+            continue;
+        }
+
+        if (isVolatile(disk))
+        {
+            system_ds_usage += size;
+        }
+        else
+        {
+            if (disk->vector_value("DATASTORE_ID", ds_id) != 0)
+            {
+                continue;
+            }
+
+            if (ds_usage.count(ds_id) == 0)
+            {
+                ds_usage[ds_id] = 0;
+            }
+
+            if (disk->vector_value("CLONE", clone) != 0)
+            {
+                continue;
+            }
+
+            if (clone)
+            {
+                st = disk->vector_value("CLONE_TARGET");
+            }
+            else
+            {
+                st = disk->vector_value("LN_TARGET");
+            }
+
+            one_util::toupper(st);
+
+            if (st == "SELF")
+            {
+                ds_usage[ds_id] += size;
+            }
+            else if (st == "SYSTEM")
+            {
+                system_ds_usage += size;
+            } // else st == NONE
+        }
+    }
+
+    for (int i = 0; i < num ; i++)
+    {
+        delete disks[i];
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void VirtualMachineXML::log(const string &st)
+{
+    if (user_template == 0 || st.empty())
+    {
+        return;
+    }
+    ostringstream oss;
+
+    oss << one_util::log_time() << " : " << st;
+
+    user_template->replace("SCHED_MESSAGE", oss.str());
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool VirtualMachineXML::clear_log()
+{
+    string st;
+
+    if (user_template == 0)
+    {
+        return false;
+    }
+
+    user_template->get("SCHED_MESSAGE", st);
+
+    if (st.empty())
+    {
+        return false;
+    }
+
+    user_template->erase("SCHED_MESSAGE");
+
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int VirtualMachineXML::parse_action_name(string& action_st)
+{
+    one_util::tolower(action_st);
+
+    if (   action_st != "shutdown"
+        && action_st != "shutdown-hard"
+        && action_st != "undeploy"
+        && action_st != "undeploy-hard"
+        && action_st != "hold"
+        && action_st != "release"
+        && action_st != "stop"
+        && action_st != "suspend"
+        && action_st != "resume"
+        && action_st != "boot"
+        && action_st != "delete"
+        && action_st != "delete-recreate"
+        && action_st != "reboot"
+        && action_st != "reboot-hard"
+        && action_st != "poweroff"
+        && action_st != "poweroff-hard"
+        && action_st != "snapshot-create")
+    {
+        return -1;
+    }
+
+    return 0;
+};
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool VirtualMachineXML::test_image_datastore_capacity(
+    ImageDatastorePoolXML * img_dspool, string & error_msg) const
+{
+    map<int,long long>::const_iterator ds_usage_it;
+    DatastoreXML* ds;
+
+    for (ds_usage_it = ds_usage.begin(); ds_usage_it != ds_usage.end(); ds_usage_it++)
+    {
+        ds = img_dspool->get(ds_usage_it->first);
+
+        if (ds == 0 || !ds->test_capacity(ds_usage_it->second))
+        {
+            ostringstream oss;
+
+            oss << "Image Datastore " << ds->get_oid()
+                << " does not have enough capacity";
+
+            error_msg = oss.str();
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void VirtualMachineXML::add_image_datastore_capacity(
+        ImageDatastorePoolXML * img_dspool)
+{
+    map<int,long long>::const_iterator ds_usage_it;
+
+    DatastoreXML *ds;
+
+    for (ds_usage_it = ds_usage.begin(); ds_usage_it != ds_usage.end(); ds_usage_it++)
+    {
+        ds = img_dspool->get(ds_usage_it->first);
+
+        if (ds == 0) //Should never reach here
+        {
+            continue;
+        }
+
+        ds->add_capacity(ds_usage_it->second);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void VirtualMachineXML::set_only_public_cloud()
+{
+    only_public_cloud = true;
+
+    ostringstream oss;
+
+    oss << "VM " << oid << ": Local Datastores do not have enough capacity. "
+            << "This VM can be only deployed in a Public Cloud Host.";
+
+    NebulaLog::log("SCHED",Log::INFO,oss);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool VirtualMachineXML::is_only_public_cloud() const
+{
+    return only_public_cloud;
 }

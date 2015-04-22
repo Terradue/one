@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -20,6 +20,7 @@
 #include "PoolSQL.h"
 #include "ObjectCollection.h"
 #include "DatastorePool.h"
+#include "ClusterTemplate.h"
 
 using namespace std;
 
@@ -29,6 +30,14 @@ using namespace std;
 class Cluster : public PoolObjectSQL
 {
 public:
+    /**
+     * Returns the DATASTORE_LOCATION for the hosts of the cluster. If not
+     * defined that in oned.conf is returned.
+     *
+     * @param ds_location string to copy the DATASTORE_LOCATION to
+     * @return DATASTORE_LOCATION
+     */
+    string& get_ds_location(string &ds_location);
 
     // *************************************************************************
     // Object Collections (Public)
@@ -73,31 +82,11 @@ public:
     /**
      *  Adds this datastore ID to the set.
      *    @param id to be added to the cluster
+     *    @param ds_type Datastore type
      *    @param error_msg Error message, if any
      *    @return 0 on success
      */
-    int add_datastore(int id, string& error_msg)
-    {
-        if ( id == DatastorePool::SYSTEM_DS_ID )
-        {
-            ostringstream oss;
-            oss << "Datastore '"<< DatastorePool::SYSTEM_DS_NAME
-                << "' cannot be added to any cluster.";
-
-            error_msg = oss.str();
-
-            return -1;
-        }
-
-        int rc = datastores.add_collection_id(id);
-
-        if ( rc < 0 )
-        {
-            error_msg = "Datastore ID is already in the cluster set.";
-        }
-
-        return rc;
-    }
+    int add_datastore(int id, Datastore::DatastoreType ds_type, string& error_msg);
 
     /**
      *  Deletes this datastore ID from the set.
@@ -105,17 +94,21 @@ public:
      *    @param error_msg Error message, if any
      *    @return 0 on success
      */
-    int del_datastore(int id, string& error_msg)
+    int del_datastore(int id, string& error_msg);
+
+    /**
+     *  Returns a copy of the datastore IDs set
+     */
+    set<int> get_datastores()
     {
-        int rc = datastores.del_collection_id(id);
+        return datastores.get_collection_copy();
+    };
 
-        if ( rc < 0 )
-        {
-            error_msg = "Datastore ID is not part of the cluster set.";
-        }
-
-        return rc;
-    }
+    /**
+     *  Returns a system DS for the cluster when none is set at the API level
+     *    @return the ID of the System
+     */
+    static int get_default_sysetm_ds(const set<int>& ds_collection);
 
     /**
      *  Adds this vnet ID to the set.
@@ -153,6 +146,43 @@ public:
         return rc;
     }
 
+    /**
+     *  Returns a copy of the host IDs set
+     */
+    set<int> get_host_ids()
+    {
+        return hosts.get_collection_copy();
+    }
+
+    /**
+     *  Returns a copy of the datastore IDs set
+     */
+    set<int> get_datastore_ids()
+    {
+        return datastores.get_collection_copy();
+    }
+
+    /**
+     *  Returns a copy of the vnet IDs set
+     */
+    set<int> get_vnet_ids()
+    {
+        return vnets.get_collection_copy();
+    }
+
+    /**
+     *  Get the default reserved capacity for hosts in the cluster. It can be
+     *  overridden if defined in the host template.
+     *    @param cpu reserved cpu (in percentage)
+     *    @param mem reserved mem (in KB)
+     */
+    void get_reserved_capacity(long long &cpu, long long& mem)
+    {
+        get_template_attribute("RESERVED_CPU", cpu);
+
+        get_template_attribute("RESERVED_MEM", mem);
+    }
+
     // *************************************************************************
     // DataBase implementation (Public)
     // *************************************************************************
@@ -184,16 +214,14 @@ private:
     // Constructor
     // *************************************************************************
 
-    Cluster(int id, const string& name):
-        PoolObjectSQL(id,CLUSTER,name,-1,-1,"","",table),
-        hosts("HOSTS"),
-        datastores("DATASTORES"),
-        vnets("VNETS"){};
+    Cluster(int id,
+            const string& name,
+            ClusterTemplate*  cl_template);
 
     virtual ~Cluster(){};
 
     // *************************************************************************
-    // Object Collections (Private)
+    // Attributes (Private)
     // *************************************************************************
 
     ObjectCollection hosts;
@@ -259,6 +287,14 @@ private:
      * @return 0 if cluster can be dropped, -1 otherwise
      */
     int check_drop(string& error_msg);
+
+    /**
+     *  Factory method for cluster templates
+     */
+    Template * get_new_template() const
+    {
+        return new ClusterTemplate;
+    }
 };
 
 #endif /*CLUSTER_H_*/

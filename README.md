@@ -1,19 +1,18 @@
 
-OpenNebula - The OpenSource Toolkit for Cloud Computing
+# OpenNebula
 
-## DESCRIPTION
+## Description
 
-OpenNebula is an open-source project aimed at building the industry standard
-open source cloud computing tool to manage the complexity and heterogeneity of
-distributed data center infrastructures.
+OpenNebula is an open-source project delivering a simple but feature-rich and 
+flexible solution to build and manage enterprise clouds and virtualized data centers.
 
-Complete documentation can be found at
+Complete documentation: http://opennebula.org/documentation:documentation
 
-  http://opennebula.org/documentation:documentation
+How to contribute: http://opennebula.org/community:contribute
 
-## INSTALLATION
+## Installation
 
-### REQUISITES
+### Requirements
 
 This machine will act as the OpenNebula server and therefore needs to have
 installed the following software:
@@ -35,7 +34,7 @@ Additionally, to build OpenNebula from source you need:
 * **bison** >= 2.3 (optional, only needed to rebuild the parsers)
 * **libxml2-dev**
 
-### RUBY LIBRARIES REQUIREMENTS
+### Ruby Libraries Requirements
 
 A set of gem requirements are needed to make several components work. We
 include a handy script to install them and the requirements. It is located at
@@ -44,7 +43,38 @@ required gems. You have more information at:
 
   http://opennebula.org/documentation:documentation:compile
 
-### OPTIONAL PACKAGES
+If you want to install them manually here are the list of required rubygems:
+
+* OpenNebula and clients (plus cloud interfaces)
+  * sqlite3
+  * json
+  * sequel
+  * mysql
+  * net-ldap
+  * amazon-ec2
+  * rack
+  * sinatra
+  * thin
+  * uuidtools
+  * curb
+  * nokogiri
+
+* OpenNebula zones (client and server)
+  * json
+  * sequel
+  * sqlite3
+  * mysql
+  * nokogiri
+
+* Sunstone server
+  * json
+  * rack
+  * sinatra
+  * thin
+  * sequel
+  * nokogiri
+
+### Optional Packages
 
 These packages are not needed to run or build OpenNebula. They improve the
 performance of the user-land libraries and tools of OpenNebula, nor the core
@@ -63,17 +93,17 @@ Then install the following packages:
   (**libxml-parser-ruby1.8**). If it is not available in your distribution
   install expat libraries with its development files and install xmlparser
   using gem:
-  
+
     $ sudo gem install xmlparser --no-ri --no-rdoc
-    
+
   Note the extra parameters to gem install. Some versions of xmlparser have
   problems building the documentation and we can use it without documentation
   installed.
-  
+
 * **ruby nokogiri**, to install this gem you will need **libxml2** and
   **libxslt** libraries and their development versions. The we can install
   nokogiri library:
-  
+
     $ sudo gem install nokogiri --no-ri --no-rdoc
 
 ### OPTIONAL PACKAGES for driver vmware2
@@ -89,7 +119,7 @@ if the driver vmware2 is enabled in the configuration of OpenNebula.
   Those tools may be downloaded freely after registration on VMWare website
 
 
-### BUILDING
+### Building
 
 Compilation is done using **scons** command:
 
@@ -105,16 +135,16 @@ The argument expression *[OPTIONAL]* is used to set non-default values for:
         parsers     yes if you want to rebuild flex/bison files
         
 
-### INSTALLATION
+### Installation
 
-* OpenNebula can be installed in two modes: system-wide, or in self-contained
-  directory. In either case, you do not need to run OpenNebula as root. These
-  options can be specified when running the install script:
+OpenNebula can be installed in two modes: system-wide, or in self-contained
+directory. In either case, you do not need to run OpenNebula as root. These
+options can be specified when running the install script:
 
     $ ./install.sh install_options
-    
+
 where **install_options** can be one or more of:
-  
+
     OPTION  VALUE
     -u      user that will run OpenNebula, defaults to user executing
             install.sh
@@ -131,24 +161,24 @@ where **install_options** can be one or more of:
     -h      prints installer help
 
 
-## CONFIGURATION
+## Configuration
 
 Information on how to configure OpenNebula is located at
 http://opennebula.org/documentation:documentation:cg
 
 
-## CONTACT
+## Contact
 
 OpenNebula web page: http://opennebula.org
 
 Development and issue tracking: http://dev.opennebula.org
 
-Support mailing list: http://opennebula.org/support:support
+Support: http://opennebula.org/support:support
 
 
-## LICENSE
+## License
 
-Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+Copyright 2002-2015, OpenNebula Project, OpenNebula Systems (formerly C12G Labs)
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may
 not use this file except in compliance with the License. You may obtain
@@ -159,5 +189,4 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
 

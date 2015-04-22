@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -135,7 +135,49 @@ public:
     virtual void set(Attribute * attr);
 
     /**
-     *  Adds a new single attribute to the template.
+     *  Adds a new attribute to the template (replacing it if
+     *  already defined)
+     *    @param name of the new attribute
+     *    @param value of the new attribute
+     *    @return 0 on success
+     */
+    int replace(const string& name, const string& value);
+
+    /**
+     *  Adds a new attribute to the template (replacing it if
+     *  already defined)
+     *    @param name of the new attribute
+     *    @param value of the new attribute
+     *    @return 0 on success
+     */
+    int replace(const string& name, int value)
+    {
+        ostringstream oss;
+
+        oss << value;
+
+        return replace(name, oss.str());
+    }
+
+    /**
+     *  Adds a new attribute to the template (replacing it if
+     *  already defined)
+     *    @param name of the new attribute
+     *    @param value of the new attribute
+     *    @return 0 on success
+     */
+    int replace(const string& name, long long value)
+    {
+        ostringstream oss;
+
+        oss << value;
+
+        return replace(name, oss.str());
+    }
+
+    /*
+     *  Adds a new single attribute to the template. It will replace an existing
+     *  one if replace_mode was set to true
      *    @param name of the attribute
      *    @param value of the attribute
      */
@@ -158,6 +200,34 @@ public:
         set(new SingleAttribute(name, oss.str()));
      }
 
+     /**
+      *  Adds a new single attribute to the template.
+      *    @param name of the attribute
+      *    @param value of the attribute
+      */
+     void add(const string& name, long long value)
+     {
+         ostringstream oss;
+
+         oss << value;
+
+         set(new SingleAttribute(name, oss.str()));
+     }
+
+    /**
+     *  Adds a new single attribute to the template.
+     *    @param name of the attribute
+     *    @param value of the attribute
+     */
+     void add(const string& name, float value)
+     {
+        ostringstream oss;
+
+        oss << value;
+
+        set(new SingleAttribute(name, oss.str()));
+     }
+
     /**
      *  Removes an attribute from the template. The attributes are returned. The
      *  attributes MUST be freed by the calling funtion
@@ -168,6 +238,15 @@ public:
     virtual int remove(
         const string&        name,
         vector<Attribute *>& values);
+
+    /**
+     *  Removes an attribute from the template, but it DOES NOT free the
+     *  attribute.
+     *    @param att Attribute to remove. It will be deleted
+     *    @return pointer to the removed attribute or 0 if non attribute was
+     *    removed
+     */
+    virtual Attribute * remove(Attribute * att);
 
     /**
      *  Removes an attribute from the template, and frees the attributes.
@@ -210,11 +289,67 @@ public:
      *    @param value the attribute value, an int, 0 if the attribute is not
      *    defined or not Single
      *
-     *    @return True if the Single attribute was found
+     *    @return True if the Single attribute was found and is a valid integer
+     *    value
      */
     virtual bool get(
         const string& name,
         int&    value) const;
+
+    /**
+     *  Gets the value of a Single attributes (long long) with the given name.
+     *    @param name the attribute name.
+     *    @param value the attribute value, a long long, 0 if the attribute is not
+     *    defined or not Single
+     *
+     *    @return True if the Single attribute was found and is a valid integer
+     *    value
+     */
+    virtual bool get(
+        const string& name,
+        long long&    value) const;
+
+    /**
+     *  Gets the value of a Single attributes (float) with the given name.
+     *    @param name the attribute name.
+     *    @param value the attribute value, an int, 0 if the attribute is not
+     *    defined or not Single
+     *
+     *    @return True if the Single attribute was found and is a valid float
+     *    value
+     */
+    virtual bool get(
+        const string&   name,
+        float&          value) const;
+
+    /**
+     *  Gets the value of a Single attributes (bool) with the given name.
+     *    @param name the attribute name.
+     *    @param value the attribute value, a bool, false if the attribute is not
+     *    defined or not Single
+     *
+     *    @return True if the Single attribute was found and is a valid bool
+     *    value
+     */
+    virtual bool get(
+        const string&   name,
+        bool&           value) const;
+
+    /**
+     *  Trims the trailing spaces in the NAME attribute
+     *    @return True if the attribute was found and trimmed
+     */
+    virtual bool trim_name()
+    {
+        return trim("NAME");
+    };
+
+    /**
+     *  Trims the trailing spaces in the attribute
+     *    @param name of the attribute
+     *    @return True if the attribute was found and trimmed
+     */
+    virtual bool trim(const string& name);
 
     friend ostream& operator<<(ostream& os, const Template& t);
 
@@ -233,6 +368,32 @@ public:
      *    @return 0 on success, -1 otherwise
      */
     int from_xml_node(const xmlNodePtr node);
+
+    /**
+     *  Merges another Template, adding the new attributes and
+     *  replacing the existing ones
+     *
+     *    @param from_tmpl the template to be merged
+     *    @param error_str string describing the error
+     *
+     *    @return 0 on success.
+     */
+     int merge(const Template * from_tmpl, string& error_str);
+
+     /**
+      * Deletes all restricted attributes
+      */
+     virtual void remove_restricted();
+
+     /**
+      * Deletes all the attributes, except the restricted ones
+      */
+     virtual void remove_all_except_restricted();
+
+     /**
+      *  @return true if the template defines one or more restricted attributes
+      */
+     virtual bool has_restricted();
 
 protected:
     /**
@@ -272,6 +433,26 @@ protected:
      *    @return true if a restricted attribute is found in the template
      */
     bool check(string& rs_attr, const vector<string> &restricted_attributes);
+
+    /**
+     * Deletes all restricted attributes
+     */
+    void remove_restricted(const vector<string> &restricted_attributes);
+
+    /**
+     * Deletes all the attributes, except the restricted ones
+     */
+    void remove_all_except_restricted(const vector<string> &restricted_attributes);
+
+    /**
+     * Updates the xml root element name
+     *
+     * @param _xml_root New name
+     */
+    void set_xml_root(const char * _xml_root)
+    {
+        xml_root = _xml_root;
+    };
 
 private:
 

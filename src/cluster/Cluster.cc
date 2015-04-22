@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -22,6 +22,7 @@
 
 #include "Cluster.h"
 #include "GroupPool.h"
+#include "Nebula.h"
 
 const char * Cluster::table = "cluster_pool";
 
@@ -29,12 +30,41 @@ const char * Cluster::db_names =
         "oid, name, body, uid, gid, owner_u, group_u, other_u";
 
 const char * Cluster::db_bootstrap = "CREATE TABLE IF NOT EXISTS cluster_pool ("
-    "oid INTEGER PRIMARY KEY, name VARCHAR(128), body TEXT, uid INTEGER, "
+    "oid INTEGER PRIMARY KEY, name VARCHAR(128), body MEDIUMTEXT, uid INTEGER, "
     "gid INTEGER, owner_u INTEGER, group_u INTEGER, other_u INTEGER, "
     "UNIQUE(name))";
 
-/* ------------------------------------------------------------------------ */
-/* ------------------------------------------------------------------------ */
+/* ************************************************************************** */
+/* Cluster :: Constructor/Destructor                                          */
+/* ************************************************************************** */
+
+Cluster::Cluster(
+        int id,
+        const string& name,
+        ClusterTemplate*  cl_template):
+            PoolObjectSQL(id,CLUSTER,name,-1,-1,"","",table),
+            hosts("HOSTS"),
+            datastores("DATASTORES"),
+            vnets("VNETS")
+{
+    if (cl_template != 0)
+    {
+        obj_template = cl_template;
+    }
+    else
+    {
+        obj_template = new ClusterTemplate;
+    }
+
+    string default_cpu; //TODO - Get these two from oned.conf
+    string default_mem;
+
+    add_template_attribute("RESERVED_CPU", default_cpu);
+    add_template_attribute("RESERVED_MEM", default_cpu);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
 
 int Cluster::check_drop(string& error_msg)
 {
@@ -72,9 +102,88 @@ error_common:
     return -1;
 }
 
-/* ************************************************************************ */
-/* Cluster :: Database Access Functions                                     */
-/* ************************************************************************ */
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+string& Cluster::get_ds_location(string &ds_location)
+{
+    obj_template->get("DATASTORE_LOCATION", ds_location);
+
+    if ( ds_location.empty() == true )
+    {
+        Nebula& nd = Nebula::instance();
+
+        nd.get_configuration_attribute("DATASTORE_LOCATION", ds_location);
+    }
+
+    return ds_location;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Cluster::add_datastore(int id, Datastore::DatastoreType ds_type, string& error_msg)
+{
+   int rc = datastores.add_collection_id(id);
+
+    if ( rc < 0 )
+    {
+        error_msg = "Datastore ID is already in the cluster set.";
+    }
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Cluster::del_datastore(int id, string& error_msg)
+{
+    int rc = datastores.del_collection_id(id);
+
+    if ( rc < 0 )
+    {
+        error_msg = "Datastore ID is not part of the cluster set.";
+    }
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int Cluster::get_default_sysetm_ds(const set<int>& ds_set)
+{
+    Nebula& nd = Nebula::instance();
+
+    DatastorePool*  dspool = nd.get_dspool();
+    Datastore*      ds;
+
+    for (set<int>::const_iterator it = ds_set.begin(); it != ds_set.end(); it++)
+    {
+        ds = dspool->get(*it, true);
+
+        if (ds == 0)
+        {
+            continue;
+        }
+
+        if (ds->get_type() == Datastore::SYSTEM_DS)
+        {
+            ds->unlock();
+
+            return *it;
+        }
+
+        ds->unlock();
+    }
+
+    return -1;
+}
+
+/* ************************************************************************** */
+/* Cluster :: Database Access Functions                                       */
+/* ************************************************************************** */
 
 int Cluster::insert_replace(SqlDB *db, bool replace, string& error_str)
 {
@@ -161,8 +270,8 @@ error_common:
     return -1;
 }
 
-/* ------------------------------------------------------------------------ */
-/* ------------------------------------------------------------------------ */
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
 
 string& Cluster::to_xml(string& xml) const
 {
@@ -170,16 +279,16 @@ string& Cluster::to_xml(string& xml) const
     string          host_collection_xml;
     string          ds_collection_xml;
     string          vnet_collection_xml;
+    string          template_xml;
 
     oss <<
     "<CLUSTER>"  <<
-        "<ID>"   << oid  << "</ID>"   <<
-        "<NAME>" << name << "</NAME>" <<
-
+        "<ID>"          << oid          << "</ID>"          <<
+        "<NAME>"        << name         << "</NAME>"        <<
         hosts.to_xml(host_collection_xml)    <<
         datastores.to_xml(ds_collection_xml) <<
         vnets.to_xml(vnet_collection_xml)    <<
-
+        obj_template->to_xml(template_xml)   <<
     "</CLUSTER>";
 
     xml = oss.str();
@@ -187,8 +296,8 @@ string& Cluster::to_xml(string& xml) const
     return xml;
 }
 
-/* ------------------------------------------------------------------------ */
-/* ------------------------------------------------------------------------ */
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
 
 int Cluster::from_xml(const string& xml)
 {
@@ -199,8 +308,8 @@ int Cluster::from_xml(const string& xml)
     update_from_str(xml);
 
     // Get class base attributes
-    rc += xpath(oid, "/CLUSTER/ID",   -1);
-    rc += xpath(name,"/CLUSTER/NAME", "not_found");
+    rc += xpath(oid,        "/CLUSTER/ID",          -1);
+    rc += xpath(name,       "/CLUSTER/NAME",        "not_found");
 
     // Set oneadmin as the owner
     set_user(0,"");
@@ -256,6 +365,18 @@ int Cluster::from_xml(const string& xml)
     ObjectXML::free_nodes(content);
     content.clear();
 
+    // Get associated classes
+    ObjectXML::get_nodes("/CLUSTER/TEMPLATE", content);
+
+    if (content.empty())
+    {
+        return -1;
+    }
+
+    rc += obj_template->from_xml_node(content[0]);
+
+    ObjectXML::free_nodes(content);
+
     if (rc != 0)
     {
         return -1;
@@ -264,6 +385,6 @@ int Cluster::from_xml(const string& xml)
     return 0;
 }
 
-/* ------------------------------------------------------------------------ */
-/* ------------------------------------------------------------------------ */
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
 

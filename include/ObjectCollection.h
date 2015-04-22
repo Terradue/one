@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -55,7 +55,7 @@ public:
      *  Returns how many IDs are there in the set.
      *    @return how many IDs are there in the set.
      */
-    int get_collection_size()
+    int get_collection_size() const
     {
         return collection_set.size();
     };
@@ -84,6 +84,16 @@ public:
     {
         return set<int> (collection_set);
     };
+
+    /**
+     * Returns true if the collection contains the given id
+     * @param id ID to search
+     * @return true if the collection contains the given id
+     */
+    bool collection_contains(int id)
+    {
+        return collection_set.count(id) > 0;
+    }
 
 private:
 

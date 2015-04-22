@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -26,7 +26,7 @@ module OpenNebulaJSON
             if OpenNebula.is_error?(acl_rule)
                 return acl_rule
             end
-            self.allocate(acl_rule[0],acl_rule[1],acl_rule[2])
+            self.allocate(acl_rule[0],acl_rule[1],acl_rule[2],acl_rule[3])
         end
 
         def perform_action(template_json)

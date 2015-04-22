@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -42,6 +42,7 @@ module OpenNebulaJSON
                  when "chgrp"        then self.chgrp(action_hash['params'])
                  when "chauth"       then self.chauth(action_hash['params'])
                  when "update"       then self.update(action_hash['params'])
+                 when "set_quota"    then self.set_quota(action_hash['params'])
                  when "addgroup"     then self.addgroup(action_hash['params'])
                  when "delgroup"     then self.delgroup(action_hash['params'])
                  else
@@ -65,6 +66,12 @@ module OpenNebulaJSON
 
         def update(params=Hash.new)
             super(params['template_raw'])
+        end
+
+        def set_quota(params=Hash.new)
+            quota_json = params['quotas']
+            quota_template = template_to_str(quota_json)
+            super(quota_template)
         end
 
         def addgroup(params=Hash.new)

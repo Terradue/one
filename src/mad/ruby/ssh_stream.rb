@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -34,8 +34,9 @@ class SshStream
     #
     #
     #
-    def initialize(host)
-        @host = host
+    def initialize(host, shell="bash")
+        @host  = host
+        @shell = shell
     end
 
     def opened?
@@ -47,7 +48,7 @@ class SshStream
     end
 
     def open
-        @stdin, @stdout, @stderr=Open3::popen3("#{SSH_CMD} #{@host} bash -s ; echo #{SSH_RC_STR} $? 1>&2")
+        @stdin, @stdout, @stderr=Open3::popen3("#{SSH_CMD} #{@host} #{@shell} -s ; echo #{SSH_RC_STR} $? 1>&2")
 
         @stream_out = ""
         @stream_err = ""
@@ -59,6 +60,8 @@ class SshStream
     end
 
     def close
+        return if !@alive
+
         begin
             @stdin.puts "\nexit"
         rescue #rescue from EPIPE if ssh command exited already
@@ -155,13 +158,11 @@ end
 
 
 class SshStreamCommand < RemotesCommand
-    def initialize(host, remote_dir, logger=nil, stdin=nil)
+    def initialize(host, remote_dir, logger=nil, stdin=nil, shell='bash')
         super('true', host, logger, stdin)
 
         @remote_dir = remote_dir
-        @stream     = SshStream.new(host)
-
-        @stream.open
+        @stream     = SshStream.new(host, shell)
     end
 
     def run(command, stdin=nil, base_cmd = nil)

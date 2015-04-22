@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -45,7 +45,7 @@ extern "C" void * hm_action_loop(void *arg)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void HookManager::load_mads(int uid)
+int HookManager::load_mads(int uid)
 {
     HookManagerDriver *     hm_mad;
     ostringstream           oss;
@@ -62,7 +62,7 @@ void HookManager::load_mads(int uid)
     if ( vattr == 0 )
     {
         NebulaLog::log("HKM",Log::INFO,"Failed to load Hook Manager driver.");
-        return;
+        return -1;
     }
 
     VectorAttribute hook_conf("HOOK_MAD",vattr->value());
@@ -80,6 +80,8 @@ void HookManager::load_mads(int uid)
 
         NebulaLog::log("HKM",Log::INFO,oss);
     }
+
+    return rc;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -18,6 +18,7 @@
 #ifndef HOST_XML_H_
 #define HOST_XML_H_
 
+#include <map>
 #include "ObjectXML.h"
 
 using namespace std;
@@ -40,63 +41,119 @@ public:
         return oid;
     };
 
-    /**
-     *  Gets the current host capacity
-     *    @param cpu the host free cpu, scaled according to a given threshold
-     *    @param memory the host free memory
-     *    @param threshold to consider the host totally free
-     */
-    void get_capacity(int& cpu, int& memory, float threshold) const;
+    int get_cid() const
+    {
+        return cluster_id;
+    };
 
     /**
      *  Tests whether a new VM can be hosted by the host or not
      *    @param cpu needed by the VM (percentage)
-     *    @param mem needed by the VM (in Kb)
-     *    @param disk needed by the VM
+     *    @param mem needed by the VM (in KB)
+     *    @param error error message
      *    @return true if the share can host the VM
      */
-    bool test_capacity(int cpu, int mem, int disk) const
+    bool test_capacity(long long cpu, long long mem, string & error) const;
+
+    /**
+     *  Tests whether a new VM can be hosted by the host or not
+     *    @param cpu needed by the VM (percentage)
+     *    @param mem needed by the VM (in KB)
+     *    @return true if the share can host the VM
+     */
+    bool test_capacity(long long cpu, long long mem) const
     {
-        return (((max_cpu  - cpu_usage ) >= cpu) &&
-                ((max_mem  - mem_usage ) >= mem) &&
-                ((max_disk - disk_usage) >= disk));
+        string tmp_st;
+        return test_capacity(cpu, mem, tmp_st);
     };
 
     /**
      *  Adds a new VM to the given share by incrementing the cpu,mem and disk
      *  counters
      *    @param cpu needed by the VM (percentage)
-     *    @param mem needed by the VM (in Kb)
-     *    @param disk needed by the VM
+     *    @param mem needed by the VM (in KB)
      *    @return 0 on success
      */
-    void add_capacity(int cpu, int mem, int disk)
+    void add_capacity(long long cpu, long long mem)
     {
         cpu_usage  += cpu;
         mem_usage  += mem;
-        disk_usage += disk;
 
         running_vms++;
     };
 
+    /**
+     *  Deletes a VM to the given host by updating the cpu,mem and disk
+     *  counters
+     *    @param cpu needed by the VM (percentage)
+     *    @param mem needed by the VM (in KB)
+     *    @return 0 on success
+     */
+    void del_capacity(int cpu, int mem)
+    {
+        cpu_usage  -= cpu;
+        mem_usage  -= mem;
+
+        running_vms--;
+    };
+
+    /**
+     *  Tests whether a new VM can be hosted by the local system DS or not
+     *    @param dsid DS id
+     *    @param vm_disk_mb System disk needed by the VM (in MB)
+     *    @return true if the share can host the VM
+     */
+    bool test_ds_capacity(int dsid, long long vm_disk_mb);
+
+    /**
+     *  Adds a new VM to the given local sytem DS share by incrementing the disk
+     *  counter
+     *    @param dsid DS id
+     *    @param vm_disk_mb System disk needed by the VM (in MB)
+     */
+    void add_ds_capacity(int dsid, long long vm_disk_mb);
+
+    /**
+     *  Search the Object for a given attribute in a set of object specific
+     *  routes. Overwrite ObjectXML function to deal with pseudo-attributes
+     *    - CURRENT_VMS. value is the VM ID to search in the set of VMS
+     *    running VMs in the host. If the VM_ID is found value is not modified
+     *    otherwise is set to -1
+     */
+    int search(const char *name, int& value);
+
+    /**
+     *  Checks if the host is a remote public cloud
+     *    @return true if the host is a remote public cloud
+     */
+    bool is_public_cloud() const
+    {
+        return public_cloud;
+    }
 
 private:
     int oid;
+    int cluster_id;
 
     // Host share values
-    int disk_usage; /**< Disk allocated to VMs (in Mb).        */
-    int mem_usage;  /**< Memory allocated to VMs (in Mb)       */
-    int cpu_usage;  /**< CPU  allocated to VMs (in percentage) */
+    long long mem_usage;  /**< Memory allocated to VMs (in KB)       */
+    long long cpu_usage;  /**< CPU  allocated to VMs (in percentage) */
 
-    int max_disk;   /**< Total disk capacity (in Mb)           */
-    int max_mem;    /**< Total memory capacity (in Mb)         */
-    int max_cpu;    /**< Total cpu capacity (in percentage)    */
+    long long max_mem;    /**< Total memory capacity (in KB)         */
+    long long max_cpu;    /**< Total cpu capacity (in percentage)    */
 
-    int free_disk;  /**< Free disk from the IM monitor         */
-    int free_mem;   /**< Free memory from the IM monitor       */
-    int free_cpu;   /**< Free cpu from the IM monitor          */
+    long long free_disk;  /**< Free disk capacity (in MB)            */
 
-    int running_vms; /**< Number of running VMs in this Host   */
+    map<int, long long> ds_free_disk; /**< Free MB for local system DS */
+
+    long long running_vms; /**< Number of running VMs in this Host   */
+
+    bool public_cloud;
+
+    // Configuration attributes
+    static const char *host_paths[]; /**< paths for search function */
+
+    static int host_num_paths; /**< number of paths*/
 
     void init_attributes();
 };

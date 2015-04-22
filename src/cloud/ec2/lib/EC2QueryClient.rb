@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -25,6 +25,39 @@ require 'CloudClient'
 require 'AWS'
 
 module EC2QueryClient
+
+    ACCESS_KEY = {
+        :name => "access_key",
+        :short => "-K id",
+        :large => "--access-key id",
+        :description => "The username of the user",
+        :format => String
+    }
+
+    SECRET_KEY = {
+        :name => "secret_key",
+        :short => "-S key",
+        :large => "--secret-key key",
+        :description => "The sha1 hashed password of the user",
+        :format => String
+    }
+
+    URL = {
+        :name => "url",
+        :short => "-U url",
+        :large => "--url url",
+        :description => "Set url as the web service url to use",
+        :format => String
+    }
+
+    HEADERS = {
+        :name => "headers",
+        :short => "-H",
+        :large => "--headers",
+        :description => "Display column headers"
+    }
+
+
     ##########################################################################
     #
     #
@@ -37,13 +70,13 @@ module EC2QueryClient
         #
         #
         ######################################################################
-        def initialize(secret=nil, endpoint=nil, timeout=nil)
+        def initialize(access=nil, secret=nil, endpoint=nil, timeout=nil)
             # Autentication
             ec2auth  = nil
             @timeout = nil
 
-            if secret
-                ec2auth = secret.split(':')
+            if access && secret
+                ec2auth = access, secret
             elsif ENV["EC2_ACCESS_KEY"] and ENV["EC2_SECRET_KEY"]
                 ec2auth = [ENV["EC2_ACCESS_KEY"], ENV["EC2_SECRET_KEY"]]
             else
@@ -100,16 +133,13 @@ module EC2QueryClient
         # :image_id
         # :instance_type
         ######################################################################
-        def run_instances(ami_id, type, user_data=nil)
+        def run_instances(opts)
             begin
-                response = @ec2_connection.run_instances(
-                                :image_id       => ami_id,
-                                :min_count      => 1,
-                                :max_count      => 1,
-                                :instance_type  => type,
-                                :user_data      => user_data,
-                                :base64_encoded => true
-                           )
+                response = @ec2_connection.run_instances({
+                    :base64_encoded => true,
+                    :min_count      => 1,
+                    :max_count      => 1
+                }.merge(opts))
             rescue Exception => e
                 error = CloudClient::Error.new(e.message)
                 return error
@@ -125,6 +155,57 @@ module EC2QueryClient
         def terminate_instances(instance_id)
             begin
                 response = @ec2_connection.terminate_instances(
+                    :instance_id   => instance_id
+                 )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def stop_instances(instance_id)
+            begin
+                response = @ec2_connection.stop_instances(
+                    :instance_id   => instance_id
+                 )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def start_instances(instance_id)
+            begin
+                response = @ec2_connection.start_instances(
+                    :instance_id   => instance_id
+                 )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def reboot_instances(instance_id)
+            begin
+                response = @ec2_connection.reboot_instances(
                     :instance_id   => instance_id
                  )
             rescue Exception => e
@@ -168,13 +249,16 @@ module EC2QueryClient
 
                 connection = Curl::Easy.new(@uri.to_s)
                 connection.multipart_form_post = true
+                connection.ssl_verify_peer = false
 
                 connection.http_post(*post_fields)
 
                 if connection.response_code == 200
                     return AWS::Response.parse(:xml => connection.body_str)
                 else
-                    return CloudClient::Error.new(connection.body_str)
+                    r=AWS::Response.parse(:xml => connection.body_str)
+                    message=r['Errors']['Error']['Message']
+                    return CloudClient::Error.new(message)
                 end
             else
                 if !MULTIPART_LOADED
@@ -196,10 +280,12 @@ module EC2QueryClient
 
                 file.close
 
-                if res.code == '200'
+                if !CloudClient.is_error?(res)
                     return AWS::Response.parse(:xml => res.body)
                 else
-                    return CloudClient::Error.new(res.body)
+                    r=AWS::Response.parse(:xml => res.message)
+                    message=r['Errors']['Error']['Message']
+                    return CloudClient::Error.new(message)
                 end
             end
         end
@@ -268,7 +354,7 @@ module EC2QueryClient
         def associate_address(public_ip, instance_id)
             begin
                 response = @ec2_connection.associate_address(
-                            :public_ip   => public_ip, 
+                            :public_ip   => public_ip,
                             :instance_id => instance_id)
             rescue Exception => e
                 error = CloudClient::Error.new(e.message)
@@ -298,6 +384,151 @@ module EC2QueryClient
             begin
                 response = @ec2_connection.release_address(
                             :public_ip   => public_ip)
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def describe_volumes
+            begin
+                response = @ec2_connection.describe_volumes
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def attach_volume(volume, instance, device)
+            begin
+                response = @ec2_connection.attach_volume(
+                    :volume_id => volume,
+                    :instance_id => instance,
+                    :device => device
+                    )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def delete_volume(volume)
+            begin
+                response = @ec2_connection.delete_volume(
+                    :volume_id => volume
+                    )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def detach_volume(volume, instance, device)
+            begin
+                response = @ec2_connection.detach_volume(
+                    :volume_id => volume,
+                    :instance_id => instance,
+                    :device => device
+                    )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        #
+        #
+        ######################################################################
+        def create_volume(size)
+            begin
+                response = @ec2_connection.create_volume(
+                    :size => size,
+                    :availability_zone => 'default'
+                    )
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        # Lists available key pairs
+        #   @param name[String] of the kaypair
+        #   @return keypairs[Hash]
+        #     {"xmlns"=>"http://ec2.amazonaws.com/doc/2010-08-31/",
+        #      "keySet"=>{"item"=>[
+        #          {"keyName"=>"...", "keyFingerprint"=>"..."}]}}
+        ######################################################################
+        def describe_keypairs()
+            begin
+                response = @ec2_connection.describe_keypairs
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        # Creates a new key pair
+        #   @param name[String] of the kaypair
+        #   @return keypair[Hash]
+        #   {"xmlns"=>"http://ec2.amazonaws.com/doc/2010-08-31",
+        #    "keyName"=>"...",
+        #    "keyFingerprint"=>"...",
+        #    "keyMaterial"=>"..."}
+        ######################################################################
+        def create_keypair(name)
+            begin
+                response = @ec2_connection.create_keypair(:key_name => name)
+            rescue Exception => e
+                error = CloudClient::Error.new(e.message)
+                return error
+            end
+
+            return response
+        end
+
+        ######################################################################
+        # Deletes a new key pair
+        #   @param name[String] of the kaypair
+        #   @return response[Hash]
+        #     {"xmlns"=>"http://ec2.amazonaws.com/doc/2010-08-31/",
+        #      "return"=>{"true/false"}
+        ######################################################################
+        def delete_keypair(name)
+            begin
+                response = @ec2_connection.delete_keypair(:key_name => name)
             rescue Exception => e
                 error = CloudClient::Error.new(e.message)
                 return error

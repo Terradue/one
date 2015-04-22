@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -33,9 +33,6 @@ ONE_SH=$ONE_LIB/sh
 
 . $ONE_SH/scripts_common.sh
 
-# Set umask
-umask 0007
-
 # ------------------------------------------------------------------------------
 # Function to get hosts and paths from arguments
 # ------------------------------------------------------------------------------
@@ -51,15 +48,6 @@ function arg_path
 {
     ARG_PATH=`echo $1 | $SED 's/^[^:]*:(.*)$/\1/'`
     fix_dir_slashes "$ARG_PATH"
-}
-
-#Return the DATASTORE_LOCATION from OpenNebula configuration
-function set_ds_location
-{
-    RMT_DS_DIR=`$GREP '^DATASTORE_LOCATION=' $ONE_LOCAL_VAR/config | cut -d= -f2`
-    RMT_DS_DIR=`fix_dir_slashes $RMT_DS_DIR`
-
-    export RMT_DS_DIR
 }
 
 #Return 1 if the first argument is a disk
@@ -87,4 +75,23 @@ function make_relative {
     done
 
     echo $dots${src#$common/}
+}
+
+#Return DISK_TYPE
+function disk_type
+{
+    # Let's check if it is a CDROM
+    DISK_ID=$(echo "$DST_PATH" | $AWK -F. '{print $NF}')
+    XPATH="${ONE_LOCAL_VAR}/remotes/datastore/xpath.rb --stdin"
+
+    unset i XPATH_ELEMENTS
+
+    while IFS= read -r -d '' element; do
+        XPATH_ELEMENTS[i++]="$element"
+    done < <(onevm show -x $VMID| $XPATH \
+                        /VM/TEMPLATE/DISK[DISK_ID=$DISK_ID]/TYPE )
+
+    DISK_TYPE="${XPATH_ELEMENTS[0]}"
+
+    echo $DISK_TYPE
 }

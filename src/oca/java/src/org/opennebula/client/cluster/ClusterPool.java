@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,8 @@ import org.w3c.dom.Node;
  * It also offers static XML-RPC call wrappers.
  */
 public class ClusterPool extends Pool implements Iterable<Cluster>{
+
+    public static final int NONE_CLUSTER_ID = -1;
 
     private static final String ELEMENT_NAME = "CLUSTER";
     private static final String INFO_METHOD  = "clusterpool.info";

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -16,12 +16,15 @@
 
 #include "InformationManager.h"
 #include "NebulaLog.h"
+#include "Cluster.h"
+#include "Nebula.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <utime.h>
 
 
-const time_t InformationManager::monitor_expire = 600;
+const time_t InformationManager::monitor_expire = 300;
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -49,7 +52,7 @@ extern "C" void * im_action_loop(void *arg)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void InformationManager::load_mads(int uid)
+int InformationManager::load_mads(int uid)
 {
     InformationManagerDriver *  im_mad;
     unsigned int                i;
@@ -68,7 +71,7 @@ void InformationManager::load_mads(int uid)
 
         NebulaLog::log("InM",Log::INFO,oss);
 
-        im_mad = new InformationManagerDriver(0,vattr->value(),false,hpool);
+        im_mad = new InformationManagerDriver(0,vattr->value(),false,&mtpool);
 
         rc = add(im_mad);
 
@@ -79,7 +82,13 @@ void InformationManager::load_mads(int uid)
 
             NebulaLog::log("InM",Log::INFO,oss);
         }
+        else
+        {
+            return -1;
+        }
     }
+
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -110,6 +119,30 @@ int InformationManager::start()
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+void InformationManager::trigger(Actions action, int _hid)
+{
+    int *   hid;
+    string  aname;
+
+    hid = new int(_hid);
+
+    switch (action)
+    {
+    case STOPMONITOR:
+        aname = "STOPMONITOR";
+        break;
+
+    default:
+        delete hid;
+        return;
+    }
+
+    am.trigger(aname,hid);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
 void InformationManager::do_action(const string &action, void * arg)
 {
     if (action == ACTION_TIMER)
@@ -122,12 +155,89 @@ void InformationManager::do_action(const string &action, void * arg)
 
         MadManager::stop();
     }
+    else if (action == "STOPMONITOR")
+    {
+        int hid  = *(static_cast<int *>(arg));
+        delete static_cast<int *>(arg);
+
+        stop_monitor(hid);
+    }
     else
     {
         ostringstream oss;
         oss << "Unknown action name: " << action;
 
         NebulaLog::log("InM", Log::ERROR, oss);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void InformationManager::stop_monitor(int hid)
+{
+    string error_msg;
+    int    rc;
+
+    // -------------------------------------------------------------------------
+    // Drop host from DB
+    // -------------------------------------------------------------------------
+    Host * host = hpool->get(hid,true);
+
+    if (host == 0) //Already deleted silently return
+    {
+        return;
+    }
+
+    int cluster_id = host->get_cluster_id();
+    string im_mad  = host->get_im_mad();
+
+    rc = hpool->drop(host, error_msg);
+
+    host->unlock();
+
+    if (rc != 0) //Error (a VM has been allocated or DB error)
+    {
+        ostringstream oss;
+
+        oss << "Could not delete host " << hid << ": " << error_msg;
+
+        NebulaLog::log("InM", Log::ERROR, oss);
+
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Send STOPMONITOR to the IM driver if defined
+    // -------------------------------------------------------------------------
+    const InformationManagerDriver * imd = get(im_mad);
+
+    if (imd != 0)
+    {
+        imd->stop_monitor(hid, host->get_name());
+    }
+
+    // -------------------------------------------------------------------------
+    // Remove host from cluster
+    // -------------------------------------------------------------------------
+    if ( cluster_id != ClusterPool::NONE_CLUSTER_ID )
+    {
+        Cluster * cluster = clpool->get(cluster_id, true);
+
+        if( cluster != 0 )
+        {
+            rc = cluster->del_host(hid, error_msg);
+
+            if ( rc < 0 )
+            {
+                cluster->unlock();
+                return;
+            }
+
+            clpool->update(cluster);
+
+            cluster->unlock();
+        }
     }
 }
 
@@ -142,17 +252,18 @@ void InformationManager::timer_action()
     time_t          now;
     ostringstream   oss;
 
-    struct stat     sb;
-
-    map<int, string>            discovered_hosts;
-    map<int, string>::iterator  it;
+    set<int>            discovered_hosts;
+    set<int>::iterator  it;
 
     const InformationManagerDriver * imd;
 
-    Host *          host;
-    istringstream   iss;
+    Host *        host;
+    istringstream iss;
 
-    time_t          monitor_length;
+    time_t monitor_length;
+    time_t target_time;
+
+    bool do_monitor;
 
     mark = mark + timer_period;
 
@@ -165,26 +276,20 @@ void InformationManager::timer_action()
     // Clear the expired monitoring records
     hpool->clean_expired_monitoring();
 
-    rc = hpool->discover(&discovered_hosts, host_limit);
+    now = time(0);
+
+    target_time = now - monitor_period;
+
+    rc = hpool->discover(&discovered_hosts, host_limit, target_time);
 
     if ((rc != 0) || (discovered_hosts.empty() == true))
     {
         return;
     }
 
-    now = time(0);
-
-    if (stat(remotes_location.c_str(), &sb) == -1)
-    {
-        sb.st_mtime = 0;
-
-        NebulaLog::log("InM",Log::ERROR,"Could not stat remotes directory, "
-        "will not update remotes.");
-    }
-
     for(it=discovered_hosts.begin();it!=discovered_hosts.end();it++)
     {
-        host = hpool->get(it->first,true);
+        host = hpool->get(*it,true);
 
         if (host == 0)
         {
@@ -193,50 +298,110 @@ void InformationManager::timer_action()
 
         monitor_length = now - host->get_last_monitored();
 
-        if (host->isMonitoring() && (monitor_length >= monitor_expire))
-        {
-            host->set_state(Host::INIT);
+        /**
+         * Monitor hosts that are:
+         * - enabled and have been being monitored for more than monitor_expire
+         * - enabled and not being monitored
+         * - disabled and not being monitored but have running vms
+         * - disabled with running vms and have been being monitored
+         *   for more than monitor_expire secs.
+         */
 
-            hpool->update(host);
+        do_monitor = false;
+
+        if (host->isEnabled())
+        {
+            if (!host->isMonitoring())
+            {
+                do_monitor = true;
+            }
+            else if (monitor_length >= monitor_expire )
+            {
+                do_monitor = true;
+            }
+        }
+        else if ( host->get_share_running_vms() > 0 )
+        {
+            if (!host->isMonitoring())
+            {
+                do_monitor = true;
+            }
+            else if (monitor_length >= monitor_expire)
+            {
+                do_monitor = true;
+            }
         }
 
-        if ( host->isEnabled() && !(host->isMonitoring()) && 
-            (monitor_length >= monitor_period))
+        if (do_monitor)
         {
             oss.str("");
-            oss << "Monitoring host " << host->get_name()
-                << " (" << it->first << ")";
+            oss << "Monitoring host " << host->get_name() << " ("
+                << host->get_oid() << ")";
 
-            NebulaLog::log("InM",Log::INFO,oss);
+            NebulaLog::log("InM",Log::DEBUG,oss);
 
-            imd = get(it->second);
+            imd = get(host->get_im_mad());
 
             if (imd == 0)
             {
                 oss.str("");
-                oss << "Could not find information driver " << it->second;
+                oss << "Could not find information driver " << host->get_im_mad();
                 NebulaLog::log("InM",Log::ERROR,oss);
 
-                host->set_state(Host::ERROR);
+                host->set_error();
+
+                hpool->update(host);
+
+                host->unlock();
             }
             else
             {
+                Nebula&    nd       = Nebula::instance();
                 bool update_remotes = false;
 
-                if ((sb.st_mtime != 0) &&
-                    (sb.st_mtime > host->get_last_monitored()))
+                string name    = host->get_name();
+                int    oid     = host->get_oid();
+                int cluster_id = host->get_cluster_id();
+
+                string dsloc;
+
+                //Force remotes update if the host has never been monitored.
+                if (host->get_last_monitored() == 0)
                 {
                     update_remotes = true;
                 }
 
-            	imd->monitor(it->first,host->get_name(),update_remotes);
+                host->set_monitoring_state();
 
-            	host->set_monitoring_state();
+                hpool->update(host);
+
+                host->unlock();
+
+                if (nd.get_ds_location(cluster_id, dsloc) == -1)
+                {
+                    continue;
+                }
+
+                imd->monitor(oid, name, dsloc, update_remotes);
             }
+        }
+        else if (!host->isEnabled() && host->get_share_running_vms() == 0 )
+        {
+            // Disabled hosts without VMs are not monitored, but we need to
+            // update the last_mon_time to rotate the Hosts returned by
+            // HostPool::discover. We also update the monitoring values with
+            // 0s
+            host->touch(true);
+
+            hpool->update_monitoring(host);
 
             hpool->update(host);
-        }
 
-        host->unlock();
+            host->unlock();
+        }
+        else
+        {
+            host->unlock();
+        }
     }
 }

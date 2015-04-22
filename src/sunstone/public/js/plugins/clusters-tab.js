@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -14,53 +14,346 @@
 /* limitations under the License.                                             */
 /* -------------------------------------------------------------------------- */
 
-/*Cluster tab plugin*/
+/* ---------------- Cluster tab plugin ---------------- */
 
+/* ------------ Cluster creation dialog ------------ */
 
-var clusters_tab_content = '\
-<h2>'+tr("Clusters")+'</h2>\
-<form id="form_cluters" action="javascript:alert(\'js errors?!\')">\
-  <div class="action_blocks">\
-  </div>\
-<table id="datatable_clusters" class="display">\
-  <thead>\
-    <tr>\
-      <th class="check"><input type="checkbox" class="check_all" value="">' + tr("All") + '</input></th>\
-      <th>' + tr("ID") + '</th>\
-      <th>' + tr("Name") + '</th>\
-    </tr>\
-  </thead>\
-  <tbody id="tbodyclusters">\
-  </tbody>\
-</table>\
-</form>';
-
-var create_cluster_tmpl =
-'<div class="create_form"><form id="create_cluster_form" action="">\
-  <fieldset>\
-  <label for="name">' + tr("Name") + ':</label><input type="text" name="name" id="name" />\
-  </fieldset>\
-  <fieldset>\
-    <div class="form_buttons">\
-        <div><button class="button" type="submit" id="create_cluster_submit" value="OpenNebula.Cluster.create">' + tr("Create") + '</button>\
-        <button class="button" type="reset" value="reset">' + tr("Reset") + '</button></div>\
+var create_cluster_tmpl ='<div class="row">\
+    <div class="large-12 columns">\
+      <h3 id="create_cluster_header" class="subheader">'+tr("Create Cluster")+'</h3>\
+      <h3 id="update_cluster_header" class="subheader">'+tr("Update Cluster")+'</h3>\
     </div>\
-  </fieldset>\
-</form></div>';
+  </div>\
+  <div class="reveal-body">\
+  <form id="cluster_create_tabs" class="custom">\
+  <div class="row">\
+    <div class="large-6 columns">\
+      <label for="name">' + tr("Name")  + '</label>\
+      <input type="text" name="name" id="name" />\
+    </div>\
+    <div class="large-6 columns">\
+      <dl class="tabs right-info-tabs text-center right" data-tab>\
+          <dd class="active"><a href="#tab-hostsTab"><i class="fa fa-hdd-o"></i><br>'+tr("Hosts")+'</a></dd>\
+          <dd><a href="#tab-vnetsTab"><i class="fa fa-globe"></i><br>'+tr("VNets")+'</a></dd>\
+          <dd><a href="#tab-datastoresTab"><i class="fa fa-folder-open"></i><br>'+tr("Datastores")+'</a></dd>\
+      </dl>\
+    </div>\
+  </div>\
+  <div class="tabs-content">\
+    <div id="tab-hostsTab" class="active content">\
+      '+generateHostTableSelect("cluster_wizard_hosts")+'\
+    </div>\
+    <div id="tab-vnetsTab" class="content">\
+      '+generateVNetTableSelect("cluster_wizard_vnets")+'\
+    </div>\
+    <div id="tab-datastoresTab" class="content">\
+      '+generateDatastoreTableSelect("cluster_wizard_datastores")+'\
+    </div>\
+  </div>\
+</form>\
+</div>\
+<div class="reveal-footer">\
+  <div class="form_buttons row">\
+      <button class="button success right radius" type="submit" id="create_cluster_submit" value="OpenNebula.Cluster.create">' + tr("Create") + '</button>\
+      <button class="button right radius" type="submit" id="update_cluster_submit">' + tr("Update") + '</button>\
+  </div>\
+</div>\
+<a class="close-reveal-modal">&#215;</a>';
 
-var clusters_select="";
+// Prepares the cluster creation dialog
+function setupCreateClusterDialog(){
+
+    $("#create_cluster_dialog").remove();
+    dialogs_context.append('<div id="create_cluster_dialog"></div>');
+
+    $create_cluster_dialog = $('div#create_cluster_dialog');
+    var dialog = $create_cluster_dialog;
+
+    dialog.html(create_cluster_tmpl);
+    var height = Math.floor($(window).height()*0.8); //set height to a percentage of the window
+
+    dialog.addClass("reveal-modal large max-height").attr("data-reveal", "");
+
+    setupHostTableSelect(dialog, "cluster_wizard_hosts", {multiple_choice: true});
+    setupVNetTableSelect(dialog, "cluster_wizard_vnets", {multiple_choice: true});
+    setupDatastoreTableSelect(dialog, "cluster_wizard_datastores", {multiple_choice: true});
+
+    // Handle the Create button
+    $('#create_cluster_submit').click(function(){
+
+        if (!($('input#name',dialog).val().length)){
+            notifyError(tr("Cluster name missing!"));
+            return false;
+        }
+
+        var selected_hosts_arr = retrieveHostTableSelect(dialog, "cluster_wizard_hosts");
+        var selected_hosts_list = {};
+
+        $.each(selected_hosts_arr, function(i,e){
+            selected_hosts_list[e] = 1;
+        });
+
+        var selected_vnets_arr = retrieveVNetTableSelect(dialog, "cluster_wizard_vnets");
+        var selected_vnets_list = {};
+
+        $.each(selected_vnets_arr, function(i,e){
+            selected_vnets_list[e] = 1;
+        });
+
+        var selected_datastores_arr = retrieveDatastoreTableSelect(dialog, "cluster_wizard_datastores");
+        var selected_datastores_list = {};
+
+        $.each(selected_datastores_arr, function(i,e){
+            selected_datastores_list[e] = 1;
+        });
+
+        var cluster_json = {
+            "cluster": {
+                "name": $('#name',dialog).val(),
+                "hosts": selected_hosts_list,
+                "vnets": selected_vnets_list,
+                "datastores": selected_datastores_list
+            }
+        };
+
+        // Create the OpenNebula.Cluster.
+        Sunstone.runAction("Cluster.create",cluster_json);
+        return false;
+    });
+}
+
+// Open creation dialogs
+function popUpCreateClusterDialog(){
+    if (!$create_cluster_dialog || $create_cluster_dialog.html() == "") {
+        setupCreateClusterDialog();
+    }
+
+    $create_cluster_dialog.die();
+
+    // Activate create button
+    $('#create_cluster_submit',$create_cluster_dialog).show();
+    $('#update_cluster_submit',$create_cluster_dialog).hide();
+    $('#create_cluster_header',$create_cluster_dialog).show();
+    $('#update_cluster_header',$create_cluster_dialog).hide();
+
+    refreshHostTableSelect($create_cluster_dialog, "cluster_wizard_hosts");
+    refreshVNetTableSelect($create_cluster_dialog, "cluster_wizard_vnets");
+    refreshDatastoreTableSelect($create_cluster_dialog, "cluster_wizard_datastores");
+
+    $create_cluster_dialog.foundation().foundation('reveal', 'open');
+
+    $("input#name",$create_cluster_dialog).focus();
+
+    return false;
+}
+
+// Open update dialog
+function popUpUpdateClusterDialog(){
+
+    var selected_nodes = getSelectedNodes(dataTable_clusters);
+
+    if ( selected_nodes.length != 1 )
+    {
+      notifyError(tr("Please select one (and just one) cluster to update."));
+      return false;
+    }
+
+    var dialog = $create_cluster_dialog;
+
+    if ($("#create_cluster_dialog")) {
+        dialog.html("");
+    }
+
+    setupCreateClusterDialog();
+
+    // Activate update button
+    $('#create_cluster_submit',$create_cluster_dialog).hide();
+    $('#update_cluster_submit',$create_cluster_dialog).show();
+    $('#create_cluster_header',$create_cluster_dialog).hide();
+    $('#update_cluster_header',$create_cluster_dialog).show();
+
+    Sunstone.runAction("Cluster.show_to_update", selected_nodes[0]);
+
+    $create_cluster_dialog.die();
+    $create_cluster_dialog.live('closed', function () {
+        $("#create_cluster_dialog").html("");
+        setupCreateClusterDialog();
+    });
+
+    $create_cluster_dialog.foundation().foundation('reveal', 'open');
+
+    return false;
+}
+
+// Fill update dialog with loaded properties
+function fillPopPup(request,response){
+  var dialog = $create_cluster_dialog;
+
+  // Harvest variables
+  var name     = response.CLUSTER.NAME;
+  var host_ids = response.CLUSTER.HOSTS.ID;
+  var vnet_ids = response.CLUSTER.VNETS.ID;
+  var ds_ids   = response.CLUSTER.DATASTORES.ID;
+
+  if (typeof host_ids == 'string')
+  {
+    host_ids = [host_ids];
+  }
+
+  if (typeof vnet_ids == 'string')
+  {
+    vnet_ids = [vnet_ids];
+  }
+
+  if (typeof ds_ids == 'string')
+  {
+    ds_ids = [ds_ids];
+  }
+
+  // Fill in the name
+  $('#name',dialog).val(name);
+  $('#name',dialog).attr("disabled", "disabled");
+
+  var original_hosts_list = [];
+
+  // Select hosts belonging to the cluster
+  if (host_ids)
+  {
+    original_hosts_list = host_ids;
+    var opts = {
+        ids : host_ids
+    }
+
+    selectHostTableSelect(dialog, "cluster_wizard_hosts", opts);
+  }
+
+  var original_vnets_list = [];
+
+  // Select vnets belonging to the cluster
+  if (vnet_ids)
+  {
+    original_vnets_list = vnet_ids;
+    var opts = {
+        ids : vnet_ids
+    }
+
+    selectVNetTableSelect(dialog, "cluster_wizard_vnets", opts);
+  }
+
+  var original_datastores_list = [];
+
+  // Select datastores belonging to the cluster
+  if (ds_ids)
+  {
+    original_datastores_list = ds_ids;
+    var opts = {
+        ids : ds_ids
+    }
+
+    selectDatastoreTableSelect(dialog, "cluster_wizard_datastores", opts);
+  }
+
+  // Clone already existing resources (to keep track)
+  cluster_to_update_id     = response.CLUSTER.ID;
+
+    refreshHostTableSelect(dialog, "cluster_wizard_hosts");
+    refreshVNetTableSelect(dialog, "cluster_wizard_vnets");
+    refreshDatastoreTableSelect(dialog, "cluster_wizard_datastores");
+
+  // Define update button
+  $('#update_cluster_submit').click(function(){
+
+      // find out which ones are in and out
+      var selected_hosts_list = retrieveHostTableSelect(dialog, "cluster_wizard_hosts");
+
+      $.each(selected_hosts_list, function(i,host_id){
+        if (original_hosts_list.indexOf(host_id) == -1)
+        {
+          Sunstone.runAction("Cluster.addhost",cluster_to_update_id,host_id);
+        }        
+      });
+
+      $.each(original_hosts_list, function(i,host_id){
+        if (selected_hosts_list.indexOf(host_id) == -1)
+        {
+          Sunstone.runAction("Cluster.delhost",cluster_to_update_id,host_id);
+        }
+      });
+
+      var selected_vnets_list = retrieveVNetTableSelect(dialog, "cluster_wizard_vnets");
+
+      $.each(selected_vnets_list, function(i,vnet_id){
+        if (original_vnets_list.indexOf(vnet_id) == -1)
+        {
+          Sunstone.runAction("Cluster.addvnet",cluster_to_update_id,vnet_id);
+        }        
+      });
+
+      $.each(original_vnets_list, function(i,vnet_id){
+        if (selected_vnets_list.indexOf(vnet_id) == -1)
+        {
+          Sunstone.runAction("Cluster.delvnet",cluster_to_update_id,vnet_id);
+        }
+      });
+
+      var selected_datastores_list = retrieveDatastoreTableSelect(dialog, "cluster_wizard_datastores");
+
+      $.each(selected_datastores_list, function(i,datastore_id){
+        if (original_datastores_list.indexOf(datastore_id) == -1)
+        {
+          Sunstone.runAction("Cluster.adddatastore",cluster_to_update_id,datastore_id);
+        }
+      });
+
+      $.each(original_datastores_list, function(i,datastore_id){
+        if (selected_datastores_list.indexOf(datastore_id) == -1)
+        {
+          Sunstone.runAction("Cluster.deldatastore",cluster_to_update_id,datastore_id);
+        }
+      });
+
+      $create_cluster_dialog.foundation('reveal', 'close')
+
+      Sunstone.runAction('Cluster.list');
+
+      return false;
+  });
+}
+
 var dataTable_clusters;
 var $create_cluster_dialog;
+
 
 //Setup actions
 var cluster_actions = {
 
     "Cluster.create" : {
         type: "create",
-        call : OpenNebula.Cluster.create,
-        callback : addClusterElement,
-        error : onError,
-        notify: true
+        call: OpenNebula.Cluster.create,
+        callback: function(request, response){
+            // Reset the create wizard
+            $create_cluster_dialog.foundation('reveal', 'close');
+            $create_cluster_dialog.empty();
+            setupCreateClusterDialog();
+
+            addClusterElement(request, response);
+//            Sunstone.runAction('Cluster.list');
+
+            for (var host in request.request.data[0].cluster.hosts)
+                if (request.request.data[0].cluster.hosts[host])
+                    Sunstone.runAction("Cluster.addhost",response.CLUSTER.ID,host);
+            for (var vnet in request.request.data[0].cluster.vnets)
+                if (request.request.data[0].cluster.vnets[vnet])
+                    Sunstone.runAction("Cluster.addvnet",response.CLUSTER.ID,vnet);
+            for (var datastore in request.request.data[0].cluster.datastores)
+                if (request.request.data[0].cluster.datastores[datastore])
+                    Sunstone.runAction("Cluster.adddatastore",response.CLUSTER.ID,datastore);
+
+            //Sunstone.runAction('Cluster.list');
+           // Sunstone.runAction('Cluster.show',response.CLUSTER.ID);
+            notifyCustom(tr("Cluster created"), " ID: " + response.CLUSTER.ID, false);
+        },
+        error: onError
     },
 
     "Cluster.create_dialog" : {
@@ -78,91 +371,94 @@ var cluster_actions = {
     "Cluster.show" : {
         type: "single",
         call: OpenNebula.Cluster.show,
-        callback: updateClusterElement,
-        error: onError
-    },
-
-/*
-
-    "Cluster.showinfo" : {
-        type: "single",
-        call: OpenNebula.Cluster.show,
-        callback: updateClusterInfo,
-        error: onError
-    },
-*/
-
-    "Cluster.refresh" : {
-        type: "custom",
-        call: function(){
-            waitingNodes(dataTable_clusters);
-            Sunstone.runAction("Cluster.list");
+        callback: function(request, response) {
+            updateClusterElement(request, response);
+            if (Sunstone.rightInfoVisible($("#clusters-tab"))) {
+                updateClusterInfo(request, response);
+            }
         },
         error: onError
     },
 
-    "Cluster.autorefresh" : {
+    "Cluster.show_to_update" : {
+        type: "single",
+        call: OpenNebula.Cluster.show,
+        callback: fillPopPup,
+        error: onError
+    },
+
+    "Cluster.refresh" : {
         type: "custom",
-        call : function() {
-            OpenNebula.Cluster.list({timeout: true, success: updateClustersView,error: onError});
-        }
+        call: function(){
+          var tab = dataTable_clusters.parents(".tab");
+          if (Sunstone.rightInfoVisible(tab)) {
+            Sunstone.runAction("Cluster.show", Sunstone.rightInfoResourceId(tab))
+          } else {
+            waitingNodes(dataTable_clusters);
+            Sunstone.runAction("Cluster.list", {force: true});
+          }
+        },
+        error: onError
     },
 
     "Cluster.addhost" : {
         type: "single",
         call : OpenNebula.Cluster.addhost,
         callback : function (req) {
-            Sunstone.runAction("Host.show",req.request.data[0][1].host_id);
+            OpenNebula.Helper.clear_cache("HOST");
+            Sunstone.runAction('Cluster.show',req.request.data[0][0]);
         },
-        error : onError,
+        error : onError
     },
 
     "Cluster.delhost" : {
         type: "single",
         call : OpenNebula.Cluster.delhost,
         callback : function (req) {
-            //Sunstone.runAction("Cluster.show",req.request.data[0]);
+            OpenNebula.Helper.clear_cache("HOST");
+            Sunstone.runAction('Cluster.show',req.request.data[0][0]);
         },
-        error : onError,
-        notify: true
+        error : onError
     },
 
     "Cluster.adddatastore" : {
         type: "single",
         call : OpenNebula.Cluster.adddatastore,
         callback : function (req) {
-            Sunstone.runAction("Datastore.show",req.request.data[0][1].ds_id);
-            //Sunstone.runAction("Cluster.show",req.request.data[0]);
+            OpenNebula.Helper.clear_cache("DATASTORE");
+            Sunstone.runAction('Cluster.show',req.request.data[0][0]);
         },
-        error : onError,
+        error : onError
     },
 
     "Cluster.deldatastore" : {
         type: "single",
         call : OpenNebula.Cluster.deldatastore,
         callback : function (req) {
-            //Sunstone.runAction("Cluster.show",req.request.data[0]);
+            OpenNebula.Helper.clear_cache("DATASTORE");
+            Sunstone.runAction('Cluster.show',req.request.data[0][0]);
         },
-        error : onError,
+        error : onError
     },
 
     "Cluster.addvnet" : {
         type: "single",
         call : OpenNebula.Cluster.addvnet,
         callback : function (req) {
-            Sunstone.runAction("Network.show",req.request.data[0][1].vnet_id);
+            OpenNebula.Helper.clear_cache("VNET");
+            Sunstone.runAction('Cluster.show',req.request.data[0][0]);
         },
-        error : onError,
+        error : onError
     },
 
     "Cluster.delvnet" : {
         type: "single",
         call : OpenNebula.Cluster.delvnet,
         callback : function (req) {
-            //Sunstone.runAction("Cluster.show",req.request.data[0]);
+            OpenNebula.Helper.clear_cache("VNET");
+            Sunstone.runAction('Cluster.show',req.request.data[0][0]);
         },
-        error : onError,
-        notify: true
+        error : onError
     },
 
     "Cluster.delete" : {
@@ -170,60 +466,122 @@ var cluster_actions = {
         call : OpenNebula.Cluster.del,
         callback : deleteClusterElement,
         elements: clusterElements,
-        error : onError,
-        notify:true
+        error : onError
     },
+
+    "Cluster.update_template" : {  // Update template
+        type: "single",
+        call: OpenNebula.Cluster.update,
+        callback: function(request,response){
+           Sunstone.runAction('Cluster.show',request.request.data[0][0]);
+        },
+        error: onError
+    },
+
+    "Cluster.fetch_template" : {
+        type: "single",
+        call: OpenNebula.Cluster.fetch_template,
+        callback: function(request,response){
+            $('#template_update_dialog #template_update_textarea').val(response.template);
+        },
+        error: onError
+    },
+
+    "Cluster.update_dialog" : {
+        type: "single",
+        call: popUpUpdateClusterDialog
+    },
+
+    "Cluster.rename" : {
+        type: "single",
+        call: OpenNebula.Cluster.rename,
+        callback: function(request) {
+            Sunstone.runAction('Cluster.show',request.request.data[0]);
+        },
+        error: onError
+    }
 };
 
 var cluster_buttons = {
     "Cluster.refresh" : {
-        type: "image",
-        text: tr("Refresh list"),
-        img: "images/Refresh-icon.png"
-        },
+        type: "action",
+        layout: "refresh",
+        alwaysActive: true
+    },
+//    "Sunstone.toggle_top" : {
+//        type: "custom",
+//        layout: "top",
+//        alwaysActive: true
+//    },
     "Cluster.create_dialog" : {
         type: "create_dialog",
-        text: tr("+ New")
+        layout: "create"
+    },
+    "Cluster.update_dialog" : {
+        type : "action",
+        layout: "main",
+        text : tr("Update")
     },
     "Cluster.delete" : {
         type: "confirm",
+        layout: "del",
         text: tr("Delete")
     }
 };
 
-/*
-var host_info_panel = {
-    "host_info_tab" : {
-        title: tr("Host information"),
+var clusters_tab = {
+    title: tr("Clusters"),
+    resource: 'Cluster',
+    buttons: cluster_buttons,
+    showOnTopMenu: false,
+    tabClass: "subTab",
+    parentTab: "infra-tab",
+    search_input: '<input id="cluster_search" type="search" placeholder="'+tr("Search")+'" />',
+    list_header: '<i class="fa fa-fw fa-th"></i>&emsp;'+tr("Clusters"),
+    info_header: '<i class="fa fa-fw fa-th"></i>&emsp;'+tr("Cluster"),
+    subheader: '<span/> <small></small>&emsp;',
+    table: '<table id="datatable_clusters" class="datatable twelve">\
+      <thead>\
+        <tr>\
+          <th class="check"><input type="checkbox" class="check_all" value=""></input></th>\
+          <th>' + tr("ID") + '</th>\
+          <th>' + tr("Name") + '</th>\
+          <th>' + tr("Hosts") + '</th>\
+          <th>' + tr("VNets") + '</th>\
+          <th>' + tr("Datastores") + '</th>\
+        </tr>\
+      </thead>\
+      <tbody id="tbodyclusters">\
+      </tbody>\
+    </table>'
+};
+
+var cluster_info_panel = {
+    "cluster_info_tab" : {
+        title: tr("Cluster information"),
         content:""
     },
 
-    "host_template_tab" : {
-        title: tr("Host template"),
+    "cluster_host_tab" : {
+        title: tr("Cluster Hosts"),
         content: ""
     },
-    "host_monitoring_tab": {
-        title: tr("Monitoring information"),
+    "cluster_vnet_tab" : {
+        title: tr("Cluster Virtual Networks"),
+        content: ""
+    },
+    "cluster_datastore_tab" : {
+        title: tr("Cluster Datastores"),
         content: ""
     }
-};
-*/
 
-
-var clusters_tab = {
-    title: tr("Clusters"),
-    content: clusters_tab_content,
-    buttons: cluster_buttons,
-    showOnTopMenu: false,
-    tabClass: "topTab subTab",
-    parentTab: "infra_tab",
 };
 
 Sunstone.addActions(cluster_actions);
-Sunstone.addMainTab('clusters_tab',clusters_tab);
-//Sunstone.addInfoPanel("host_info_panel",host_info_panel);
+Sunstone.addMainTab('clusters-tab',clusters_tab);
+Sunstone.addInfoPanel("cluster_info_panel",cluster_info_panel);
 
-
+//return lists of selected elements in cluster list
 function clusterElements(){
     return getSelectedNodes(dataTable_clusters);
 }
@@ -232,637 +590,242 @@ function clusterElementArray(element_json){
 
     var element = element_json.CLUSTER;
 
+    var hosts = 0;
+    if ($.isArray(element.HOSTS.ID))
+        hosts = element.HOSTS.ID.length;
+    else if (!$.isEmptyObject(element.HOSTS.ID))
+        hosts = 1;
+
+    var vnets = 0;
+    if ($.isArray(element.VNETS.ID))
+        vnets = element.VNETS.ID.length;
+    else if (!$.isEmptyObject(element.VNETS.ID))
+        vnets = 1;
+
+    var dss = 0;
+    if ($.isArray(element.DATASTORES.ID))
+        dss = element.DATASTORES.ID.length;
+    else if (!$.isEmptyObject(element.DATASTORES.ID))
+        dss = 1;
+
+
     return [
         '<input class="check_item" type="checkbox" id="cluster_'+element.ID+'" name="selected_items" value="'+element.ID+'"/>',
         element.ID,
         element.NAME,
+        hosts,
+        vnets,
+        dss
     ];
 }
 
-/*
-//Listen to clicks on the tds of the tables and shows the info dialogs.
-function hostInfoListener(){
-    $('#tbodyhosts tr',dataTable_hosts).live("click",function(e){
-        //do nothing if we are clicking a checkbox!
-        if ($(e.target).is('input')) {return true;}
-
-        var aData = dataTable_hosts.fnGetData(this);
-        var id = $(aData[0]).val();
-        if (!id) return true;
-
-        popDialogLoading();
-        Sunstone.runAction("Host.showinfo",id);
-        return false;
-    });
-}
-*/
-
-//updates the host select by refreshing the options in it
-function updateClusterSelect(){
-    clusters_select = '<option value="-1">Default (none)</option>';
-    clusters_select += makeSelectOptions(dataTable_clusters,
-                                         1,//id_col
-                                         2,//name_col
-                                         [],//status_cols
-                                         [],//bad_st
-                                         true
-                                        );
-}
-
-//callback for an action affecting a host element
+//callback for an action affecting a cluster element
 function updateClusterElement(request, element_json){
     var id = element_json.CLUSTER.ID;
     var element = clusterElementArray(element_json);
     updateSingleElement(element,dataTable_clusters,'#cluster_'+id);
-    updateClusterSelect();
 }
 
-//callback for actions deleting a host element
+//callback for actions deleting a cluster element
 function deleteClusterElement(req){
     deleteElement(dataTable_clusters,'#cluster_'+req.request.data);
-    updateClusterSelect();
+    $('div#cluster_tab_'+req.request.data,main_tabs_context).remove();
 }
 
-//call back for actions creating a host element
+//call back for actions creating a cluster element
 function addClusterElement(request,element_json){
     var id = element_json.CLUSTER.ID;
     var element = clusterElementArray(element_json);
     addElement(element,dataTable_clusters);
-    updateClusterSelect();
 }
 
-//callback to update the list of hosts.
+//callback to update the list of clusters.
 function updateClustersView (request,list){
     var list_array = [];
 
     $.each(list,function(){
-        //Grab table data from the host_list
+        //Grab table data from the list
         list_array.push(clusterElementArray(this));
     });
 
-    removeClusterMenus();
-
     updateView(list_array,dataTable_clusters);
-    updateClusterSelect();
-    //dependency with the dashboard plugin
-    updateDashboard("clusters",list);
-    updateInfraDashboard("clusters",list);
-    newClusterMenu(list);
 };
 
 
-function clusterTabContent(cluster_json) {
-    var cluster = cluster_json.CLUSTER;
-    var hosts_n = 0;
-    var dss_n = 0;
-    var vnets_n = 0;
+// Updates the cluster info panel tab content and pops it up
+function updateClusterInfo(request,cluster){
+    cluster_info     = cluster.CLUSTER;
+    cluster_template = cluster_info.TEMPLATE;
 
-    if (cluster.DATASTORES.ID &&
-        cluster.DATASTORES.ID.constructor == Array){
-        dss_n = cluster.DATASTORES.ID.length;
-    } else if (cluster.DATASTORES.ID)
-        dss_n = 1;
-
-    if (cluster.HOSTS.ID &&
-        cluster.HOSTS.ID.constructor == Array){
-        hosts_n = cluster.HOSTS.ID.length;
-    } else if (cluster.HOSTS.ID)
-        hosts_n = 1;
-
-    if (cluster.VNETS.ID &&
-        cluster.VNETS.ID.constructor == Array){
-        vnets_n = cluster.VNETS.ID.length;
-    } else if (cluster.VNETS.ID)
-        vnets_n = 1;
-
-/*
-    var dss_list = '<li class="clusterElemLi">'+tr("No datastores in this cluster")+'</li>';
-    if (cluster.DATASTORES.ID &&
-        cluster.DATASTORES.ID.constructor == Array){
-        dss_list = '';
-        for (var i=0; i<cluster.DATASTORES.ID.length;i++){
-            dss_list += '<li class="clusterElemLi">'+cluster.DATASTORES.ID[i]+' - '+getDatastoreName(cluster.DATASTORES.ID[i])+'</li>';
-        };
-    } else if (cluster.DATASTORES.ID)
-        dss_list = '<li class="clusterElemLi">'+cluster.DATASTORES.ID+' - '+getDatastoreName(cluster.DATASTORES.ID)+'</li>';
-
-    var hosts_list = '<li class="clusterElemLi">'+tr("No hosts in this cluster")+'</li>';
-    if (cluster.HOSTS.ID &&
-        cluster.HOSTS.ID.constructor == Array){
-        hosts_list = '';
-        for (var i=0; i<cluster.HOSTS.ID.length;i++){
-            hosts_list += '<li class="clusterElemLi">'+cluster.HOSTS.ID[i]+' - '+getHostName(cluster.HOSTS.ID[i])+'</li>';
-        };
-    } else if (cluster.HOSTS.ID)
-        hosts_list = '<li class="clusterElemLi">'+cluster.HOSTS.ID+' - '+getHostName(cluster.HOSTS.ID)+'</li>';
-
-    var vnets_list = '<li class="clusterElemLi">'+tr("No virtual networks in this cluster")+'</li>';
-    if (cluster.VNETS.ID &&
-        cluster.VNETS.ID.constructor == Array){
-        vnets_list = '';
-        for (var i=0; i<cluster.VNETS.ID.length;i++){
-            vnets_list += '<li class="clusterElemLi">'+cluster.VNETS.ID[i]+' - '+getVNetName(cluster.VNETS.ID[i])+'</li>';
-        };
-    } else if (cluster.VNETS.ID)
-        vnets_list = '<li class="clusterElemLi">'+cluster.VNETS.ID+' - '+getVNetName(cluster.VNETS.ID)+'</li>';
-*/
-
-    //special case for cluster none, simplified dashboard
-    if (cluster.ID == "-"){
-        var html_code = '\
-<table class="dashboard_table">\
-<tr>\
-<td style="width:50%">\
-<table style="width:100%">\
-  <tr>\
-    <td>\
-      <div class="panel">\
-<h3>' + tr("Cluster information") + '</h3>\
-        <div class="panel_info">\
-\
-          <table class="info_table">\
-            <tr>\
-              <td class="key_td">' + tr("ID") + '</td>\
-              <td class="value_td">'+cluster.ID+'</td>\
-            </tr>\
-            <tr>\
-              <td class="key_td">' + tr("Name") + '</td>\
-              <td class="value_td">'+cluster.NAME+'</td>\
-            </tr>\
-          </table>\
-\
-        </div>\
-      </div>\
-    </td>\
-  </tr>\
-  <tr>\
-    <td>\
-      <div class="panel">\
-        <h3>' + tr("Hosts") + '</h3>\
-        <div class="panel_info">\
-<br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="action_button" href="#hosts_tab" value="Host.create_dialog">'+tr("Create new host")+'</a><br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="show_tab_button" filter_id="'+cluster.ID+'" href="#hosts_tab">'+tr("Manage unclustered hosts")+'</a><br /></p>\
-\
-      </div>\
-    </td>\
-  </tr>\
-</table>\
-</td>\
-<td style="width:50%">\
-<table style="width:100%">\
-  <tr>\
-    <td>\
-      <div class="panel">\
-        <h3>' + tr("Datastores") + '</h3>\
-        <div class="panel_info">\
-<br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="action_button" href="#datastores_tab" value="Datastore.create_dialog">'+tr("Create new datastore")+'</a><br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="show_tab_button" filter_id="'+cluster.ID+'" href="#datastores_tab">'+tr("Manage unclustered datastores")+'</a><br /></p>\
-        </div>\
-      </div>\
-    </td>\
-  </tr>\
-  <tr>\
-    <td>\
-      <div class="panel">\
-        <h3>' + tr("Virtual Networks") + '</h3>\
-        <div class="panel_info">\
-<br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="action_button" href="#vnets_tab" value="Network.create_dialog">'+tr("Create new virtual network")+'</a><br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="show_tab_button" filter_id="'+cluster.ID+'" href="#vnets_tab">'+tr("Manage unclustered virtual networks")+'</a><br /></p>\
-        </div>\
-      </div>\
-    </td>\
-  </tr>\
-</table>\
-</td>\
-</tr></table>\
-';
-        return html_code;
-    };
-
-    //end cluster none special html
-
-    var html_code = '\
-<table class="dashboard_table">\
-<tr>\
-<td style="width:50%">\
-<table style="width:100%">\
-  <tr>\
-    <td>\
-      <div class="panel">\
-<h3>' + tr("Cluster information") + '</h3>\
-        <div class="panel_info">\
-\
-          <table class="info_table">\
-            <tr>\
-              <td class="key_td">' + tr("ID") + '</td>\
-              <td class="value_td">'+cluster.ID+'</td>\
-            </tr>\
-            <tr>\
-              <td class="key_td">' + tr("Name") + '</td>\
-              <td class="value_td">'+cluster.NAME+'</td>\
-            </tr>\
-          </table>\
-\
-        </div>\
-      </div>\
-    </td>\
-  </tr>\
-  <tr>\
-    <td>\
-      <div class="panel">\
-        <h3>' + tr("Hosts") + '</h3>\
-        <div class="panel_info">\
-\
-          <p><br />'+tr("Current number of hosts in this cluster")+': '+hosts_n+'.</p><p>\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="action_button" href="#hosts_tab" value="Host.create_dialog">'+tr("Create new host")+'</a><br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="show_tab_button" filter_id="'+cluster.ID+'" href="#hosts_tab">'+tr("Manage cluster hosts")+'</a><br /></p>\
-\
-      </div>\
-    </td>\
-  </tr>\
-</table>\
-</td>\
-<td style="width:50%">\
-<table style="width:100%">\
-  <tr>\
-    <td>\
-      <div class="panel">\
-        <h3>' + tr("Datastores") + '</h3>\
-        <div class="panel_info">\
-\
-           <p><br />'+tr("Current number of datastores in this cluster")+': '+dss_n+'.</p><p>\
-\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="action_button" href="#datastores_tab" value="Datastore.create_dialog">'+tr("Create new datastore")+'</a><br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="show_tab_button" filter_id="'+cluster.ID+'" href="#datastores_tab">'+tr("Manage cluster datastores")+'</a><br /></p>\
-        </div>\
-      </div>\
-    </td>\
-  </tr>\
-  <tr>\
-    <td>\
-      <div class="panel">\
-        <h3>' + tr("Virtual Networks") + '</h3>\
-        <div class="panel_info">\
-\
-           <p><br />'+tr("Current number of virtual networks in this cluster")+': '+vnets_n+'.</p><p>\
-\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="action_button" href="#vnets_tab" value="Network.create_dialog">'+tr("Create new virtual network")+'</a><br />\
-          <span class="ui-icon ui-icon-arrowreturnthick-1-e inline-icon" /><a class="show_tab_button" filter_id="'+cluster.ID+'" href="#vnets_tab">'+tr("Manage cluster virtual networks")+'</a><br /></p>\
-        </div>\
-      </div>\
-    </td>\
-  </tr>\
-</table>\
-</td>\
-</tr></table>\
-';
-
-    return html_code;
-};
-
-function removeClusterMenus(){
-    var data = dataTable_clusters.fnGetData();
-
-//    Sunstone.removeMainTab('cluster_vnets_tab_n',true);
-//    Sunstone.removeMainTab('cluster_datastores_tab_n',true);
-//    Sunstone.removeMainTab('cluster_hosts_tab_n',true);
-    Sunstone.removeMainTab('cluster_tab_-',true);
-
-    for (var i=0; i < data.length; i++){
-        var id = data[i][1];
-//        Sunstone.removeMainTab('cluster_vnets_tab_'+id,true);
-//        Sunstone.removeMainTab('cluster_datastores_tab_'+id,true);
-//        Sunstone.removeMainTab('cluster_hosts_tab_'+id,true);
-        Sunstone.removeMainTab('cluster_tab_'+id,true);
-    };
-};
-
-
-function newClusterMenu(list){
-    var cluster_none = {
-        'CLUSTER' : {
-            'NAME' : 'None',
-            'ID' : '-',
-            'DATASTORES' : [],
-            'HOSTS' : [],
-            'VNETS' : []
-        }
-    };
-
-    newClusterMenuElement(cluster_none);
-
-    for (var i=0; i < list.length; i++){
-        newClusterMenuElement(list[i]);
-    };
-    $('div#menu li#li_clusters_tab span').removeClass('ui-icon-circle-minus');
-    $('div#menu li#li_clusters_tab span').addClass('ui-icon-circle-plus');
-};
-
-function newClusterMenuElement(element){
-    var cluster = element.CLUSTER;
-    var menu_name = cluster.NAME.length > 10 ?
-        cluster.NAME.substring(0,9)+'...' : cluster.NAME;
-
-    var menu_cluster = {
-        title: menu_name + ' (id ' + cluster.ID + ')',
-        content: clusterTabContent(element),
-        tabClass: 'subTab subsubTab',
-        parentTab: 'clusters_tab'
-//        buttons: null
-    };
-/*
-    var submenu_hosts = {
-        title: tr("Hosts"),
-        content: '',
-        tabClass: "subTab clusterHosts subsubTab",
-        parentTab: "cluster_tab_" + cluster.ID
-    };
-
-    var submenu_datastores = {
-        title: tr("Datastores"),
-        content: '',
-        tabClass: "subTab clusterDatastores subsubTab",
-        parentTab: "cluster_tab_" + cluster.ID
-    };
-
-    var submenu_vnets = {
-        title: tr("Virtual Networks"),
-        content: '',
-        tabClass: "subTab clusterVnets subsubTab",
-        parentTab: "cluster_tab_" + cluster.ID
-    };
-*/
-    Sunstone.addMainTab('cluster_tab_'+cluster.ID,menu_cluster,true);
-//    Sunstone.addMainTab('cluster_hosts_tab_'+cluster.ID,submenu_hosts,true);
-//    Sunstone.addMainTab('cluster_datastores_tab_'+cluster.ID,submenu_datastores,true);
-//    Sunstone.addMainTab('cluster_vnets_tab_'+cluster.ID,submenu_vnets,true);
-};
-
-function clusterResourceViewListeners(){
-    //hack  the menu selection
-    $('.show_tab_button').live('click',function(){
-        var dest = $(this).attr('href').substring(1);
-        var filter_id = $(this).attr('filter_id');
-        switch (dest) {
-        case 'hosts_tab':
-            dataTable_hosts.fnFilter(getClusterName(filter_id),3,false,true,false,true);
-            break;
-        case 'datastores_tab':
-            dataTable_datastores.fnFilter(getClusterName(filter_id),5,false,true,false,true);
-            break;
-        case 'vnets_tab':
-            dataTable_vNetworks.fnFilter(getClusterName(filter_id),5,false,true,false,true);
-            break;
-        };
-        showTab(dest,'li_cluster_tab'+filter_id);
-        return false;
-    });
-/*
-    $('div#menu li.clusterHosts').live('click',function(){
-        var id = $(this).attr('id');
-        id = id.split('_');
-        id = id[id.length-1];
-        dataTable_hosts.fnFilter(getClusterName(id),3,false,true,false,true);
-        showTab('#hosts_tab',$(this).attr('id').substring(3));
-        return false;
-    });
-
-    $('div#menu li.clusterDatastores').live('click',function(){
-        var id = $(this).attr('id');
-        id = id.split('_');
-        id = id[id.length-1];
-        dataTable_datastores.fnFilter(getClusterName(id),5,false,true,false,true);
-        showTab('#datastores_tab',$(this).attr('id').substring(3));
-        return false;
-    });
-
-    $('div#menu li.clusterVnets').live('click',function(){
-        var id = $(this).attr('id');
-        id = id.split('_');
-        id = id[id.length-1];
-        dataTable_vNetworks.fnFilter(getClusterName(id),5,false,true,false,true);
-        showTab('#vnets_tab',$(this).attr('id').substring(3));
-        return false;
-    });
-*/
-};
-
-/*
-//Updates the host info panel tab content and pops it up
-function updateHostInfo(request,host){
-    var host_info = host.HOST;
+    $(".resource-info-header", $("#clusters-tab")).html(cluster_info.NAME);
 
     //Information tab
     var info_tab = {
-        title : tr("Host information"),
+        title : tr("Info"),
+        icon: "fa-info-circle",
         content :
-        '<table id="info_host_table" class="info_table">\
+        '<div class="row">\
+        <div class="large-6 columns">\
+        <table id="info_cluster_table" class="dataTable extended_table">\
             <thead>\
-               <tr><th colspan="2">' + tr("Host information") + ' - '+host_info.NAME+'</th></tr>\
+               <tr><th colspan="3">' +tr("Information") +'</th></tr>\
             </thead>\
             <tbody>\
             <tr>\
                 <td class="key_td">' + tr("id") + '</td>\
-                <td class="value_td">'+host_info.ID+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">' + tr("Name") + '</td>\
-                <td class="value_td">'+host_info.NAME+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">' + tr("Cluster") + '</td>\
-                <td class="value_td">'+host_info.CLUSTER+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">' + tr("State") + '</td>\
-                <td class="value_td">'+tr(OpenNebula.Helper.resource_state("host",host_info.STATE))+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">' + tr("IM MAD") + '</td>\
-                <td class="value_td">'+host_info.IM_MAD+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">' + tr("VM MAD") + '</td>\
-                <td class="value_td">'+host_info.VM_MAD+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">'+ tr("VN MAD") +'</td>\
-                <td class="value_td">'+host_info.VN_MAD+'</td>\
-            </tr>\
-            <tr>\
-                <td class="key_td">'+ tr("TM MAD") +'</td>\
-                <td class="value_td">'+host_info.TM_MAD+'</td>\
-            </tr>\
-            </tbody>\
+                <td class="value_td" colspan="2">'+cluster_info.ID+'</td>\
+            </tr>'+
+            insert_rename_tr(
+                'clusters-tab',
+                "Cluster",
+                cluster_info.ID,
+                cluster_info.NAME)+
+           '</tbody>\
          </table>\
-         <table id="host_shares_table" class="info_table">\
-            <thead>\
-               <tr><th colspan="2">' + tr("Host shares") + '</th></tr>\
-            </thead>\
-            <tbody>\
-               <tr>\
-                  <td class="key_td">' + tr("Max Mem") + '</td>\
-                  <td class="value_td">'+humanize_size(host_info.HOST_SHARE.MAX_MEM)+'</td>\
-               </tr>\
-               <tr>\
-                  <td class="key_td">' + tr("Used Mem (real)") + '</td>\
-                  <td class="value_td">'+humanize_size(host_info.HOST_SHARE.USED_MEM)+'</td>\
-               </tr>\
-               <tr>\
-                  <td class="key_td">' + tr("Used Mem (allocated)") + '</td>\
-                  <td class="value_td">'+humanize_size(host_info.HOST_SHARE.MAX_USAGE)+'</td>\
-               </tr>\
-               <tr>\
-                  <td class="key_td">' + tr("Used CPU (real)") + '</td>\
-                  <td class="value_td">'+host_info.HOST_SHARE.USED_CPU+'</td>\
-               </tr>\
-               <tr>\
-                  <td class="key_td">' + tr("Used CPU (allocated)") + '</td>\
-                  <td class="value_td">'+host_info.HOST_SHARE.CPU_USAGE+'</td>\
-               </tr>\
-               <tr>\
-                  <td class="key_td">' + tr("Running VMs") + '</td>\
-                  <td class="value_td">'+host_info.HOST_SHARE.RUNNING_VMS+'</td>\
-               </tr>\
-            </tbody>\
-          </table>'
+       </div>\
+       <div class="large-6 columns">' +
+       '</div>\
+     </div>\
+     <div class="row">\
+          <div class="large-9 columns">'+
+               insert_extended_template_table(cluster_template,
+                                         "Cluster",
+                                         cluster_info.ID,
+                                         tr("Attributes")) +
+       '</div>\
+     </div>'
     }
 
-    //Template tab
-    var template_tab = {
-        title : tr("Host template"),
-        content :
-        '<table id="host_template_table" class="info_table" style="width:80%">\
-                <thead><tr><th colspan="2">' + tr("Host template") + '</th></tr></thead>'+
-                prettyPrintJSON(host_info.TEMPLATE)+
-                '</table>'
+    var cluster_host_tab = {
+        title: tr("Hosts"),
+        icon: "fa-hdd-o",
+        content : '<div class="row">\
+          <div id="datatable_cluster_hosts_info_div" class="large-12 columns">\
+            '+generateHostTableSelect("cluster_info_hosts")+'\
+          </div>\
+        </div>'
     }
 
-    var monitor_tab = {
-        title: tr("Monitoring information"),
-        content : generateMonitoringDivs(host_graphs,"host_monitor_")
+    var cluster_vnet_tab = {
+        title: tr("VNets"),
+        icon: "fa-globe",
+        content : '<div class="row">\
+          <div id="datatable_cluster_vnets_info_div" class="large-12 columns">\
+            '+generateVNetTableSelect("cluster_info_vnets")+'\
+          </div>\
+        </div>'
+    }
+
+    var cluster_datastore_tab = {
+        title: tr("Datastores"),
+        icon: "fa-folder-open",
+        content : '<div class="row">\
+          <div id="datatable_cluster_datastores_info_div" class="large-12 columns">\
+            '+generateDatastoreTableSelect("cluster_info_datastores")+'\
+          </div>\
+        </div>'
     }
 
     //Sunstone.updateInfoPanelTab(info_panel_name,tab_name, new tab object);
-    Sunstone.updateInfoPanelTab("host_info_panel","host_info_tab",info_tab);
-    Sunstone.updateInfoPanelTab("host_info_panel","host_template_tab",template_tab);
-    Sunstone.updateInfoPanelTab("host_info_panel","host_monitoring_tab",monitor_tab);
+    Sunstone.updateInfoPanelTab("cluster_info_panel","cluster_info_tab",info_tab);
+    Sunstone.updateInfoPanelTab("cluster_info_panel","cluster_host_tab",cluster_host_tab);
+    Sunstone.updateInfoPanelTab("cluster_info_panel","cluster_vnet_tab",cluster_vnet_tab);
+    Sunstone.updateInfoPanelTab("cluster_info_panel","cluster_datastore_tab",cluster_datastore_tab);
 
-    Sunstone.popUpInfoPanel("host_info_panel");
-    //pop up panel while we retrieve the graphs
-    for (var i=0; i<host_graphs.length; i++){
-        Sunstone.runAction("Host.monitor",host_info.ID,host_graphs[i]);
-    };
+    Sunstone.popUpInfoPanel("cluster_info_panel", "clusters-tab");
 
+    // Hosts datatable
 
-}
+    var host_ids = cluster_info.HOSTS.ID;
 
-*/
+    if (typeof host_ids == 'string'){
+        host_ids = [host_ids];
+    } else if (host_ids == undefined){
+        host_ids = [];
+    }
 
-//Prepares the host creation dialog
-function setupCreateClusterDialog(){
-    dialogs_context.append('<div title=\"'+tr("Create cluster")+'\" id="create_cluster_dialog"></div>');
-    $create_cluster_dialog = $('div#create_cluster_dialog');
-    var dialog = $create_cluster_dialog;
+    var opts = {
+        read_only: true,
+        fixed_ids: host_ids
+    }
 
-    dialog.html(create_cluster_tmpl);
-    dialog.dialog({
-        autoOpen: false,
-        modal: true,
-        width: 400
-    });
+    setupHostTableSelect($("#cluster_info_panel"), "cluster_info_hosts", opts);
 
-    $('button',dialog).button();
+    refreshHostTableSelect($("#cluster_info_panel"), "cluster_info_hosts");
 
-    //Handle the form submission
-    $('#create_cluster_form',dialog).submit(function(){
-        if (!($('#name',this).val().length)){
-            notifyError(tr("Cluster name missing!"));
-            return false;
-        }
+    // Virtual networks datatable
 
-        var cluster_json = {
-            "cluster": {
-                "name": $('#name',this).val(),
-            }
-        };
+    var vnet_ids = cluster_info.VNETS.ID;
 
-        //Create the OpenNebula.Host.
-        //If it is successfull we refresh the list.
-        Sunstone.runAction("Cluster.create",cluster_json);
-        $create_cluster_dialog.dialog('close');
-        return false;
-    });
-}
+    if (typeof vnet_ids == 'string'){
+        vnet_ids = [vnet_ids];
+    } else if (vnet_ids == undefined){
+        vnet_ids = [];
+    }
 
-//Open creation dialogs
-function popUpCreateClusterDialog(){
-    $create_cluster_dialog.dialog('open');
-    return false;
-}
+    var opts = {
+        read_only: true,
+        fixed_ids: vnet_ids
+    }
 
-//Prepares the autorefresh for hosts
-function setClusterAutorefresh() {
-    setInterval(function(){
-        var selected_menu = $('div#menu li.navigation-active-li');
-        var inSubMenu = selected_menu.attr('id').indexOf('cluster') > 0;
+    setupVNetTableSelect($("#cluster_info_panel"), "cluster_info_vnets", opts);
 
-        var checked = $('input.check_item:checked',dataTable_clusters);
-        var  filter = $("#datatable_clusters_filter input",dataTable_clusters.parents('#datatable_clusters_wrapper')).attr('value');
-        if (!checked.length && !filter.length && !inSubMenu){
-            Sunstone.runAction("Cluster.autorefresh");
-        }
-    },INTERVAL+someTime());
-}
+    refreshVNetTableSelect($("#cluster_info_panel"), "cluster_info_vnets");
 
+    // Datastores datatable
 
-function clusters_sel() {
-    return clusters_select;
+    var datastore_ids = cluster_info.DATASTORES.ID;
+
+    if (typeof datastore_ids == 'string'){
+        datastore_ids = [datastore_ids];
+    } else if (datastore_ids == undefined){
+        datastore_ids = [];
+    }
+
+    var opts = {
+        read_only: true,
+        fixed_ids: datastore_ids
+    }
+
+    setupDatastoreTableSelect($("#cluster_info_panel"), "cluster_info_datastores", opts);
+
+    refreshDatastoreTableSelect($("#cluster_info_panel"), "cluster_info_datastores");
 }
 
 //This is executed after the sunstone.js ready() is run.
 //Here we can basicly init the host datatable, preload it
 //and add specific listeners
 $(document).ready(function(){
+    var tab_name = "clusters-tab"
 
-    //prepare host datatable
-    dataTable_clusters = $("#datatable_clusters",main_tabs_context).dataTable({
-        "bJQueryUI": true,
-        "bSortClasses": false,
-        "sDom" : '<"H"lfrC>t<"F"ip>',
-        "oColVis": {
-            "aiExclude": [ 0 ]
-        },
-        "bAutoWidth":false,
-        "sPaginationType": "full_numbers",
-        "aoColumnDefs": [
-            { "bSortable": false, "aTargets": ["check"] },
-            { "sWidth": "60px", "aTargets": [0] },
-            { "sWidth": "35px", "aTargets": [1] },
-        ],
-        "oLanguage": (datatable_lang != "") ?
-            {
-                sUrl: "locale/"+lang+"/"+datatable_lang
-            } : ""
-    });
+    if (Config.isTabEnabled(tab_name)) {
+      //prepare clusters datatable
+      dataTable_clusters = $("#datatable_clusters",main_tabs_context).dataTable({
+          "aoColumnDefs": [
+              { "bSortable": false, "aTargets": ["check"] },
+              { "sWidth": "35px", "aTargets": [0] },
+              { "bVisible": true, "aTargets": Config.tabTableColumns(tab_name)},
+              { "bVisible": false, "aTargets": ['_all']}
+          ],
+          "bSortClasses" : false,
+          "bDeferRender": true
+      });
 
-    //preload it
-    dataTable_clusters.fnClearTable();
-    addElement([
-        spinner,
-        '','',''],dataTable_clusters);
-    Sunstone.runAction("Cluster.list");
+      $('#cluster_search').keyup(function(){
+        dataTable_clusters.fnFilter( $(this).val() );
+      })
 
-    setupCreateClusterDialog();
+      dataTable_clusters.on('draw', function(){
+        recountCheckboxes(dataTable_clusters);
+      })
 
-    setClusterAutorefresh();
+      Sunstone.runAction("Cluster.list");
 
-    clusterResourceViewListeners();
+      setupCreateClusterDialog();
 
-    initCheckAllBoxes(dataTable_clusters);
-    tableCheckboxesListener(dataTable_clusters);
-    infoListener(dataTable_clusters);
+      initCheckAllBoxes(dataTable_clusters);
+      tableCheckboxesListener(dataTable_clusters);
+      infoListener(dataTable_clusters, "Cluster.show");
+      dataTable_clusters.fnSort( [ [1,config['user_config']['table_order']] ] );
+    }
 });

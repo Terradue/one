@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -41,25 +41,26 @@ public:
 
 private:
     static const char * vmware_vnm_name;
-    static const char * vmware2_vnm_name;
-    
+
+    static const float  CGROUP_BASE_CPU_SHARES;
+
+    static const int CEPH_DEFAULT_PORT;
+
+    static const int GLUSTER_DEFAULT_PORT;
+
     int deployment_description(
         const VirtualMachine *  vm,
         const string&           file_name) const
     {
         int   rc = -1;
 
-        if (emulator == "kvm")
+        if (emulator == "kvm" || emulator == "qemu" )
         {
             rc = deployment_description_kvm(vm,file_name);
         }
         else if (emulator == "vmware")
         {
             rc = deployment_description_vmware(vm,file_name);
-        }
-        else if (emulator == "vmware2")
-        {
-            rc = deployment_description_vmware2(vm,file_name);
         }
 
         return rc;
@@ -70,10 +71,6 @@ private:
         const string&           file_name) const;
 
     int deployment_description_vmware(
-        const VirtualMachine *  vm,
-        const string&           file_name) const;
-        
-    int deployment_description_vmware2(
         const VirtualMachine *  vm,
         const string&           file_name) const;
 

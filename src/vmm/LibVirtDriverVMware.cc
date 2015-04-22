@@ -1,7 +1,7 @@
 
 
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -24,7 +24,7 @@
 #include <libgen.h>
 
 /* ************************************************************************** */
-/* Virtual Network :: Database Access Functions                               */
+/* LibVirtDriver  :: VMware deployment generator                              */
 /* ************************************************************************** */
 
 const char * LibVirtDriver::vmware_vnm_name = "vmware";
@@ -44,17 +44,23 @@ int LibVirtDriver::deployment_description_vmware(
     int     memory_in_kb = 0;
 
     string  arch       = "";
+    string  guestOS    = "";
+    string  pciBridge  = "";
+    string  boot       = "";
+
+    vector<string> boots;
+
+    const VectorAttribute * features;
 
     const VectorAttribute * disk;
     const VectorAttribute * context;
 
     string  type       = "";
     string  target     = "";
-    string  bus        = "";
     string  ro         = "";
     string  source     = "";
-    string  datastore  = "";
     string  driver     = "";
+    int     disk_id;
     string  default_driver = "";
     bool    readonly;
 
@@ -66,8 +72,10 @@ int LibVirtDriver::deployment_description_vmware(
     string  script     = "";
     string  model      = "";
 
+    string default_model = "";
+
     const VectorAttribute * graphics;
-    
+
     string  listen     = "";
     string  port       = "";
     string  passwd     = "";
@@ -75,6 +83,10 @@ int LibVirtDriver::deployment_description_vmware(
 
     const VectorAttribute * raw;
     string data;
+    string default_raw;
+    string data_vmx    = "";
+
+    ostringstream metadata;
 
     // ------------------------------------------------------------------------
 
@@ -145,7 +157,9 @@ int LibVirtDriver::deployment_description_vmware(
 
         if( os != 0 )
         {
-            arch = os->vector_value("ARCH");
+            arch    = os->vector_value("ARCH");
+            guestOS = os->vector_value("GUESTOS");
+            boot    = os->vector_value("BOOT");
         }
     }
 
@@ -159,13 +173,56 @@ int LibVirtDriver::deployment_description_vmware(
         }
     }
 
+    if ( !guestOS.empty() )
+    {
+        metadata << "<guestos>" << guestOS << "</guestos>" << endl;
+    }
+
+    if ( boot.empty() )
+    {
+        get_default("OS","BOOT",boot);
+    }
+
     // Start writing to the file with the info we got
 
     file << "\t<os>" << endl;
 
     file << "\t\t<type arch='" << arch << "'>hvm</type>" << endl;
 
+    if (!boot.empty())
+    {
+        boots = one_util::split(boot, ',');
+
+        for (vector<string>::const_iterator it=boots.begin(); it!=boots.end(); it++)
+        {
+            file << "\t\t<boot dev='" << *it << "'/>" << endl;
+        }
+    }
+
     file << "\t</os>" << endl;
+
+    attrs.clear();
+
+    // ------------------------------------------------------------------------
+    // Features
+    // ------------------------------------------------------------------------
+
+    num = vm->get_template_attribute("FEATURES",attrs);
+
+    if ( num > 0 )
+    {
+        features = dynamic_cast<const VectorAttribute *>(attrs[0]);
+
+        if ( features != 0 )
+        {
+            pciBridge = features->vector_value("PCIBRIDGE");
+
+            if (!pciBridge.empty())
+            {
+                metadata << "<pcibridge>" << pciBridge << "</pcibridge>";
+            }
+        }
+    }
 
     attrs.clear();
 
@@ -179,11 +236,6 @@ int LibVirtDriver::deployment_description_vmware(
 
     num = vm->get_template_attribute("DISK",attrs);
 
-    if (num!=0)
-    {
-        get_default("DATASTORE", datastore);
-    }
-
     for (int i=0; i < num ;i++)
     {
         disk = dynamic_cast<const VectorAttribute *>(attrs[i]);
@@ -196,9 +248,9 @@ int LibVirtDriver::deployment_description_vmware(
         type   = disk->vector_value("TYPE");
         target = disk->vector_value("TARGET");
         ro     = disk->vector_value("READONLY");
-        bus    = disk->vector_value("BUS");
         source = disk->vector_value("SOURCE");
         driver = disk->vector_value("DRIVER");
+        disk->vector_value_str("DISK_ID", disk_id);
 
         if (target.empty())
         {
@@ -217,40 +269,34 @@ int LibVirtDriver::deployment_description_vmware(
             }
         }
 
-        if (type.empty() == false)
-        {
-            transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
-        }
+        transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
+
+        // ---- Disk type and source for the image ----
 
         if ( type == "BLOCK" )
         {
             file << "\t\t<disk type='block' device='disk'>" << endl;
-            file << "\t\t\t<source file=[" <<  datastore << "] " << vm->get_oid()
-                << "/disk."  << i << "'/>"  << endl;
+            file << "\t\t\t<source file='[" << vm->get_ds_id() << "] "
+                 << vm->get_oid() << "/disk." << disk_id << "'/>" << endl;
         }
         else if ( type == "CDROM" )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
-            file << "\t\t\t<source file=[" <<  datastore << "] " << vm->get_oid()
-                << "/disk."  << i << ".iso'/>"  << endl;
+            file << "\t\t\t<source file='[" << vm->get_ds_id() << "] "
+                 << vm->get_oid() << "/disk." << disk_id << ".iso'/>" << endl;
         }
         else
         {
             file << "\t\t<disk type='file' device='disk'>" << endl
-                 << "\t\t\t<source file='[" <<  datastore <<"] " << vm->get_oid()
-                 << "/disk." << i << "/disk.vmdk'/>" << endl;
+                 << "\t\t\t<source file='[" << vm->get_ds_id() <<"] "
+                 << vm->get_oid() << "/disk." << disk_id << "/disk.vmdk'/>" << endl;
         }
 
-        file << "\t\t\t<target dev='" << target << "'";
+        // ---- target device to map the disk ----
 
-        if (!bus.empty())
-        {
-            file << " bus='" << bus << "'/>" << endl;
-        }
-        else
-        {
-            file << "/>" << endl;
-        }
+        file << "\t\t\t<target dev='" << target << "'/>" << endl;
+
+        // ---- Image Format using qemu driver ----
 
         if ( !driver.empty() )
         {
@@ -264,6 +310,8 @@ int LibVirtDriver::deployment_description_vmware(
                         default_driver << "'/>" << endl;
             }
         }
+
+        // ---- readonly attribute for the disk ----
 
         if (readonly)
         {
@@ -284,11 +332,13 @@ int LibVirtDriver::deployment_description_vmware(
         context = dynamic_cast<const VectorAttribute *>(attrs[0]);
         target  = context->vector_value("TARGET");
 
+        context->vector_value_str("DISK_ID", disk_id);
+
         if ( !target.empty() )
         {
             file << "\t\t<disk type='file' device='cdrom'>" << endl;
-            file << "\t\t\t<source file='[" <<  datastore <<"] " << vm->get_oid()
-                 << "/disk." << num << ".iso'/>" << endl;
+            file << "\t\t\t<source file='[" <<  vm->get_ds_id() <<"] "
+                 << vm->get_oid() << "/disk." << disk_id << ".iso'/>" << endl;
             file << "\t\t\t<target dev='" << target << "'/>" << endl;
             file << "\t\t\t<readonly/>" << endl;
             file << "\t\t</disk>" << endl;
@@ -305,6 +355,8 @@ int LibVirtDriver::deployment_description_vmware(
     // ------------------------------------------------------------------------
     // Network interfaces
     // ------------------------------------------------------------------------
+
+    get_default("NIC", "MODEL", default_model);
 
     num = vm->get_template_attribute("NIC",attrs);
 
@@ -351,9 +403,20 @@ int LibVirtDriver::deployment_description_vmware(
             file << "\t\t\t<script path='" << script << "'/>" << endl;
         }
 
-        if( !model.empty() )
+        string * the_model = 0;
+
+        if (!model.empty())
         {
-            file << "\t\t\t<model type='" << model << "'/>" << endl;
+            the_model = &model;
+        }
+        else if (!default_model.empty())
+        {
+            the_model = &default_model;
+        }
+
+        if (the_model != 0)
+        {
+            file << "\t\t\t<model type='" << *the_model << "'/>" << endl;
         }
 
         file << "\t\t</interface>" << endl;
@@ -367,11 +430,11 @@ int LibVirtDriver::deployment_description_vmware(
     // ------------------------------------------------------------------------
 
     if ( vm->get_template_attribute("GRAPHICS",attrs) > 0 )
-    {   
+    {
         graphics = dynamic_cast<const VectorAttribute *>(attrs[0]);
 
         if ( graphics != 0 )
-        {   
+        {
             type   = graphics->vector_value("TYPE");
             listen = graphics->vector_value("LISTEN");
             port   = graphics->vector_value("PORT");
@@ -379,33 +442,33 @@ int LibVirtDriver::deployment_description_vmware(
             keymap = graphics->vector_value("KEYMAP");
 
             if ( type == "vnc" || type == "VNC" )
-            {   
+            {
                 file << "\t\t<graphics type='vnc'";
 
                 if ( !listen.empty() )
-                {   
+                {
                     file << " listen='" << listen << "'";
                 }
 
                 if ( !port.empty() )
-                {   
+                {
                     file << " port='" << port << "'";
                 }
 
                 if ( !passwd.empty() )
-                {   
+                {
                     file << " passwd='" << passwd << "'";
                 }
 
                 if ( !keymap.empty() )
-                {   
+                {
                     file << " keymap='" << keymap << "'";
                 }
 
                 file << "/>" << endl;
             }
             else
-            {   
+            {
                 vm->log("VMM", Log::WARNING,
                         "Not supported graphics type, ignored.");
             }
@@ -439,7 +502,25 @@ int LibVirtDriver::deployment_description_vmware(
         {
             data = raw->vector_value("DATA");
             file << "\t" << data << endl;
+
+            data_vmx = raw->vector_value("DATA_VMX");
+            if ( !data_vmx.empty() )
+            {
+                metadata << "<datavmx>" << data_vmx << "</datavmx>";
+            }
         }
+    }
+
+    get_default("RAW", default_raw);
+
+    if ( !default_raw.empty() )
+    {
+        file << "\t" << default_raw << endl;
+    }
+
+    if ( !metadata.str().empty() )
+    {
+        file << "\t<metadata>" << metadata.str() << "</metadata>" << endl;
     }
 
     file << "</domain>" << endl;

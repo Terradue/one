@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,6 +21,8 @@
 #include <sstream>
 #include <cstring>
 #include <cstdio>
+
+#define TO_UPPER(S) transform(S.begin(),S.end(),S.begin(),(int(*)(int))toupper)
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -175,6 +177,11 @@ int Template::parse_str_or_xml(const string &parse_str, string& error_msg)
         }
     }
 
+    if(rc == 0)
+    {
+        trim_name();
+    }
+
     return rc;
 }
 
@@ -200,6 +207,7 @@ void Template::marshall(string &str, const char delim)
         delete attr;
     }
 }
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
@@ -227,6 +235,36 @@ void Template::set(Attribute * attr)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+int Template::replace(const string& name, const string& value)
+{
+    pair<multimap<string, Attribute *>::iterator,
+         multimap<string, Attribute *>::iterator>   index;
+
+    index = attributes.equal_range(name);
+
+    if (index.first != index.second )
+    {
+        multimap<string, Attribute *>::iterator i;
+
+        for ( i = index.first; i != index.second; i++)
+        {
+            Attribute * attr = i->second;
+            delete attr;
+        }
+
+        attributes.erase(index.first, index.second);
+    }
+
+    SingleAttribute * sattr = new SingleAttribute(name,value);
+
+    attributes.insert(make_pair(sattr->name(), sattr));
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
 int Template::remove(const string& name, vector<Attribute *>& values)
 {
     multimap<string, Attribute *>::iterator         i;
@@ -241,7 +279,7 @@ int Template::remove(const string& name, vector<Attribute *>& values)
         values.push_back(i->second);
     }
 
-    attributes.erase(index.first,index.second);
+    attributes.erase(index.first, index.second);
 
     return j;
 }
@@ -276,6 +314,33 @@ int Template::erase(const string& name)
 
     return j;
 
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+Attribute * Template::remove(Attribute * att)
+{
+    multimap<string, Attribute *>::iterator         i;
+
+    pair<
+        multimap<string, Attribute *>::iterator,
+        multimap<string, Attribute *>::iterator
+        >                                           index;
+
+    index = attributes.equal_range( att->name() );
+
+    for ( i = index.first; i != index.second; i++ )
+    {
+        if ( i->second == att )
+        {
+            attributes.erase(i);
+
+            return att;
+        }
+    }
+
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -372,6 +437,104 @@ bool Template::get(
     istringstream iss(sval);
 
     iss >> value;
+
+    if (iss.fail() || !iss.eof())
+    {
+        value = 0;
+        return false;
+    }
+
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool Template::get(
+        const string& name,
+        long long&    value) const
+{
+    string sval;
+
+    get(name, sval);
+
+    if ( sval == "" )
+    {
+        value = 0;
+        return false;
+    }
+
+    istringstream iss(sval);
+
+    iss >> value;
+
+    if (iss.fail() || !iss.eof())
+    {
+        value = 0;
+        return false;
+    }
+
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool Template::get(
+        const string&   name,
+        float&          value) const
+{
+    string sval;
+
+    get(name, sval);
+
+    if ( sval == "" )
+    {
+        value = 0;
+        return false;
+    }
+
+    istringstream iss(sval);
+
+    iss >> value;
+
+    if (iss.fail() || !iss.eof())
+    {
+        value = 0;
+        return false;
+    }
+
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool Template::get(
+        const string&   name,
+        bool&           value) const
+{
+    string sval;
+
+    get(name, sval);
+
+    if ( sval == "" )
+    {
+        value = false;
+        return false;
+    }
+
+    TO_UPPER(sval);
+
+    if ( sval == "YES" )
+    {
+        value = true;
+    }
+    else
+    {
+        value = false;
+    }
+
     return true;
 }
 
@@ -426,6 +589,24 @@ string& Template::to_str(string& str) const
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+bool Template::trim(const string& name)
+{
+    string st;
+    get(name, st);
+
+    if(st.empty())
+    {
+        return false;
+    }
+
+    replace(name, st.substr( 0, st.find_last_not_of(" \f\n\r\t\v") + 1 ) );
+
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
 ostream& operator << (ostream& os, const Template& t)
 {
 	string str;
@@ -443,7 +624,7 @@ Attribute * Template::single_xml_att(const xmlNode * node)
     Attribute * attr = 0;
     xmlNode *   child = node->children;
 
-    if( child->next == 0 && child != 0 &&
+    if( child != 0 && child->next == 0 &&
         (child->type == XML_TEXT_NODE ||
          child->type == XML_CDATA_SECTION_NODE))
     {
@@ -533,6 +714,26 @@ int Template::from_xml_node(const xmlNodePtr node)
     }
 
     rebuild_attributes(node);
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
+
+int Template::merge(const Template * from_tmpl, string& error_str)
+{
+    multimap<string,Attribute *>::const_iterator it;
+
+    for (it = from_tmpl->attributes.begin(); it != from_tmpl->attributes.end(); ++it)
+    {
+        this->erase(it->first);
+    }
+
+    for (it = from_tmpl->attributes.begin(); it != from_tmpl->attributes.end(); ++it)
+    {
+        this->set(it->second->clone());
+    }
 
     return 0;
 }
@@ -659,3 +860,133 @@ bool Template::check(string& rs_attr, const vector<string> &restricted_attribute
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+void Template::remove_restricted()
+{}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void Template::remove_all_except_restricted()
+{}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool Template::has_restricted()
+{
+    return false;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void Template::remove_restricted(const vector<string> &restricted_attributes)
+{
+    size_t pos;
+    string avector, vattr;
+    vector<Attribute *> values;
+
+    for (unsigned int i=0; i < restricted_attributes.size(); i++)
+    {
+        pos = restricted_attributes[i].find("/");
+
+        if (pos != string::npos) //Vector Attribute
+        {
+            int num;
+
+            avector = restricted_attributes[i].substr(0,pos);
+            vattr   = restricted_attributes[i].substr(pos+1);
+
+            if ((num = get(avector,values)) > 0 ) //Template contains the attr
+            {
+                VectorAttribute * attr;
+
+                for (int j=0; j<num ; j++ )
+                {
+                    attr = dynamic_cast<VectorAttribute *>(values[j]);
+
+                    if (attr == 0)
+                    {
+                        continue;
+                    }
+
+                    attr->remove(vattr);
+                }
+            }
+        }
+        else //Single Attribute
+        {
+            erase(restricted_attributes[i]);
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void Template::remove_all_except_restricted(const vector<string> &restricted_attributes)
+{
+    size_t pos;
+    string avector, vattr;
+    vector<Attribute *> values;
+
+    vector<Attribute *> restricted;
+
+    for (unsigned int i=0; i < restricted_attributes.size(); i++)
+    {
+        pos = restricted_attributes[i].find("/");
+
+        if (pos != string::npos) //Vector Attribute
+        {
+            int num;
+
+            avector = restricted_attributes[i].substr(0,pos);
+            vattr   = restricted_attributes[i].substr(pos+1);
+
+            if ((num = get(avector,values)) > 0 ) //Template contains the attr
+            {
+                VectorAttribute * attr;
+
+                for (int j=0; j<num ; j++ )
+                {
+                    attr = dynamic_cast<VectorAttribute *>(values[j]);
+
+                    if (attr == 0)
+                    {
+                        continue;
+                    }
+
+                    if ( !attr->vector_value(vattr.c_str()).empty() )
+                    {
+                        restricted.push_back(attr);
+                    }
+                }
+            }
+        }
+        else //Single Attribute
+        {
+            this->get(restricted_attributes[i], restricted);
+        }
+    }
+
+    vector<Attribute *>::iterator res_it;
+
+    for (res_it = restricted.begin(); res_it != restricted.end(); res_it++)
+    {
+        remove(*res_it);
+    }
+
+    multimap<string,Attribute *>::iterator  att_it;
+
+    for ( att_it = attributes.begin(); att_it != attributes.end(); att_it++)
+    {
+        delete att_it->second;
+    }
+
+    attributes.clear();
+
+    for (res_it = restricted.begin(); res_it != restricted.end(); res_it++)
+    {
+        set(*res_it);
+    }
+}

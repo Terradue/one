@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -29,6 +29,8 @@ class ImageTemplate : public Template
 public:
     ImageTemplate() : Template(true,'=',"TEMPLATE"){};
 
+    ImageTemplate(const ImageTemplate& tmpl):Template(tmpl){};
+
     ~ImageTemplate(){};
 
     /**
@@ -42,6 +44,22 @@ public:
         return Template::check(rs_attr, restricted_attributes);
     };
 
+    /**
+     * Deletes all restricted attributes
+     */
+    void remove_restricted()
+    {
+        Template::remove_restricted(restricted_attributes);
+    };
+
+    /**
+     * Deletes all the attributes, except the restricted ones
+     */
+    void remove_all_except_restricted()
+    {
+        Template::remove_all_except_restricted(restricted_attributes);
+    };
+
     bool is_saving()
     {
         string saving;
@@ -51,11 +69,29 @@ public:
         return (saving.empty() == false);
     }
 
+    bool is_saving_hot()
+    {
+        string save_as_hot;
+
+        get(saving_hot_attribute, save_as_hot);
+
+        return (save_as_hot.empty() == false);
+    }
+
     void set_saving()
     {
         SingleAttribute * attr= new SingleAttribute(saving_attribute, "YES");
 
         erase(saving_attribute);
+
+        set(attr);
+    }
+
+    void set_saving_hot()
+    {
+        SingleAttribute * attr = new SingleAttribute(saving_hot_attribute,"YES");
+
+        erase(saving_hot_attribute);
 
         set(attr);
     }
@@ -71,6 +107,12 @@ private:
     static vector<string> restricted_attributes;
 
     static string saving_attribute;
+    static string saving_hot_attribute;
+
+    bool has_restricted()
+    {
+        return restricted_attributes.size() > 0;
+    };
 
     /**
      * Stores the attributes as restricted, these attributes will be used in

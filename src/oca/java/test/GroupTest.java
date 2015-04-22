@@ -1,19 +1,23 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
- * 
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *   http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  ******************************************************************************/
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
+
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathExpressionException;
+import javax.xml.xpath.XPathFactory;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -22,14 +26,19 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.opennebula.client.Client;
 import org.opennebula.client.OneResponse;
+import org.opennebula.client.OneSystem;
 import org.opennebula.client.group.Group;
 import org.opennebula.client.group.GroupPool;
+import org.opennebula.client.user.*;
+import org.w3c.dom.Node;
+import java.util.Hashtable;
 
 public class GroupTest
 {
 
     private static Group        group;
     private static GroupPool    groupPool;
+    private static User         user;
 
     private static Client       client;
 
@@ -63,8 +72,17 @@ public class GroupTest
     {
         res = Group.allocate(client, group_name);
 
-        int group_id = res.isError() ? -1 : Integer.parseInt(res.getMessage()); 
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        int group_id = res.isError() ? -1 : Integer.parseInt(res.getMessage());
         group = new Group(group_id, client);
+
+        res = User.allocate(client, "new_test_user", "new_test_password");
+
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        int uid = Integer.parseInt(res.getMessage());
+        user    = new User(uid, client);
     }
 
     /**
@@ -73,6 +91,7 @@ public class GroupTest
     @After
     public void tearDown() throws Exception
     {
+        user.delete();
         group.delete();
     }
 
@@ -82,9 +101,9 @@ public class GroupTest
         group.delete();
 
         res = Group.allocate(client, group_name);
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
-        int group_id = res.isError() ? -1 : Integer.parseInt(res.getMessage()); 
+        int group_id = res.isError() ? -1 : Integer.parseInt(res.getMessage());
         group = new Group(group_id, client);
 
 
@@ -103,7 +122,7 @@ public class GroupTest
     public void info()
     {
         res = group.info();
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         assertTrue( group.id() >= 100 );
         assertTrue( group.getName().equals(group_name) );
@@ -113,13 +132,13 @@ public class GroupTest
     public void delete()
     {
         res = group.delete();
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         res = group.info();
         assertTrue( res.isError() );
 
         res = groupPool.info();
-        assertTrue( !res.isError() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
 
         boolean found = false;
         for(Group g : groupPool)
@@ -130,8 +149,92 @@ public class GroupTest
         assertTrue( !found );
     }
 
-//  Commented out, secondary groups do not exist any more
-/*
+    @Test
+    public void defaultqutoas()
+    {
+        OneSystem system = new OneSystem(client);
+
+        res = system.getGroupQuotas();
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        res = system.setGroupQuotas("VM = [ VMS = 7, MEMORY = 0, CPU = 3, VOLATILE_SIZE = 1 ]");
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        Node node = system.getGroupQuotasXML();
+        XPathFactory factory = XPathFactory.newInstance();
+        XPath xpath = factory.newXPath();
+
+        try
+        {
+            assertTrue( xpath.evaluate("VM_QUOTA/VM/VMS", node).equals("7") );
+        } catch (XPathExpressionException e)
+        {
+            assertTrue(e.getMessage(), false);
+        }
+    }
+
+    @Test
+    public void addAdmin()
+    {
+        res = group.info();
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        assertFalse( group.contains(user.id()) );
+        assertFalse( group.containsAdmin(user.id()) );
+
+        res = group.addAdmin( user.id() );
+        assertTrue( res.isError() );
+
+        group.info();
+        assertFalse( group.contains(user.id()) );
+        assertFalse( group.containsAdmin(user.id()) );
+
+        res = user.chgrp( group.id() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        group.info();
+        assertTrue( group.contains(user.id()) );
+        assertFalse( group.containsAdmin(user.id()) );
+
+        res = group.addAdmin( user.id() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        group.info();
+        assertTrue( group.contains(user.id()) );
+        assertTrue( group.containsAdmin(user.id()) );
+    }
+
+
+    @Test
+    public void delAdmin()
+    {
+        res = group.info();
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        res = group.delAdmin( user.id() );
+        assertTrue( res.isError() );
+
+        res = user.chgrp( group.id() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        res = group.delAdmin( user.id() );
+        assertTrue( res.isError() );
+
+        res = group.addAdmin( user.id() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        group.info();
+        assertTrue( group.contains(user.id()) );
+        assertTrue( group.containsAdmin(user.id()) );
+
+        res = group.delAdmin( user.id() );
+        assertTrue( res.getErrorMessage(), !res.isError() );
+
+        group.info();
+        assertTrue( group.contains(user.id()) );
+        assertFalse( group.containsAdmin(user.id()) );
+    }
+
     @Test
     public void userGroupRelations()
     {
@@ -143,14 +246,14 @@ public class GroupTest
         for(String name : names)
         {
             res = User.allocate(client, "user_"+name, "password");
-            assertTrue( !res.isError() );
+            assertTrue( res.getErrorMessage(), !res.isError() );
 
             users.put(  name,
                         new User(Integer.parseInt(res.getMessage()), client )
                     );
 
             res = Group.allocate(client, "group_"+name);
-            assertTrue( !res.isError() );
+            assertTrue( res.getErrorMessage(), !res.isError() );
 
             groups.put(  name,
                     new Group(Integer.parseInt(res.getMessage()), client )
@@ -181,26 +284,6 @@ public class GroupTest
             assertTrue( !g.info().isError() );
         }
 
-        assertTrue(  users.get("a").isPartOf( groups.get("a").id() ) );
-        assertTrue(  users.get("a").isPartOf( groups.get("b").id() ) );
-        assertFalse( users.get("a").isPartOf( groups.get("c").id() ) );
-        assertFalse( users.get("a").isPartOf( groups.get("d").id() ) );
-                                                                       
-        assertFalse( users.get("b").isPartOf( groups.get("a").id() ) );
-        assertTrue(  users.get("b").isPartOf( groups.get("b").id() ) );
-        assertFalse( users.get("b").isPartOf( groups.get("c").id() ) );
-        assertFalse( users.get("b").isPartOf( groups.get("d").id() ) );
-                                                                       
-        assertFalse( users.get("c").isPartOf( groups.get("a").id() ) );
-        assertTrue(  users.get("c").isPartOf( groups.get("b").id() ) );
-        assertTrue(  users.get("c").isPartOf( groups.get("c").id() ) );
-        assertTrue(  users.get("c").isPartOf( groups.get("d").id() ) );
-                                                                       
-        assertFalse( users.get("d").isPartOf( groups.get("a").id() ) );
-        assertTrue(  users.get("d").isPartOf( groups.get("b").id() ) );
-        assertTrue(  users.get("d").isPartOf( groups.get("c").id() ) );
-        assertTrue(  users.get("d").isPartOf( groups.get("d").id() ) );
-
         assertTrue(  groups.get("a").contains( users.get("a").id() ) );
         assertFalse( groups.get("a").contains( users.get("b").id() ) );
         assertFalse( groups.get("a").contains( users.get("c").id() ) );
@@ -220,5 +303,4 @@ public class GroupTest
         assertTrue(  groups.get("d").contains( users.get("c").id() ) );
         assertTrue(  groups.get("d").contains( users.get("d").id() ) );
     }
-*/
 }

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -20,6 +20,7 @@
 #include "Nebula.h"
 #include "PoolObjectAuth.h"
 #include "AuthManager.h"
+#include "AddressRange.h"
 #include <sstream>
 #include <ctype.h>
 
@@ -31,15 +32,22 @@ unsigned int VirtualNetworkPool::_default_size;
 
 /* -------------------------------------------------------------------------- */
 
-VirtualNetworkPool::VirtualNetworkPool(SqlDB * db,
-    const string&   prefix,
-    int             __default_size):
-    PoolSQL(db, VirtualNetwork::table, true)
+VirtualNetworkPool::VirtualNetworkPool(
+    SqlDB *                             db,
+    const string&                       prefix,
+    int                                 __default_size,
+    vector<const Attribute *>&          restricted_attrs,
+    vector<const Attribute *>           hook_mads,
+    const string&                       remotes_location,
+    const vector<const Attribute *>&    _inherit_attrs):
+    PoolSQL(db, VirtualNetwork::table, true, true)
 {
     istringstream iss;
     size_t        pos   = 0;
     int           count = 0;
     unsigned int  tmp;
+
+    vector<const Attribute *>::const_iterator it;
 
     string mac = prefix;
 
@@ -66,6 +74,18 @@ VirtualNetworkPool::VirtualNetworkPool(SqlDB * db,
     iss >> hex >> _mac_prefix >> ws >> hex >> tmp >> ws;
     _mac_prefix <<= 8;
     _mac_prefix += tmp;
+
+    VirtualNetworkTemplate::set_restricted_attributes(restricted_attrs);
+    AddressRange::set_restricted_attributes(restricted_attrs);
+
+    register_hooks(hook_mads, remotes_location);
+
+    for (it = _inherit_attrs.begin(); it != _inherit_attrs.end(); it++)
+    {
+        const SingleAttribute* sattr = static_cast<const SingleAttribute *>(*it);
+
+        inherit_attrs.push_back(sattr->value());
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -76,31 +96,30 @@ int VirtualNetworkPool::allocate (
     int            gid,
     const string&  uname,
     const string&  gname,
+    int            umask,
+    int            pvid,
     VirtualNetworkTemplate * vn_template,
     int *          oid,
     int            cluster_id,
     const string&  cluster_name,
     string&        error_str)
 {
-    VirtualNetwork *         vn;
-    VirtualNetwork *         vn_aux = 0;
-    string          name;
-    ostringstream   oss;
+    VirtualNetwork * vn;
+    VirtualNetwork * vn_aux = 0;
 
-    vn = new VirtualNetwork(uid, gid, uname, gname,
+    string name;
+
+    ostringstream oss;
+
+    vn = new VirtualNetwork(uid, gid, uname, gname, umask, pvid,
                             cluster_id, cluster_name, vn_template);
 
     // Check name
-    vn->get_template_attribute("NAME", name);
+    vn->PoolObjectSQL::get_template_attribute("NAME", name);
 
-    if ( name.empty() )
+    if ( !PoolObjectSQL::name_is_valid(name, error_str) )
     {
         goto error_name;
-    }
-
-    if ( name.length() > 128 )
-    {
-        goto error_name_length;
     }
 
     // Check for duplicates
@@ -115,24 +134,14 @@ int VirtualNetworkPool::allocate (
 
     return *oid;
 
-error_name:
-    oss << "NAME cannot be empty.";
-
-    goto error_common;
-
-error_name_length:
-    oss << "NAME is too long; max length is 128 chars.";
-    goto error_common;
 
 error_duplicated:
-    oss << "NAME is already taken by NET "
-        << vn_aux->get_oid() << ".";
-
-error_common:
-    delete vn;
-
-    *oid = -1;
+    oss << "NAME is already taken by NET " << vn_aux->get_oid() << ".";
     error_str = oss.str();
+
+error_name:
+    delete vn;
+    *oid = -1;
 
     return *oid;
 }
@@ -140,7 +149,7 @@ error_common:
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-VirtualNetwork * VirtualNetworkPool::get_nic_by_name(VectorAttribute * nic, 
+VirtualNetwork * VirtualNetworkPool::get_nic_by_name(VectorAttribute * nic,
                                                      const string&     name,
                                                      int               _uid,
                                                      string&           error)
@@ -169,9 +178,9 @@ VirtualNetwork * VirtualNetworkPool::get_nic_by_name(VectorAttribute * nic,
         User *     user;
         Nebula&    nd    = Nebula::instance();
         UserPool * upool = nd.get_upool();
-        
+
         user = upool->get(uname,true);
-        
+
         if ( user == 0 )
         {
             error = "User set in NETWORK_UNAME does not exist";
@@ -184,7 +193,7 @@ VirtualNetwork * VirtualNetworkPool::get_nic_by_name(VectorAttribute * nic,
     }
     else
     {
-        uid = _uid;        
+        uid = _uid;
     }
 
     vnet = get(name,uid,true);
@@ -192,17 +201,18 @@ VirtualNetwork * VirtualNetworkPool::get_nic_by_name(VectorAttribute * nic,
     if (vnet == 0)
     {
         ostringstream oss;
-        oss << "Virtual network " << name << " does not exist for user " << uid;
+        oss << "User " << uid << " does not own a network with name: " << name
+            << " . Set NETWORK_UNAME or NETWORK_UID of owner in NIC.";
 
-        error = oss.str(); 
+        error = oss.str();
     }
 
     return vnet;
 }
-        
+
 /* -------------------------------------------------------------------------- */
 
-VirtualNetwork * VirtualNetworkPool::get_nic_by_id(const string& id_s, 
+VirtualNetwork * VirtualNetworkPool::get_nic_by_id(const string& id_s,
                                                    string&       error)
 {
     istringstream  is;
@@ -223,19 +233,22 @@ VirtualNetwork * VirtualNetworkPool::get_nic_by_id(const string& id_s,
         ostringstream oss;
         oss << "Virtual network with ID: " << id_s << " does not exist";
 
-        error = oss.str(); 
+        error = oss.str();
     }
 
     return vnet;
 }
 
-int VirtualNetworkPool::nic_attribute(VectorAttribute * nic, 
-                                      int     uid, 
+int VirtualNetworkPool::nic_attribute(VectorAttribute * nic,
+                                      int     nic_id,
+                                      int     uid,
                                       int     vid,
                                       string& error)
 {
     string           network;
     VirtualNetwork * vnet = 0;
+
+    nic->replace("NIC_ID", nic_id);
 
     if (!(network = nic->vector_value("NETWORK")).empty())
     {
@@ -248,14 +261,14 @@ int VirtualNetworkPool::nic_attribute(VectorAttribute * nic,
     else //Not using a pre-defined network
     {
         return -2;
-    } 
+    }
 
     if (vnet == 0)
     {
         return -1;
     }
 
-    int rc = vnet->nic_attribute(nic,vid);
+    int rc = vnet->nic_attribute(nic, vid, inherit_attrs);
 
     if ( rc == 0 )
     {
@@ -263,10 +276,14 @@ int VirtualNetworkPool::nic_attribute(VectorAttribute * nic,
     }
     else
     {
-        error = "Cannot get IP/MAC lease from virtual network.";
+        ostringstream oss;
+        oss << "Cannot get IP/MAC lease from virtual network " << vnet->get_oid() << ".";
+
+        error = oss.str();
     }
 
     vnet->unlock();
+
 
     return rc;
 }
@@ -274,8 +291,8 @@ int VirtualNetworkPool::nic_attribute(VectorAttribute * nic,
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void VirtualNetworkPool::authorize_nic(VectorAttribute * nic, 
-                                       int uid, 
+void VirtualNetworkPool::authorize_nic(VectorAttribute * nic,
+                                       int uid,
                                        AuthRequest * ar)
 {
     string           network;
@@ -299,7 +316,7 @@ void VirtualNetworkPool::authorize_nic(VectorAttribute * nic,
     else //Not using a pre-defined network
     {
         return;
-    } 
+    }
 
     if (vnet == 0)
     {

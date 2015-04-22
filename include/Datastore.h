@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -29,6 +29,62 @@
 class Datastore : public PoolObjectSQL, ObjectCollection, public Clusterable
 {
 public:
+    /**
+     *  Type of Datastore
+     */
+    enum DatastoreType
+    {
+        IMAGE_DS  = 0, /** < Standard datastore for disk images */
+        SYSTEM_DS = 1, /** < System datastore for disks of running VMs */
+        FILE_DS   = 2  /** < File datastore for context, kernel, initrd files */
+    };
+
+    /**
+     *  Return the string representation of a DatastoreType
+     *    @param ob the type
+     *    @return the string
+     */
+    static string type_to_str(DatastoreType ob)
+    {
+        switch (ob)
+        {
+            case IMAGE_DS:  return "IMAGE_DS" ; break;
+            case SYSTEM_DS: return "SYSTEM_DS" ; break;
+            case FILE_DS:   return "FILE_DS" ; break;
+            default:        return "";
+        }
+    };
+
+    /**
+     *  Return the string representation of a DatastoreType
+     *    @param str_type string representing the DatastoreTypr
+     *    @return the DatastoreType (defaults to IMAGE_DS)
+     */
+    static DatastoreType str_to_type(string& str_type);
+
+    /**
+     *  Datastore State
+     */
+    enum DatastoreState
+    {
+        READY     = 0, /** < Datastore ready to use */
+        DISABLED  = 1  /** < System Datastore can not be used */
+    };
+
+    /**
+     * Returns the string representation of a DatastoreState
+     * @param state The state
+     * @return the string representation
+     */
+    static string state_to_str(DatastoreState state)
+    {
+        switch(state)
+        {
+            case READY:     return "READY";     break;
+            case DISABLED:  return "DISABLED";  break;
+            default:        return "";
+        }
+    };
 
     /**
      * Function to print the Datastore object into a string in XML format
@@ -66,12 +122,29 @@ public:
     };
 
     /**
+     *  Returns a copy of the Image IDs set
+     */
+    set<int> get_image_ids()
+    {
+        return get_collection_copy();
+    }
+
+    /**
      *  Retrieves TM mad name
      *    @return string tm mad name
      */
     const string& get_tm_mad() const
     {
         return tm_mad;
+    };
+
+    /**
+     *  Retrieves DS mad name
+     *    @return string ds mad name
+     */
+    const string& get_ds_mad() const
+    {
+        return ds_mad;
     };
 
     /**
@@ -91,21 +164,74 @@ public:
     {
         return disk_type;
     };
+
+    /**
+     * Returns the datastore type
+     *    @return datastore type
+     */
+    DatastoreType get_type() const
+    {
+        return type;
+    };
+
     /**
      * Modifies the given VM disk attribute adding the relevant datastore
      * attributes
      *
      * @param disk
+     * @param inherit_attrs Attributes to be inherited from the DS template
+     *   into the disk
      * @return 0 on success
      */
-    int disk_attribute(VectorAttribute * disk);
+    int disk_attribute(
+            VectorAttribute *       disk,
+            const vector<string>&   inherit_attrs);
 
     /**
-     *  Replace template for this object. Object should be updated
-     *  after calling this method
-     *    @param tmpl string representation of the template
+     *  Set monitor information for the Datastore
+     *    @param total_mb
+     *    @param free_mb
+     *    @param used_mb
      */
-    int replace_template(const string& tmpl_str, string& error);
+    void update_monitor(long long total, long long free, long long used)
+    {
+        total_mb = total;
+        free_mb  = free;
+        used_mb  = used;
+    }
+
+    /**
+     *  Returns the available capacity in the datastore.
+     *    @params avail the total available size in the datastore (MB)
+     *    @return true if the datastore is configured to enforce capacity
+     *    checkings
+     */
+    bool get_avail_mb(long long &avail);
+
+    /**
+     * Returns true if the DS contains the SHARED = YES attribute
+     * @return true if the DS is shared
+     */
+    bool is_shared()
+    {
+        bool shared;
+
+        if (!get_template_attribute("SHARED", shared))
+        {
+            shared = true;
+        }
+
+        return shared;
+    };
+
+    /**
+     * Enable or disable the DS. Only for System DS.
+     * @param enable true to enable
+     * @param error_str Returns the error reason, if any
+     *
+     * @return 0 on success
+     */
+    int enable(bool enable, string& error_str);
 
 private:
 
@@ -135,9 +261,34 @@ private:
     string base_path;
 
     /**
+     * The datastore type
+     */
+    DatastoreType type;
+
+    /**
      * Disk types for the Images created in this datastore
      */
      Image::DiskType disk_type;
+
+    /**
+     * Total datastore capacity in MB
+     */
+     long long total_mb;
+
+    /**
+     * Available datastore capacity in MB
+     */
+     long long free_mb;
+
+    /**
+     * Used datastore capacity in MB
+     */
+     long long used_mb;
+
+    /**
+     *  Datastore state
+     */
+    DatastoreState state;
 
     // *************************************************************************
     // Constructor
@@ -148,11 +299,12 @@ private:
             int                 gid,
             const string&       uname,
             const string&       gname,
+            int                 umask,
             DatastoreTemplate*  ds_template,
             int                 cluster_id,
             const string&       cluster_name);
 
-    virtual ~Datastore(){};
+    virtual ~Datastore();
 
     // *************************************************************************
     // DataBase implementation (Private)
@@ -203,12 +355,22 @@ private:
     }
 
     /**
-     *  Factory method for virtual network templates
+     *  Factory method for datastore templates
      */
     Template * get_new_template() const
     {
         return new DatastoreTemplate;
     }
+
+    int set_tm_mad(string &tm_mad, string &error_str);
+
+    /**
+     * Child classes can process the new template set with replace_template or
+     * append_template with this method
+     *    @param error string describing the error if any
+     *    @return 0 on success
+     */
+    int post_update_template(string& error);
 };
 
 #endif /*DATASTORE_H_*/

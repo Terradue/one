@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -22,14 +22,17 @@
 JUNIT_JAR="/usr/share/java/junit4.jar"
 
 if [ -z $ONE_LOCATION ]; then
-    echo "ONE_LOCATION not defined."
-    exit -1
+    DB_LOCATION="/var/lib/one/one.db"
+    LOG_LOCATION="/var/log/one"
+    AUTH_LOCATION="/var/lib/one/.one"
+else
+    DB_LOCATION="$ONE_LOCATION/var/one.db"
+    LOG_LOCATION="$ONE_LOCATION/var"
+    AUTH_LOCATION="$ONE_LOCATION/var/.one"
 fi
 
-VAR_LOCATION="$ONE_LOCATION/var"
-
-if [ -f $VAR_LOCATION/one.db ]; then
-    echo "$VAR_LOCATION/one.db has to be overwritten, move it to a safe place."
+if [ -f $DB_LOCATION ]; then
+    echo "$DB_LOCATION has to be overwritten, move it to a safe place."
     exit -1
 fi
 
@@ -37,11 +40,17 @@ echo "========================================================================="
 echo "Doing $1"
 echo "========================================================================="
 
+rm -rf $AUTH_LOCATION
+
 PID=$$
 
 oned -f &
 
-sleep 10s;
+sleep 2;
+
+until grep 'Datastore default (1) successfully monitored' $LOG_LOCATION/oned.log; do
+    sleep 1;
+done
 
 java -cp ../lib/*:../jar/*:$JUNIT_JAR:. org.junit.runner.JUnitCore $1
 
@@ -50,6 +59,6 @@ CODE=$?
 pkill -P $PID oned
 sleep 4s;
 pkill -9 -P $PID oned
-rm -f $VAR_LOCATION/one.db
+rm -f $DB_LOCATION
 
 exit $CODE

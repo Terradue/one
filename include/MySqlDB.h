@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -20,6 +20,7 @@
 #include <string>
 #include <sstream>
 #include <stdexcept>
+#include <queue>
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -57,7 +58,7 @@ public:
      *    @param obj Callbackable obj to call if the query succeeds
      *    @return 0 on success
      */
-    int exec(ostringstream& cmd, Callbackable* obj=0);
+    int exec(ostringstream& cmd, Callbackable* obj=0, bool quiet=false);
 
     /**
      *  This function returns a legal SQL string that can be used in an SQL
@@ -74,12 +75,30 @@ public:
      */
     void free_str(char * str);
 
+    /**
+     * Returns true if the syntax INSERT VALUES (data), (data), (data)
+     * is supported
+     *
+     * @return true if supported
+     */
+    bool multiple_values_support();
+
 private:
 
     /**
-     * The MySql connection handler
+     *  Number of concurrent DB connections.
      */
-    MYSQL *             db;
+    static const int  DB_CONNECT_SIZE;
+
+    /**
+     * The MySql connection pool handler
+     */
+    queue<MYSQL *> db_connect;
+
+    /**
+     * Cached DB connection to escape strings (it uses the server character set)
+     */
+    MYSQL *        db_escape_connect;
 
     /**
      *  MySQL Connection parameters
@@ -95,25 +114,24 @@ private:
     string              database;
 
     /**
-     *  Fine-grain mutex for DB access
+     *  Fine-grain mutex for DB access (pool of DB connections)
      */
-    pthread_mutex_t     mutex;
+    pthread_mutex_t mutex;
 
     /**
-     *  Function to lock the DB
+     *  Conditional variable to wake-up waiting threads.
      */
-    void lock()
-    {
-        pthread_mutex_lock(&mutex);
-    };
+    pthread_cond_t  cond;
 
     /**
-     *  Function to unlock the DB
+     *  Gets a free DB connection from the pool.
      */
-    void unlock()
-    {
-        pthread_mutex_unlock(&mutex);
-    };
+    MYSQL * get_db_connection();
+
+    /**
+     *  Returns the connection to the pool.
+     */
+    void    free_db_connection(MYSQL * db);
 };
 #else
 //CLass stub
@@ -133,11 +151,13 @@ public:
 
     ~MySqlDB(){};
 
-    int exec(ostringstream& cmd, Callbackable* obj=0){return -1;};
+    int exec(ostringstream& cmd, Callbackable* obj=0, bool quiet=false){return -1;};
 
     char * escape_str(const string& str){return 0;};
 
     void free_str(char * str){};
+
+    bool multiple_values_support(){return true;};
 };
 #endif
 

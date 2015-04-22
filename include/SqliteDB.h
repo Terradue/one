@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -57,7 +57,7 @@ public:
      *    @param arg to pass to the callback function
      *    @return 0 on success
      */
-    int exec(ostringstream& cmd, Callbackable* obj=0);
+    int exec(ostringstream& cmd, Callbackable* obj=0, bool quiet=false);
 
     /**
      *  This function returns a legal SQL string that can be used in an SQL
@@ -72,6 +72,14 @@ public:
      *    @param str pointer to the str
      */
     void free_str(char * str);
+
+    /**
+     * Returns true if the syntax INSERT VALUES (data), (data), (data)
+     * is supported
+     *
+     * @return true if supported
+     */
+    bool multiple_values_support();
 
 private:
     /**
@@ -113,11 +121,13 @@ public:
 
     ~SqliteDB(){};
 
-    int exec(ostringstream& cmd, Callbackable* obj=0){return -1;};
+    int exec(ostringstream& cmd, Callbackable* obj=0, bool quiet=false){return -1;};
 
     char * escape_str(const string& str){return 0;};
 
     void free_str(char * str){};
+
+    bool multiple_values_support(){return true;};
 };
 #endif
 

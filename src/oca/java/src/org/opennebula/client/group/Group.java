@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,10 @@ public class Group extends PoolElement{
     private static final String ALLOCATE        = METHOD_PREFIX + "allocate";
     private static final String INFO            = METHOD_PREFIX + "info";
     private static final String DELETE          = METHOD_PREFIX + "delete";
-
+    private static final String QUOTA           = METHOD_PREFIX + "quota";
+    private static final String UPDATE          = METHOD_PREFIX + "update";
+    private static final String ADD_ADMIN       = METHOD_PREFIX + "addadmin";
+    private static final String DEL_ADMIN       = METHOD_PREFIX + "deladmin";
 
     /**
      * Creates a new Group representation.
@@ -95,6 +98,60 @@ public class Group extends PoolElement{
         return client.call(DELETE, id);
     }
 
+    /**
+     * Replaces the group quota template contents.
+     *
+     * @param client XML-RPC Client.
+     * @param id The group id of the target group we want to modify.
+     * @param quota_template New quota template contents.
+     * @return If successful the message contains the group id.
+     */
+    public static OneResponse setQuota(Client client, int id, String quota_template)
+    {
+        return client.call(QUOTA, id, quota_template);
+    }
+
+    /**
+     * Replaces the template contents.
+     *
+     * @param client XML-RPC Client.
+     * @param id The group id of the target group we want to modify.
+     * @param new_template New template contents
+     * @param append True to append new attributes instead of replace the whole template
+     * @return If successful the message contains the group id.
+     */
+    public static OneResponse update(Client client, int id, String new_template,
+        boolean append)
+    {
+        return client.call(UPDATE, id, new_template, append ? 1 : 0);
+    }
+
+    /**
+     * Adds a User to the Group administrators set
+     *
+     * @param client XML-RPC Client.
+     * @param id The group id of the target group we want to modify.
+     * @param uid User ID
+     * @return If successful the message contains the group id.
+     */
+    public static OneResponse addAdmin(Client client, int id, int uid)
+    {
+        return client.call(ADD_ADMIN, id, uid);
+    }
+
+    /**
+     * Removes a User from the Group administrators set
+     *
+     * @param client XML-RPC Client.
+     * @param id The group id of the target group we want to modify.
+     * @param uid User ID
+     * @return If successful the message contains the group id.
+     */
+    public static OneResponse delAdmin(Client client, int id, int uid)
+    {
+        return client.call(DEL_ADMIN, id, uid);
+    }
+
     // =================================
     // Instanced object XML-RPC methods
     // =================================
@@ -122,6 +179,62 @@ public class Group extends PoolElement{
         return delete(client, id);
     }
 
+    /**
+     * Replaces the group quota template contents.
+     *
+     * @param quota_template New quota template contents.
+     * @return If successful the message contains the group id.
+     */
+    public OneResponse setQuota(String quota_template)
+    {
+        return setQuota(client, id, quota_template);
+    }
+
+    /**
+     * Replaces the template contents.
+     *
+     * @param new_template New template contents
+     * @return If successful the message contains the group id.
+     */
+    public OneResponse update(String new_template)
+    {
+        return update(new_template, false);
+    }
+
+    /**
+     * Replaces the template contents.
+     *
+     * @param new_template New template contents
+     * @param append True to append new attributes instead of replace the whole template
+     * @return If successful the message contains the group id.
+     */
+    public OneResponse update(String new_template, boolean append)
+    {
+        return update(client, id, new_template, append);
+    }
+
+    /**
+     * Adds a User to the Group administrators set
+     *
+     * @param uid User ID
+     * @return If successful the message contains the group id.
+     */
+    public OneResponse addAdmin(int uid)
+    {
+        return addAdmin(client, id, uid);
+    }
+
+    /**
+     * Removes a User from the Group administrators set
+     *
+     * @param uid User ID
+     * @return If successful the message contains the group id.
+     */
+    public OneResponse delAdmin(int uid)
+    {
+        return delAdmin(client, id, uid);
+    }
+
     // =================================
     // Helpers
     // =================================
@@ -135,6 +248,18 @@ public class Group extends PoolElement{
     public boolean contains(int uid)
     {
         String res = xpath("USERS/ID[.="+uid+"]");
+        return res != null && res.equals(""+uid);
+    }
+
+    /**
+     * Returns whether or not the user is an admin of this group
+     *
+     * @param uid The user ID.
+     * @return Whether or not the user is an admin of this group
+     */
+    public boolean containsAdmin(int uid)
+    {
+        String res = xpath("ADMINS/ID[.="+uid+"]");
         return res != null && res.equals(""+uid);
     }
 }

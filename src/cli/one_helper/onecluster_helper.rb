@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -25,18 +25,10 @@ class OneClusterHelper < OpenNebulaHelper::OneHelper
         :description => "Selects the cluster",
         :format => String,
         :proc   => lambda { |o, options|
-            ch = OneClusterHelper.new
-            rc, cid = ch.to_id(o)
-            if rc == 0
-                options[:cluster] = cid
-            else
-                puts cid
-                puts "option cluster: Parsing error"
-                exit -1
-            end
+            OpenNebulaHelper.rname_to_id(o, "CLUSTER")
         }
     }
-    
+
     def self.rname
         "CLUSTER"
     end
@@ -45,28 +37,41 @@ class OneClusterHelper < OpenNebulaHelper::OneHelper
         "onecluster.yaml"
     end
 
+    def element_size(ehash, ename)
+        ids = ehash[ename]["ID"]
+
+        if ids.nil?
+            return 0
+        elsif ids.class == String
+            return 1
+        else
+            return ids.size
+        end
+    end
+
+
     def format_pool(options)
         config_file = self.class.table_conf
 
         table = CLIHelper::ShowTable.new(config_file, self) do
-            column :ID, "ONE identifier for the Cluster", :size=>4 do |d|
+            column :ID, "ONE identifier for the Cluster", :size=>5 do |d|
                 d["ID"]
             end
 
-            column :NAME, "Name of the Cluster", :left, :size=>15 do |d|
+            column :NAME, "Name of the Cluster", :left, :size=>25 do |d|
                 d["NAME"]
             end
 
-            column :HOSTS, "Number of Hosts", :left, :size=>5 do |d|
-                d["HOSTS"]["ID"] ? d["HOSTS"]["ID"].size : 0
+            column :HOSTS, "Number of Hosts", :size=>5 do |d|
+                @ext.element_size(d,"HOSTS")
             end
 
-            column :VNETS, "Number of Networks", :left, :size=>5 do |d|
-                d["VNETS"]["ID"] ? d["VNETS"]["ID"].size : 0
+            column :VNETS, "Number of Networks", :size=>5 do |d|
+                @ext.element_size(d,"VNETS")
             end
 
-            column :DATASTORES, "Number of Datastores", :left, :size=>10 do |d|
-                d["DATASTORES"]["ID"] ? d["DATASTORES"]["ID"].size : 0
+            column :DATASTORES, "Number of Datastores", :size=>10 do |d|
+                @ext.element_size(d,"DATASTORES")
             end
 
             default :ID, :NAME, :HOSTS, :VNETS, :DATASTORES
@@ -90,13 +95,18 @@ class OneClusterHelper < OpenNebulaHelper::OneHelper
         OpenNebula::ClusterPool.new(@client)
     end
 
-    def format_resource(cluster)
-        str="%-15s: %-20s"
+    def format_resource(cluster, options = {})
+        str="%-18s: %-20s"
         str_h1="%-80s"
 
         CLIHelper.print_header(str_h1 % "CLUSTER #{cluster['ID']} INFORMATION")
         puts str % ["ID",   cluster.id.to_s]
         puts str % ["NAME", cluster.name]
+        puts
+
+        CLIHelper.print_header(str_h1 % "CLUSTER TEMPLATE", false)
+        puts cluster.template_str
+
         puts
 
         CLIHelper.print_header("%-15s" % ["HOSTS"])

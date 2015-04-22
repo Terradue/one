@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -31,7 +31,7 @@ class RequestManagerInfo: public Request
 protected:
     RequestManagerInfo(const string& method_name,
                        const string& help)
-        :Request(method_name,"A:si",help)
+        :Request(method_name, "A:si", help)
     {
         auth_op = AuthRequest::USE;
     };
@@ -45,7 +45,8 @@ protected:
 
     /* -------------------------------------------------------------------- */
 
-    virtual void to_xml(PoolObjectSQL * object, string& str)
+    virtual void to_xml(RequestAttributes& att, PoolObjectSQL * object,
+        string& str)
     {
         object->to_xml(str);
     };
@@ -60,7 +61,7 @@ public:
     VirtualMachineInfo():
         RequestManagerInfo("VirtualMachineInfo",
                            "Returns virtual machine instance information")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_vmpool();
         auth_object = PoolObjectSQL::VM;
@@ -70,10 +71,9 @@ public:
 
     /* -------------------------------------------------------------------- */
 
-    void to_xml(PoolObjectSQL * object, string& str)
+    void to_xml(RequestAttributes& att, PoolObjectSQL * object, string& str)
     {
-        VirtualMachine * vm = static_cast<VirtualMachine *>(object);
-        vm->to_xml_extended(str);
+        static_cast<VirtualMachine *>(object)->to_xml_extended(str);
     };
 };
 
@@ -86,7 +86,7 @@ public:
     TemplateInfo():
         RequestManagerInfo("TemplateInfo",
                            "Returns virtual machine template information")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_tpool();
         auth_object = PoolObjectSQL::TEMPLATE;
@@ -105,7 +105,7 @@ public:
     VirtualNetworkInfo():
         RequestManagerInfo("VirtualNetworkInfo",
                            "Returns virtual network information")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_vnpool();
         auth_object = PoolObjectSQL::NET;
@@ -115,11 +115,7 @@ public:
 
     /* -------------------------------------------------------------------- */
 
-    void to_xml(PoolObjectSQL * object, string& str)
-    {
-        VirtualNetwork * vn = static_cast<VirtualNetwork*>(object);
-        vn->to_xml_extended(str);
-    };
+    void to_xml(RequestAttributes& att, PoolObjectSQL * object, string& str);
 };
 
 /* ------------------------------------------------------------------------- */
@@ -131,7 +127,7 @@ public:
     ImageInfo():
         RequestManagerInfo("ImageInfo",
                            "Returns image information")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_ipool();
         auth_object = PoolObjectSQL::IMAGE;
@@ -150,7 +146,7 @@ public:
     HostInfo():
         RequestManagerInfo("HostInfo",
                            "Returns host information")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_hpool();
         auth_object = PoolObjectSQL::HOST;
@@ -168,13 +164,20 @@ public:
     GroupInfo():
         RequestManagerInfo("GroupInfo",
                            "Returns group information")
-    {    
+    {
         Nebula& nd = Nebula::instance();
         pool       = nd.get_gpool();
         auth_object = PoolObjectSQL::GROUP;
     };
 
     ~GroupInfo(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void to_xml(RequestAttributes& att, PoolObjectSQL * object, string& str)
+    {
+        static_cast<Group*>(object)->to_xml_extended(str);
+    };
 };
 
 /* ------------------------------------------------------------------------- */
@@ -186,13 +189,20 @@ public:
     UserInfo():
         RequestManagerInfo("UserInfo",
                            "Returns user information")
-    {    
+    {
         Nebula& nd  = Nebula::instance();
         pool        = nd.get_upool();
         auth_object = PoolObjectSQL::USER;
     };
 
     ~UserInfo(){};
+
+    /* -------------------------------------------------------------------- */
+
+    void to_xml(RequestAttributes& att, PoolObjectSQL * object, string& str)
+    {
+        static_cast<User*>(object)->to_xml_extended(str);
+    };
 };
 
 /* ------------------------------------------------------------------------- */
@@ -229,6 +239,78 @@ public:
     };
 
     ~ClusterInfo(){};
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class DocumentInfo : public RequestManagerInfo
+{
+public:
+    DocumentInfo():
+        RequestManagerInfo("DocumentInfo",
+                           "Returns generic document information")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_docpool();
+        auth_object = PoolObjectSQL::DOCUMENT;
+    };
+
+    ~DocumentInfo(){};
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class ZoneInfo: public RequestManagerInfo
+{
+public:
+    ZoneInfo():
+        RequestManagerInfo("ZoneInfo",
+                           "Returns zone information")
+    {
+        Nebula& nd = Nebula::instance();
+        pool       = nd.get_zonepool();
+        auth_object = PoolObjectSQL::ZONE;
+    };
+
+    ~ZoneInfo(){};
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class SecurityGroupInfo : public RequestManagerInfo
+{
+public:
+    SecurityGroupInfo():
+        RequestManagerInfo("SecurityGroupInfo",
+                           "Returns security group information")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_secgrouppool();
+        auth_object = PoolObjectSQL::SECGROUP;
+    };
+
+    ~SecurityGroupInfo(){};
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class VdcInfo: public RequestManagerInfo
+{
+public:
+    VdcInfo():
+        RequestManagerInfo("VdcInfo",
+                           "Returns VDC information")
+    {
+        Nebula& nd = Nebula::instance();
+        pool       = nd.get_vdcpool();
+        auth_object = PoolObjectSQL::VDC;
+    };
+
+    ~VdcInfo(){};
 };
 
 /* -------------------------------------------------------------------------- */

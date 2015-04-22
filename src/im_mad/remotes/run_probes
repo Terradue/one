@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -16,6 +16,8 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
+#Arguments: hypervisor(0) ds_location(1) collectd_port(2) host_id(3) hostname(4)
+
 source $(dirname $0)/../scripts_common.sh
 
 export LANG=C
@@ -29,7 +31,7 @@ cd $SCRIPTS_DIR
 function run_dir {
     (
     cd $1
-    for i in `ls *`;do
+    for i in `ls * | grep -E -v '\.(rpmnew|rpmsave|dpkg-\w+)$'`;do
         if [ -x "$i" ]; then
             ./$i $ARGUMENTS
             EXIT_CODE=$?
@@ -50,8 +52,6 @@ data=$(
 
 EXIT_CODE=$?
 
-echo $data | tr '\n' ' '
+echo "$data"
 
-if [ "x$EXIT_CODE" != "x0" ]; then
-    exit $EXIT_CODE
-fi
+exit $EXIT_CODE

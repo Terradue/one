@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -15,6 +15,7 @@
 /* -------------------------------------------------------------------------- */
 
 #include "QuotaDatastore.h"
+#include "Quotas.h"
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -26,9 +27,9 @@ const int QuotaDatastore::NUM_DS_METRICS  = 2;
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool QuotaDatastore::check(Template * tmpl,  string& error)
+bool QuotaDatastore::check(Template * tmpl, Quotas& default_quotas, string& error)
 {
-    map<string, int> ds_request;
+    map<string, float> ds_request;
 
     string ds_id;
     int    size;
@@ -41,16 +42,16 @@ bool QuotaDatastore::check(Template * tmpl,  string& error)
         return false;
     }
 
-    if ( tmpl->get("SIZE", size) == false )
+    if ( tmpl->get("SIZE", size) == false || size < 0 )
     {
-        error = "Size not defined for image";
+        error = "Image size must be a positive integer value";
         return false;
     }
 
     ds_request.insert(make_pair("IMAGES",1));
     ds_request.insert(make_pair("SIZE",  size));
-    
-    return check_quota(ds_id, ds_request, error);
+
+    return check_quota(ds_id, ds_request, default_quotas, error);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -58,7 +59,7 @@ bool QuotaDatastore::check(Template * tmpl,  string& error)
 
 void QuotaDatastore::del(Template * tmpl)
 {
-    map<string, int> ds_request;
+    map<string, float> ds_request;
 
     string ds_id;
     int    size;
@@ -79,6 +80,17 @@ void QuotaDatastore::del(Template * tmpl)
     ds_request.insert(make_pair("SIZE",  size));
 
     del_quota(ds_id, ds_request);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int QuotaDatastore::get_default_quota(
+        const string& id,
+        Quotas& default_quotas,
+        VectorAttribute **va)
+{
+    return default_quotas.ds_get(id, va);
 }
 
 /* -------------------------------------------------------------------------- */

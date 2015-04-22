@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -109,48 +109,59 @@ public:
 
     /**
      * Get the least monitored hosts
-     *   @param discovered hosts, map to store the retrieved hosts hids and
-     *   hostnames
+     *   @param discovered hosts
      *   @param host_limit max. number of hosts to monitor at a time
+     *   @param target_time Filters hosts with last_mon_time <= target_time
      *   @return int 0 if success
      */
-    int discover(map<int, string> * discovered_hosts, int host_limit);
+    int discover(set<int> * discovered_hosts, int host_limit, time_t target_time);
 
     /**
      * Allocates a given capacity to the host
      *   @param oid the id of the host to allocate the capacity
-     *   @param cpu amount of CPU
-     *   @param mem amount of main memory
+     *   @param vm_id id of the vm to add to the host
+     *   @param cpu amount of CPU, in percentage
+     *   @param mem amount of main memory, in KB
      *   @param disk amount of disk
+     *
+     *   @return 0 on success -1 in case of failure
      */
-    void add_capacity(int oid,int cpu, int mem, int disk)
+    int add_capacity(int oid, int vm_id, int cpu, int mem, int disk)
     {
-        Host *  host = get(oid, true);
+        int rc = 0;
+        Host * host = get(oid, true);
 
         if ( host != 0 )
         {
-          host->add_capacity(cpu, mem, disk);
+          host->add_capacity(vm_id, cpu, mem, disk);
 
           update(host);
 
           host->unlock();
         }
+        else
+        {
+            rc = -1;
+        }
+
+        return rc;
     };
 
     /**
      * De-Allocates a given capacity to the host
      *   @param oid the id of the host to allocate the capacity
+     *   @param vm_id id of the vm to add to the host
      *   @param cpu amount of CPU
      *   @param mem amount of main memory
      *   @param disk amount of disk
      */
-    void del_capacity(int oid,int cpu, int mem, int disk)
+    void del_capacity(int oid, int vm_id, int cpu, int mem, int disk)
     {
         Host *  host = get(oid, true);
 
         if ( host != 0 )
         {
-            host->del_capacity(cpu, mem, disk);
+            host->del_capacity(vm_id, cpu, mem, disk);
 
             update(host);
 
@@ -176,12 +187,13 @@ public:
      *  query
      *  @param oss the output stream to dump the pool contents
      *  @param where filter for the objects, defaults to all
+     *  @param limit parameters used for pagination
      *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& where)
+    int dump(ostringstream& oss, const string& where, const string& limit)
     {
-        return PoolSQL::dump(oss, "HOST_POOL", Host::table, where);
+        return PoolSQL::dump(oss, "HOST_POOL", Host::table, where, limit);
     };
 
     /**
@@ -265,12 +277,15 @@ private:
     /**
      *  Callback function to get the IDs of the hosts to be monitored
      *  (Host::discover)
+     *
+     *    @param _set the set<int>* of host ids
      *    @param num the number of columns read from the DB
+     *    @param values the column values
      *    @param names the column names
-     *    @param vaues the column values
+     *
      *    @return 0 on success
      */
-    int discover_cb(void * _map, int num, char **values, char **names);
+    int discover_cb(void * _set, int num, char **values, char **names);
 
     /**
      * Deletes all monitoring entries for all hosts

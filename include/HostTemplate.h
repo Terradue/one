@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -27,7 +27,7 @@ using namespace std;
 class HostTemplate : public Template
 {
 public:
-    HostTemplate() : Template(true,'=',"TEMPLATE"){};
+    HostTemplate() : Template(false,'=',"TEMPLATE"){};
 
     ~HostTemplate(){};
 

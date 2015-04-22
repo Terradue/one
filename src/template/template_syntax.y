@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -82,7 +82,7 @@ extern "C"
 %name-prefix = "template__"
 %output      = "template_syntax.cc"
 
-%token EQUAL COMMA OBRACKET CBRACKET EQUAL_EMPTY
+%token EQUAL COMMA OBRACKET CBRACKET EQUAL_EMPTY CCDATA
 %token <val_str>    STRING
 %token <val_str>    VARIABLE
 %type  <val_attr>   array_val
@@ -126,11 +126,15 @@ attribute:  VARIABLE EQUAL STRING
             {
                 Attribute * pattr;
                 string      name($1);
-                string      value("");
+                string      value;
 
                 pattr = new SingleAttribute(name,value);
 
                 tmpl->set(pattr);
+            }
+         | VARIABLE EQUAL CCDATA
+            {
+                YYABORT;
             }
         ;
 
@@ -165,9 +169,9 @@ array_val:  VARIABLE EQUAL STRING
 
 string& unescape (string &str)
 {
-    size_t  pos;
+    size_t  pos = 0;
 
-    while ((pos = str.find("\\\"")) != string::npos)
+    while ((pos = str.find("\\\"", pos)) != string::npos)
     {
         str.replace(pos,2,"\"");
     }

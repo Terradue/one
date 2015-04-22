@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -44,7 +44,7 @@ private
     def self.resource_mask(str)
         resource_type=str.split("/")[0]
 
-        mask = "---------"
+        mask = "-------------"
 
         resource_type.split("+").each{|type|
             case type
@@ -66,6 +66,14 @@ private
                     mask[7] = "D"
                 when "CLUSTER"
                     mask[8] = "C"
+                when "DOCUMENT"
+                    mask[9] = "O"
+                when "ZONE"
+                    mask[10] = "Z"
+                when "SECGROUP"
+                    mask[11] = "S"
+                when "VDC"
+                    mask[12] = "v"
             end
         }
         mask
@@ -105,8 +113,8 @@ private
                 d['STRING'].split(" ")[0]
             end
 
-            column :RES_VHNIUTGDC, "Resource to which the rule applies",
-                            :size => 13 do |d|
+            column :RES_VHNIUTGDCOZSv, "Resource to which the rule applies",
+                            :size => 17 do |d|
                OneAclHelper::resource_mask d['STRING'].split(" ")[1]
             end
 
@@ -114,12 +122,16 @@ private
                 d['STRING'].split(" ")[1].split("/")[1]
             end
 
+            column :ZONE, "Zone ID", :right, :size=>5 do |d|
+                d['STRING'].split(" ")[3]
+            end
+
             column :OPE_UMAC,
                     "Operation to which the rule applies", :size =>8 do |d|
                 OneAclHelper::right_mask d['STRING'].split(" ")[2]
             end
 
-            default :ID, :USER, :RES_VHNIUTGDC, :RID, :OPE_UMAC
+            default :ID, :USER, :RES_VHNIUTGDCOZSv, :RID, :OPE_UMAC, :ZONE
         end
 
         table

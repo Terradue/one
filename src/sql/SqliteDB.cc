@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -66,7 +66,17 @@ SqliteDB::~SqliteDB()
 
 /* -------------------------------------------------------------------------- */
 
-int SqliteDB::exec(ostringstream& cmd, Callbackable* obj)
+bool SqliteDB::multiple_values_support()
+{
+    // Versions > 3.7.11 support multiple value inserts, but tests
+    // have ended in segfault. A transaction seems to perform better
+    //return SQLITE_VERSION_NUMBER >= 3007011;
+    return false;
+}
+
+/* -------------------------------------------------------------------------- */
+
+int SqliteDB::exec(ostringstream& cmd, Callbackable* obj, bool quiet)
 {
     int          rc;
 
@@ -119,10 +129,12 @@ int SqliteDB::exec(ostringstream& cmd, Callbackable* obj)
     {
         if (err_msg != 0)
         {
+            Log::MessageType error_level = quiet ? Log::DDEBUG : Log::ERROR;
+
             ostringstream oss;
 
             oss << "SQL command was: " << c_str << ", error: " << err_msg;
-            NebulaLog::log("ONE",Log::ERROR,oss);
+            NebulaLog::log("ONE",error_level,oss);
 
             sqlite3_free(err_msg);
         }

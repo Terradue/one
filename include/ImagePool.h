@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -20,6 +20,7 @@
 #include "PoolSQL.h"
 #include "Image.h"
 #include "NebulaLog.h"
+#include "Datastore.h"
 
 #include <time.h>
 #include <sstream>
@@ -38,10 +39,16 @@ class ImagePool : public PoolSQL
 {
 public:
 
-    ImagePool(SqlDB *       db,
-              const string& _default_type,
-              const string& _default_dev_prefix,
-              vector<const Attribute *>& restricted_attrs);
+    ImagePool(
+            SqlDB *                             db,
+            const string&                       __default_type,
+            const string&                       __default_dev_prefix,
+            const string&                       __default_cdrom_dev_prefix,
+            vector<const Attribute *>&          restricted_attrs,
+            vector<const Attribute *>           hook_mads,
+            const string&                       remotes_location,
+            const vector<const Attribute *>&    _inherit_image_attrs,
+            const vector<const Attribute *>&    _inherit_datastore_attrs);
 
     ~ImagePool(){};
 
@@ -51,11 +58,15 @@ public:
      *    @param gid the id of the group this object is assigned to
      *    @param uname name of the user
      *    @param gname name of the group
+     *    @param umask permissions umask
      *    @param img_template template associated with the image
      *    @param ds_id the id of the datastore
      *    @param ds_name the name of the datastore
      *    @param ds_type disk type for the image
      *    @param ds_data the datastore data
+     *    @param ds_type the datastore type
+     *    @param source_img_id If the new Image is a clone, this must be the
+     *      source Image ID. Otherwise, it must be set to -1
      *    @param oid the id assigned to the Image
      *    @param error_str Returns the error reason, if any
      *    @return the oid assigned to the object,
@@ -63,17 +74,20 @@ public:
      *                  -2 in case of template parse failure
      */
     int allocate (
-        int             uid,
-        int             gid,
-        const string&   uname,
-        const string&   gname,
-        ImageTemplate * img_template,
-        int             ds_id,
-        const string&   ds_name,
-        Image::DiskType ds_type,
-        const string&   ds_data,
-        int *           oid,
-        string&         error_str);
+        int                      uid,
+        int                      gid,
+        const string&            uname,
+        const string&            gname,
+        int                      umask,
+        ImageTemplate *          img_template,
+        int                      ds_id,
+        const string&            ds_name,
+        Image::DiskType          disk_type,
+        const string&            ds_data,
+        Datastore::DatastoreType ds_type,
+        int                      source_img_id,
+        int *                    oid,
+        string&                  error_str);
 
     /**
      **  Function to get a Image from the pool, if the object is not in memory
@@ -101,7 +115,7 @@ public:
         return static_cast<Image *>(PoolSQL::get(name,uid,lock));
     };
 
-    /** 
+    /**
      *  Update a particular Image
      *    @param image pointer to Image
      *    @return 0 on success
@@ -125,11 +139,13 @@ public:
      *  query
      *  @param oss the output stream to dump the pool contents
      *  @param where filter for the objects, defaults to all
+     *  @param limit parameters used for pagination
+     *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& where)
+    int dump(ostringstream& oss, const string& where, const string& limit)
     {
-        return PoolSQL::dump(oss, "IMAGE_POOL", Image::table, where);
+        return PoolSQL::dump(oss, "IMAGE_POOL", Image::table, where, limit);
     }
 
     /**
@@ -146,7 +162,8 @@ public:
      *
      *    @return 0 on success, -1 otherwise
      */
-    int disk_attribute(VectorAttribute *  disk,
+    int disk_attribute(int                vm_id,
+                       VectorAttribute *  disk,
                        int                disk_id,
                        Image::ImageType&  img_type,
                        string&            dev_prefix,
@@ -171,6 +188,26 @@ public:
         return _default_dev_prefix;
     };
 
+    static const string& default_cdrom_dev_prefix()
+    {
+        return _default_cdrom_dev_prefix;
+    };
+
+    /**
+     *  Get the effective uid to get an image. Used in VM parsers
+     *    @param disk a vector attribute with the image data
+     *    @param uid default uid
+     *    @return the uid to get the image;
+     */
+    static int get_disk_uid(VectorAttribute *  disk, int _uid);
+
+    /**
+     *  Get the disk id based on its string representation. Used in VM parsers
+     *    @param id_s the string id
+     *    @return the id in int form
+     */
+     static int get_disk_id(const string& id_s);
+
 private:
     //--------------------------------------------------------------------------
     // Configuration Attributes for Images
@@ -186,6 +223,21 @@ private:
      **/
     static string  _default_dev_prefix;
 
+    /**
+     * Default device prefix for cdrom disks
+     **/
+    static string _default_cdrom_dev_prefix;
+
+    /**
+     * Image attributes to be inherited into the VM disk
+     */
+    vector<string> inherit_image_attrs;
+
+    /**
+     * Datastore attributes to be inherited into the VM disk
+     */
+    vector<string> inherit_datastore_attrs;
+
     //--------------------------------------------------------------------------
     // Pool Attributes
     // -------------------------------------------------------------------------
@@ -195,7 +247,7 @@ private:
      */
     PoolObjectSQL * create()
     {
-        return new Image(-1,-1,"","",0);
+        return new Image(-1,-1,"","",0,0);
     };
 };
 

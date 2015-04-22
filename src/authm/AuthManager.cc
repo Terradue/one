@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -17,7 +17,7 @@
 #include "AuthManager.h"
 #include "AuthRequest.h"
 #include "NebulaLog.h"
-#include "SSLTools.h"
+#include "NebulaUtil.h"
 #include "PoolObjectAuth.h"
 #include "Nebula.h"
 
@@ -40,7 +40,7 @@ void AuthRequest::add_auth(Operation             op,
 
     if ( !ob_template.empty() )
     {
-        string * encoded_id = SSLTools::base64_encode(ob_template);
+        string * encoded_id = one_util::base64_encode(ob_template);
 
         if (encoded_id != 0)
         {
@@ -67,7 +67,7 @@ void AuthRequest::add_auth(Operation             op,
 
     // Default conditions that grants permission :
     // User is oneadmin, or is in the oneadmin group
-    if ( uid == 0 || gid == GroupPool::ONEADMIN_ID )
+    if ( uid == 0 || gids.count( GroupPool::ONEADMIN_ID ) == 1 )
     {
         auth = true;
     }
@@ -76,7 +76,7 @@ void AuthRequest::add_auth(Operation             op,
         Nebula&     nd   = Nebula::instance();
         AclManager* aclm = nd.get_aclm();
 
-        auth = aclm->authorize(uid, gid, ob_perms, op);
+        auth = aclm->authorize(uid, gids, ob_perms, op);
     }
 
     oss << auth; // Store the ACL authorization result in the request
@@ -314,7 +314,7 @@ error:
 /* MAD Loading                                                                */
 /* ************************************************************************** */
 
-void AuthManager::load_mads(int uid)
+int AuthManager::load_mads(int uid)
 {
     ostringstream                   oss;
     const VectorAttribute *         vattr = 0;
@@ -334,7 +334,7 @@ void AuthManager::load_mads(int uid)
     if ( vattr == 0 )
     {
         NebulaLog::log("AuM",Log::ERROR,"Failed to load Auth. Manager driver.");
-        return;
+        return -1;
     }
 
     VectorAttribute auth_conf("AUTH_MAD",vattr->value());
@@ -375,4 +375,6 @@ void AuthManager::load_mads(int uid)
 
         NebulaLog::log("AuM",Log::INFO,oss);
     }
+
+    return rc;
 }

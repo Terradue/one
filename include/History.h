@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -28,13 +28,233 @@ using namespace std;
 class History:public ObjectSQL, public ObjectXML
 {
 public:
-    enum MigrationReason
+    enum EndReason
     {
-        NONE,       /** < Normal termination in host */
-        ERROR,      /** < The VM was migrated because of an error */
-        STOP_RESUME,/** < The VM was migrated because of a stop/resume request*/
-        USER,       /** < The VM was migrated because of an explicit request */
-        CANCEL      /** < The VM was migrated because of an explicit cancel */
+        NONE   = 0, /** < History record is not closed yet */
+        ERROR  = 1, /** < History record was closed because of an error */
+        USER   = 2  /** < History record was closed because of a user action */
+    };
+
+    enum VMAction
+    {
+        NONE_ACTION            = 0,
+        MIGRATE_ACTION         = 1,
+        LIVE_MIGRATE_ACTION    = 2,
+        SHUTDOWN_ACTION        = 3,
+        SHUTDOWN_HARD_ACTION   = 4,
+        UNDEPLOY_ACTION        = 5,
+        UNDEPLOY_HARD_ACTION   = 6,
+        HOLD_ACTION            = 7,
+        RELEASE_ACTION         = 8,
+        STOP_ACTION            = 9,
+        SUSPEND_ACTION         = 10,
+        RESUME_ACTION          = 11,
+        BOOT_ACTION            = 12,
+        DELETE_ACTION          = 13,
+        DELETE_RECREATE_ACTION = 14,
+        REBOOT_ACTION          = 15,
+        REBOOT_HARD_ACTION     = 16,
+        RESCHED_ACTION         = 17,
+        UNRESCHED_ACTION       = 18,
+        POWEROFF_ACTION        = 19,
+        POWEROFF_HARD_ACTION   = 20,
+        DISK_ATTACH_ACTION     = 21,
+        DISK_DETACH_ACTION     = 22,
+        NIC_ATTACH_ACTION      = 23,
+        NIC_DETACH_ACTION      = 24
+    };
+
+    static string action_to_str(VMAction action)
+    {
+        string st;
+
+        switch (action)
+        {
+            case MIGRATE_ACTION:
+                st = "migrate";
+            break;
+            case LIVE_MIGRATE_ACTION:
+                st = "live-migrate";
+            break;
+            case SHUTDOWN_ACTION:
+                st = "shutdown";
+            break;
+            case SHUTDOWN_HARD_ACTION:
+                st = "shutdown-hard";
+            break;
+            case UNDEPLOY_ACTION:
+                st = "undeploy";
+            break;
+            case UNDEPLOY_HARD_ACTION:
+                st = "undeploy-hard";
+            break;
+            case HOLD_ACTION:
+                st = "hold";
+            break;
+            case RELEASE_ACTION:
+                st = "release";
+            break;
+            case STOP_ACTION:
+                st = "stop";
+            break;
+            case SUSPEND_ACTION:
+                st = "suspend";
+            break;
+            case RESUME_ACTION:
+                st = "resume";
+            break;
+            case BOOT_ACTION:
+                st = "boot";
+            break;
+            case DELETE_ACTION:
+                st = "delete";
+            break;
+            case DELETE_RECREATE_ACTION:
+                st = "delete-recreate";
+            break;
+            case REBOOT_ACTION:
+                st = "reboot";
+            break;
+            case REBOOT_HARD_ACTION:
+                st = "reboot-hard";
+            break;
+            case RESCHED_ACTION:
+                st = "resched";
+            break;
+            case UNRESCHED_ACTION:
+                st = "unresched";
+            break;
+            case POWEROFF_ACTION:
+                st = "poweroff";
+            break;
+            case POWEROFF_HARD_ACTION:
+                st = "poweroff-hard";
+            break;
+            case DISK_ATTACH_ACTION:
+                st = "disk-attach";
+            break;
+            case DISK_DETACH_ACTION:
+                st = "disk-detach";
+            break;
+            case NIC_ATTACH_ACTION:
+                st = "nic-attach";
+            break;
+            case NIC_DETACH_ACTION:
+                st = "nic-detach";
+            break;
+            case NONE_ACTION:
+                st = "none";
+            break;
+        }
+
+        return st;
+    };
+
+    static int action_from_str(string& st, VMAction& action)
+    {
+        if (st == "migrate")
+        {
+            action = MIGRATE_ACTION;
+        }
+        else if (st == "live-migrate")
+        {
+            action = LIVE_MIGRATE_ACTION;
+        }
+        else if (st == "shutdown")
+        {
+            action = SHUTDOWN_ACTION;
+        }
+        else if (st == "shutdown-hard")
+        {
+            action = SHUTDOWN_HARD_ACTION;
+        }
+        else if (st == "undeploy")
+        {
+            action = UNDEPLOY_ACTION;
+        }
+        else if (st == "undeploy-hard")
+        {
+            action = UNDEPLOY_HARD_ACTION;
+        }
+        else if (st == "hold")
+        {
+            action = HOLD_ACTION;
+        }
+        else if (st == "release")
+        {
+            action = RELEASE_ACTION;
+        }
+        else if (st == "stop")
+        {
+            action = STOP_ACTION;
+        }
+        else if (st == "suspend")
+        {
+            action = SUSPEND_ACTION;
+        }
+        else if (st == "resume")
+        {
+            action = RESUME_ACTION;
+        }
+        else if (st == "boot")
+        {
+            action = BOOT_ACTION;
+        }
+        else if (st == "delete")
+        {
+            action = DELETE_ACTION;
+        }
+        else if (st == "delete-recreate")
+        {
+            action = DELETE_RECREATE_ACTION;
+        }
+        else if (st == "reboot")
+        {
+            action = REBOOT_ACTION;
+        }
+        else if (st == "reboot-hard")
+        {
+            action = REBOOT_HARD_ACTION;
+        }
+        else if (st == "resched")
+        {
+            action = RESCHED_ACTION;
+        }
+        else if (st == "unresched")
+        {
+            action = UNRESCHED_ACTION;
+        }
+        else if (st == "poweroff")
+        {
+            action = POWEROFF_ACTION;
+        }
+        else if (st == "poweroff-hard")
+        {
+            action = POWEROFF_HARD_ACTION;
+        }
+        else if (st == "disk-attach")
+        {
+            action = DISK_ATTACH_ACTION;
+        }
+        else if (st == "disk-detach")
+        {
+            action = DISK_DETACH_ACTION;
+        }
+        else if (st == "nic-attach")
+        {
+            action = NIC_ATTACH_ACTION;
+        }
+        else if (st == "nic-detach")
+        {
+            action = NIC_DETACH_ACTION;
+        }
+        else
+        {
+            action = NONE_ACTION;
+            return -1;
+        }
+
+        return 0;
     };
 
     History(int oid, int _seq = -1);
@@ -44,8 +264,12 @@ public:
         int seq,
         int hid,
         const string& hostname,
+        int cid,
         const string& vmm,
         const string& vnm,
+        const string& tmm,
+        const string& ds_location,
+        int           ds_id,
         const string& vm_info);
 
     ~History(){};
@@ -71,7 +295,7 @@ private:
     // DataBase implementation variables
     // ----------------------------------------
     static const char * table;
-    
+
     static const char * db_names;
 
     static const char * db_bootstrap;
@@ -84,11 +308,16 @@ private:
     int     oid;
     int     seq;
 
-    string  hostname;
     int     hid;
+    string  hostname;
+    int     cid;
 
     string  vmm_mad_name;
     string  vnm_mad_name;
+    string  tm_mad_name;
+
+    string  ds_location;
+    int     ds_id;
 
     time_t  stime;
     time_t  etime;
@@ -102,7 +331,9 @@ private:
     time_t  epilog_stime;
     time_t  epilog_etime;
 
-    MigrationReason reason;
+    EndReason reason;
+
+    VMAction action;
 
     string  vm_info;
 
@@ -113,10 +344,12 @@ private:
     string  transfer_file;
     string  deployment_file;
     string  context_file;
+    string  token_file;
 
     // Remote paths
     string  checkpoint_file;
     string  rdeployment_file;
+    string  rsystem_dir;
 
     /**
      *  Writes the history record in the DB

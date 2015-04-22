@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.opennebula.client.datastore;
 import org.opennebula.client.Client;
 import org.opennebula.client.OneResponse;
 import org.opennebula.client.PoolElement;
+import org.opennebula.client.cluster.ClusterPool;
 import org.w3c.dom.Node;
 
 /**
@@ -34,6 +35,16 @@ public class Datastore extends PoolElement
     private static final String UPDATE   = METHOD_PREFIX + "update";
     private static final String CHOWN    = METHOD_PREFIX + "chown";
     private static final String CHMOD    = METHOD_PREFIX + "chmod";
+    private static final String RENAME   = METHOD_PREFIX + "rename";
+    private static final String ENABLE   = METHOD_PREFIX + "enable";
+
+    private static final String[] DATASTORE_TYPES = {"IMAGE", "SYSTEM", "FILE"};
+
+    private static final String[] SHORT_DATASTORE_TYPES = {"img", "sys", "fil"};
+
+    private static final String[] DATASTORE_STATES = {"READY", "DISABLED"};
+
+    private static final String[] SHORT_DATASTORE_STATES = {"rdy", "disa"};
 
     /**
      * Creates a new Datastore representation.
@@ -62,12 +73,27 @@ public class Datastore extends PoolElement
      *
      * @param client XML-RPC Client.
      * @param description A string containing the template of the datastore.
+     * @param clusterId Id of the cluster
+     * @return If successful the message contains the associated
+     * id generated for this Datastore.
+     */
+    public static OneResponse allocate(Client client,
+            String description, int clusterId)
+    {
+        return client.call(ALLOCATE, description, clusterId);
+    }
+
+    /**
+     * Allocates a new Datastore in OpenNebula.
+     *
+     * @param client XML-RPC Client.
+     * @param description A string containing the template of the datastore.
      * @return If successful the message contains the associated
      * id generated for this Datastore.
      */
     public static OneResponse allocate(Client client, String description)
     {
-        return client.call(ALLOCATE, description);
+        return allocate(client, description, ClusterPool.NONE_CLUSTER_ID);
     }
 
     /**
@@ -101,11 +127,13 @@ public class Datastore extends PoolElement
      * @param client XML-RPC Client.
      * @param id The id of the target datastore we want to modify.
      * @param new_template New datastore contents.
+     * @param append True to append new attributes instead of replace the whole template
      * @return If successful the message contains the datastore id.
      */
-    public static OneResponse update(Client client, int id, String new_template)
+    public static OneResponse update(Client client, int id, String new_template,
+        boolean append)
     {
-        return client.call(UPDATE, id, new_template);
+        return client.call(UPDATE, id, new_template, append ? 1 : 0);
     }
 
     /**
@@ -125,7 +153,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the owner/group
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target datastore we want to modify.
      * @param uid The new owner user ID. Set it to -1 to leave the current one.
@@ -139,7 +167,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the datastore permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target datastore.
      * @param owner_u 1 to allow, 0 deny, -1 do not change
@@ -166,7 +194,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target object.
      * @param octet Permissions octet, e.g. 640
@@ -179,7 +207,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the permissions
-     * 
+     *
      * @param client XML-RPC Client.
      * @param id The id of the target object.
      * @param octet Permissions octed , e.g. 640
@@ -188,6 +216,32 @@ public class Datastore extends PoolElement
     public static OneResponse chmod(Client client, int id, int octet)
     {
         return chmod(client, CHMOD, id, octet);
+    }
+
+    /**
+     * Renames this Datastore.
+     *
+     * @param client XML-RPC Client.
+     * @param id The id of the target object.
+     * @param name New name for the Datastore
+     * @return If successful the message contains the datastore id.
+     */
+    public static OneResponse rename(Client client, int id, String name)
+    {
+        return client.call(RENAME, id, name);
+    }
+
+    /**
+     * Enables or disables this Datastore.
+     *
+     * @param client XML-RPC Client.
+     * @param id The id of the target object.
+     * @param enable True for enabling, false for disabling.
+     * @return If successful the message contains the datastore id.
+     */
+    public static OneResponse enable(Client client, int id, boolean enable)
+    {
+        return client.call(ENABLE, id, enable);
     }
 
     // =================================
@@ -225,7 +279,19 @@ public class Datastore extends PoolElement
      */
     public OneResponse update(String new_template)
     {
-        return update(client, id, new_template);
+        return update(new_template, false);
+    }
+
+    /**
+     * Replaces the datastore template.
+     *
+     * @param new_template New datastore template.
+     * @param append True to append new attributes instead of replace the whole template
+     * @return If successful the message contains the datastore id.
+     */
+    public OneResponse update(String new_template, boolean append)
+    {
+        return update(client, id, new_template, append);
     }
 
     /**
@@ -261,7 +327,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the owner/group
-     * 
+     *
      * @param uid The new owner user ID. Set it to -1 to leave the current one.
      * @param gid The new group ID. Set it to -1 to leave the current one.
      * @return If an error occurs the error message contains the reason.
@@ -273,7 +339,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the owner
-     * 
+     *
      * @param uid The new owner user ID.
      * @return If an error occurs the error message contains the reason.
      */
@@ -284,7 +350,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the group
-     * 
+     *
      * @param gid The new group ID.
      * @return If an error occurs the error message contains the reason.
      */
@@ -295,7 +361,7 @@ public class Datastore extends PoolElement
 
     /**
      * Changes the datastore permissions
-     * 
+     *
      * @param owner_u 1 to allow, 0 deny, -1 do not change
      * @param owner_m 1 to allow, 0 deny, -1 do not change
      * @param owner_a 1 to allow, 0 deny, -1 do not change
@@ -339,9 +405,116 @@ public class Datastore extends PoolElement
         return chmod(client, id, octet);
     }
 
+    /**
+     * Renames this Datastore
+     *
+     * @param name New name for the Datastore.
+     * @return If an error occurs the error message contains the reason.
+     */
+    public OneResponse rename(String name)
+    {
+        return rename(client, id, name);
+    }
+
+    /**
+     * Enables or disables the datastore.
+     *
+     * @param enable True for enabling, false for disabling.
+     * @return If successful the message contains the datastore id.
+     */
+    public OneResponse enable(boolean enable)
+    {
+        return enable(client, id, enable);
+    }
+
+    /**
+     * Enables the datastore.
+     *
+     * @return If successful the message contains the datastore id.
+     */
+    public OneResponse enable()
+    {
+        return enable(true);
+    }
+
+    /**
+     * Disables the datastore.
+     *
+     * @return If successful the message contains the datastore id.
+     */
+    public OneResponse disable()
+    {
+        return enable(false);
+    }
+
     // =================================
     // Helpers
     // =================================
+    /**
+     * Returns the type of the Datastore.
+     *
+     * @return The type of the Datastore.
+     */
+    public int type()
+    {
+        String state = xpath("TYPE");
+        return state != null ? Integer.parseInt( state ) : -1;
+    }
+
+    /**
+     * Returns the type of the Datastore as a String.
+     *
+     * @return The type of the Datastore as a String.
+     */
+    public String typeStr()
+    {
+        int type = type();
+        return type != -1 ? DATASTORE_TYPES[type] : null;
+    }
+
+    /**
+     * Returns the type of the Datastore as a short String.
+     *
+     * @return The type of the Datastore as a short String.
+     */
+    public String shortTypeStr()
+    {
+        int type = type();
+        return type != -1 ? SHORT_DATASTORE_TYPES[type] : null;
+    }
+
+    /**
+     * Returns the state of the Datastore.
+     *
+     * @return The state of the Datastore.
+     */
+    public int state()
+    {
+        String state = xpath("STATE");
+        return state != null ? Integer.parseInt( state ) : -1;
+    }
+
+    /**
+     * Returns the state of the Datastore as a String.
+     *
+     * @return The state of the Datastore as a String.
+     */
+    public String stateStr()
+    {
+        int state = state();
+        return state != -1 ? DATASTORE_STATES[state] : null;
+    }
+
+    /**
+     * Returns the state of the Datastore as a short String.
+     *
+     * @return The state of the Datastore as a short String.
+     */
+    public String shortStateStr()
+    {
+        int state = state();
+        return state != -1 ? SHORT_DATASTORE_STATES[state] : null;
+    }
 
     /**
      * Returns whether or not the image is part of this datastore

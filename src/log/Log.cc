@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -22,10 +22,27 @@
 #include <sstream>
 #include <iostream>
 
+#include <sys/types.h>
+#include <unistd.h>
+
+#ifdef SYSLOG_LOG
+#   include <syslog.h>
+
+#   include "log4cpp/Category.hh"
+#   include "log4cpp/CategoryStream.hh"
+#   include "log4cpp/Appender.hh"
+#   include "log4cpp/SyslogAppender.hh"
+#   include "log4cpp/Layout.hh"
+#   include "log4cpp/PatternLayout.hh"
+#   include "log4cpp/Priority.hh"
+#endif /* SYSLOG_LOG */
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-const char Log::error_names[] ={ 'E', 'W', 'I', 'D' };
+const char Log::error_names[] ={ 'E', 'W', 'I', 'D', 'D', 'D' };
+
+unsigned int Log::zone_id = 0;
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -33,18 +50,14 @@ const char Log::error_names[] ={ 'E', 'W', 'I', 'D' };
 FileLog::FileLog(const string&   file_name,
                  const MessageType   level,
                  ios_base::openmode  mode)
-        :Log(level), log_file(0)
+        :Log(level), log_file_name(file_name)
 {
-    ofstream    file;
+    ofstream file;
 
-    log_file = strdup(file_name.c_str());
-
-    file.open(log_file, mode);
+    file.open(log_file_name.c_str(), mode);
 
     if (file.fail() == true)
     {
-        free(log_file);
-
         throw runtime_error("Could not open log file");
     }
 
@@ -57,13 +70,7 @@ FileLog::FileLog(const string&   file_name,
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-FileLog::~FileLog()
-{
-    if ( log_file != 0 )
-    {
-        free(log_file);
-    }
-}
+FileLog::~FileLog() { }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -79,7 +86,7 @@ void FileLog::log(
 
     if( type <= log_level)
     {
-        file.open(log_file, ios_base::app);
+        file.open(log_file_name.c_str(), ios_base::app);
 
         if (file.fail() == true)
         {
@@ -97,6 +104,7 @@ void FileLog::log(
         str[24] = '\0';
 
         file << str << " ";
+        file << "[Z"<< zone_id<< "]";
         file << "[" << module << "]";
         file << "[" << error_names[type] << "]: ";
         file << message;
@@ -133,6 +141,7 @@ void CerrLog::log(
         str[24] = '\0';
 
         cerr << str << " ";
+        cerr << "[Z"<< zone_id<< "]";
         cerr << "[" << module << "]";
         cerr << "[" << error_names[type] << "]: ";
         cerr << message;
@@ -141,3 +150,168 @@ void CerrLog::log(
         cerr.flush();
     }
 }
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+#ifdef SYSLOG_LOG
+
+const char * SysLog::CATEGORY = "ROOT";
+string       SysLog::LABEL;
+
+/* -------------------------------------------------------------------------- */
+
+SysLog::SysLog(const MessageType level,
+               const string&     label):Log(level)
+{
+    static bool initialized = false;
+
+    if (!initialized) //Initialize just once for all SysLog instances
+    {
+        ostringstream     oss;
+        log4cpp::Appender *appender;
+
+        oss << label << "[" << getpid() << "]";
+
+        LABEL = oss.str();
+
+        appender = new log4cpp::SyslogAppender(CATEGORY, LABEL, LOG_DAEMON);
+        appender->setLayout(new log4cpp::PatternLayout());
+
+        log4cpp::Category& root = log4cpp::Category::getRoot();
+
+        root.setPriority(SysLog::get_priority_level(level));
+        root.addAppender(appender);
+
+        initialized = true;
+    }
+};
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void SysLog::log(
+    const char *            module,
+    const MessageType       type,
+    const char *            message)
+{
+    log4cpp::Category&               root  = log4cpp::Category::getRoot();
+    log4cpp::Priority::PriorityLevel level = get_priority_level(type);
+
+    istringstream smessage;
+    string        line;
+
+    smessage.str(message);
+
+    while ( getline(smessage, line) )
+    {
+        root << level << "[Z"<< zone_id<< "]"
+                      << "[" << module << "]"
+                      << "[" << error_names[type] << "]: "
+                      << line;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+log4cpp::Priority::PriorityLevel SysLog::get_priority_level(
+    const MessageType level)
+{
+    log4cpp::Priority::PriorityLevel priority_level;
+
+    switch (level)
+    {
+    case Log::ERROR:
+        priority_level = log4cpp::Priority::ERROR;
+        break;
+
+    case Log::WARNING:
+        priority_level = log4cpp::Priority::WARN;
+        break;
+
+    case Log::INFO:
+        priority_level = log4cpp::Priority::INFO;
+        break;
+
+    case Log::DEBUG:
+    case Log::DDEBUG:
+    case Log::DDDEBUG:
+        priority_level = log4cpp::Priority::DEBUG;
+        break;
+
+    default:
+        priority_level = log4cpp::Priority::NOTSET;
+        break;
+    }
+
+    return priority_level;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+const char * SysLogResource::CATEGORY = "RESOURCE";
+
+/* -------------------------------------------------------------------------- */
+
+SysLogResource::SysLogResource(
+        int                             oid,
+        const PoolObjectSQL::ObjectType obj_type,
+        const MessageType               clevel):SysLog(clevel)
+{
+    static bool   initialized = false;
+    ostringstream oss_label;
+    string        obj_type_str;
+
+    if (!initialized)
+    {
+        log4cpp::Appender *appender;
+
+        appender = new log4cpp::SyslogAppender(CATEGORY,
+                                               SysLog::LABEL,
+                                               LOG_DAEMON);
+
+        appender->setLayout(new log4cpp::PatternLayout());
+
+        log4cpp::Category& res = log4cpp::Category::getInstance(CATEGORY);
+
+        res.addAppender(appender);
+        res.setPriority(SysLog::get_priority_level(clevel));
+
+        initialized = true;
+    }
+
+    obj_type_str = PoolObjectSQL::type_to_str(obj_type);
+
+    oss_label << "[" << obj_type_str << " " << oid << "]";
+    obj_label = oss_label.str();
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+void SysLogResource::log(
+    const char *            module,
+    const MessageType       type,
+    const char *            message)
+{
+    log4cpp::Category& res = log4cpp::Category::getInstance(CATEGORY);
+    log4cpp::Priority::PriorityLevel level = get_priority_level(type);
+
+    istringstream   smessage;
+    string          line;
+
+    smessage.str(message);
+
+    while ( getline(smessage, line) )
+    {
+        res << level << obj_label
+                     << "[Z" << zone_id << "]"
+                     << "[" << module << "]"
+                     << "[" << error_names[type] << "]: "
+                     << line;
+    }
+}
+
+#endif  /* SYSLOG_LOG */

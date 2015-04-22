@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -23,7 +23,7 @@
 #include "template_syntax.h"
 #include "mem_collector.h"
 
-#define YY_NO_INPUT 
+#define YY_NO_INPUT
 
 #define YY_DECL int template_lex (YYSTYPE *lvalp, YYLTYPE *llocp, \
                                   mem_collector *mc)
@@ -41,6 +41,8 @@
 %x VALUE
 
 STRING [^=#[:blank:]\n,\[\]]+
+VALUE_STRING ([^\"]|"\\\"")*
+CDATA "\]\]\>"
 %%
 
  /* ------------------------------------------------------------------------- */
@@ -75,15 +77,13 @@ STRING [^=#[:blank:]\n,\[\]]+
  /*   - String in double quoted form                                         */
  /*   - Anything but  =,][# and blanks                                       */
  /* ------------------------------------------------------------------------ */
-<VALUE>\"([^\"]|"\\\"")+\" { lvalp->val_str = mem_collector_strdup(mc,yytext+1);
+
+<VALUE>.*{CDATA}.*   { BEGIN(INITIAL); return CCDATA;}
+
+<VALUE>\"{VALUE_STRING}\" { lvalp->val_str = mem_collector_strdup(mc,yytext+1);
                              lvalp->val_str[yyleng-2] = '\0';
                              BEGIN(INITIAL); return STRING; }
 
- /*
-<VALUE>'[^']+'    { lvalp->val_str = strdup(yytext+1);
-                    lvalp->val_str[yyleng-2] = '\0';
-                    BEGIN(INITIAL); return STRING; }
- */
 <VALUE>{STRING}   { lvalp->val_str = mem_collector_strdup(mc,yytext);
                     BEGIN(INITIAL); return STRING;}
 %%

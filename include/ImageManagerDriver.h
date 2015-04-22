@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -29,20 +29,23 @@ using namespace std;
 class ImagePool;
 class ImageManager;
 
+class DatastorePool;
+
 /**
- *  ImageManagerDriver represents the basic abstraction for Image Repository 
- *  drivers. It implements the protocol and recover functions from the Mad 
+ *  ImageManagerDriver represents the basic abstraction for Image Repository
+ *  drivers. It implements the protocol and recover functions from the Mad
  *  interface.
  */
 class ImageManagerDriver : public Mad
 {
 public:
 
-    ImageManagerDriver(int        userid, 
-                       const      map<string,string>& attrs, 
+    ImageManagerDriver(int        userid,
+                       const      map<string,string>& attrs,
                        bool       sudo,
-                       ImagePool* _ipool):
-            Mad(userid,attrs,sudo),ipool(_ipool){};
+                       ImagePool* _ipool,
+                       DatastorePool * _dspool):
+            Mad(userid,attrs,sudo),ipool(_ipool),dspool(_dspool){};
 
     virtual ~ImageManagerDriver(){};
 
@@ -50,7 +53,7 @@ public:
      *  Implements the Image Manager driver protocol.
      *    @param message the string read from the driver
      */
-    void protocol(string& message);
+    void protocol(const string& message) const;
 
     /**
      *  TODO: What do we need here? Check on-going xfr?
@@ -65,10 +68,10 @@ private:
      */
     ImagePool * ipool;
 
-	/**	
-	 *  Configuration file for the driver
-	 */
-	//Template	driver_conf;
+    /**
+     *  Reference to the DatastorePool
+     */
+    DatastorePool * dspool;
 
     /**
      * Sends a copy request to the MAD.
@@ -76,6 +79,13 @@ private:
      *    @param drv_msg xml data for the mad operation.
      */
     void cp(int oid, const string& drv_msg) const;
+
+    /**
+     * Sends a clone request to the MAD.
+     *    @param oid the image id.
+     *    @param drv_msg xml data for the mad operation.
+     */
+    void clone(int oid, const string& drv_msg) const;
 
     /**
      *  Sends a stat  request to the MAD.
@@ -97,6 +107,13 @@ private:
      *    @param drv_msg xml data for the mad operation.
      */
     void rm(int oid, const string& drv_msg) const;
+
+    /**
+     *  Sends a monitor request to the MAD: "MONITOR DS_ID DS_XML"
+     *    @param oid the datastore id.
+     *    @param drv_msg xml data for the mad operation.
+     */
+    void monitor(int oid, const string& drv_msg) const;
 };
 
 /* -------------------------------------------------------------------------- */

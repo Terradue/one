@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,8 +21,9 @@ using namespace std;
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool RequestManagerDelete::delete_authorization(int                oid,
-                                                RequestAttributes& att)
+bool RequestManagerDelete::delete_authorization(
+        int                         oid,
+        RequestAttributes&          att)
 {
     PoolObjectSQL * object;
     PoolObjectAuth  perms;
@@ -46,7 +47,7 @@ bool RequestManagerDelete::delete_authorization(int                oid,
 
     object->unlock();
 
-    AuthRequest ar(att.uid, att.gid);
+    AuthRequest ar(att.uid, att.group_ids);
 
     ar.add_auth(auth_op, perms);    // <MANAGE|ADMIN> OBJECT
 
@@ -79,18 +80,18 @@ void RequestManagerDelete::request_execute(xmlrpc_c::paramList const& paramList,
 
     object = pool->get(oid,true);
 
-    if ( object == 0 )                             
-    {                                            
+    if ( object == 0 )
+    {
         failure_response(NO_EXISTS, get_error(object_name(auth_object), oid),
                 att);
         return;
-    }    
+    }
 
     int rc = drop(oid, object, error_msg);
 
     if ( rc != 0 )
     {
-        failure_response(INTERNAL,
+        failure_response(ACTION,
             request_error("Cannot delete "+object_name(auth_object),error_msg),
             att);
         return;
@@ -143,6 +144,39 @@ int RequestManagerDelete::drop(
 /* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
 
+int HostDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    Nebula& nd              = Nebula::instance();
+    InformationManager * im = nd.get_im();
+
+    HostPool * hpool = nd.get_hpool();
+
+    Host* host = static_cast<Host *>(object);
+
+    //Do not trigger delete event on IM if there are VMs running on the host
+    if ( host->get_share_running_vms() > 0 )
+    {
+        error_msg = "Can not remove a host with running VMs";
+
+        host->unlock();
+
+        return -1;
+    }
+
+    host->disable();
+
+    hpool->update(host);
+
+    host->unlock();
+
+    im->trigger(InformationManager::STOPMONITOR, oid);
+
+    return 0;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
 int ImageDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 {
     Nebula&         nd     = Nebula::instance();
@@ -166,14 +200,14 @@ int ImageDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
     if ( ds == 0 )
     {
        error_msg = "Datastore no longer exists cannot remove image";
-       return -1; 
+       return -1;
     }
 
     ds->to_xml(ds_data);
 
     ds->unlock();
 
-    rc = imagem->delete_image(oid, ds_data);
+    rc = imagem->delete_image(oid, ds_data, error_msg);
 
     if ( rc == 0 )
     {
@@ -209,10 +243,28 @@ int GroupDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 /* ------------------------------------------------------------------------- */
 /* ------------------------------------------------------------------------- */
 
+int ClusterDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    int rc = RequestManagerDelete::drop(oid, object, error_msg);
+
+    if ( rc == 0 )
+    {
+        aclm->del_cid_rules(oid);
+    }
+
+    return rc;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
 int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 {
-    User * user  = static_cast<User *>(object);
-    int group_id = user->get_gid();
+    set<int>            group_set;
+    set<int>::iterator  it;
+
+    User * user = static_cast<User *>(object);
+    group_set   = user->get_groups();
 
     if (oid == 0)
     {
@@ -228,10 +280,17 @@ int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
 
     if ( rc == 0 )
     {
-        Group * group = gpool->get(group_id, true);
+        Group * group;
 
-        if( group != 0 )
+        for ( it = group_set.begin(); it != group_set.end(); it++ )
         {
+            group = gpool->get(*it, true);
+
+            if( group == 0 )
+            {
+                continue;
+            }
+
             group->del_user(oid);
             gpool->update(group);
 
@@ -242,4 +301,103 @@ int UserDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
     }
 
     return rc;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+int ZoneDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    int rc = RequestManagerDelete::drop(oid, object, error_msg);
+
+    if ( rc == 0 )
+    {
+        aclm->del_zid_rules(oid);
+    }
+
+    return rc;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+int VirtualNetworkDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    VirtualNetwork * vnet = static_cast<VirtualNetwork *>(object);
+
+    if ( vnet->get_used() > 0 )
+    {
+        error_msg = "Can not remove a virtual network with leases in use";
+
+        vnet->unlock();
+
+        return -1;
+    }
+
+    int pvid = vnet->get_parent();
+    int uid  = vnet->get_uid();
+    int gid  = vnet->get_gid();
+
+    int rc  = RequestManagerDelete::drop(oid, object, error_msg);
+
+    if (pvid != -1)
+    {
+        vnet = (static_cast<VirtualNetworkPool *>(pool))->get(pvid, true);
+
+        if (vnet == 0)
+        {
+            return rc;
+        }
+
+        int freed = vnet->free_addr_by_owner(PoolObjectSQL::NET, oid);
+
+        pool->update(vnet);
+
+        vnet->unlock();
+
+        if (freed > 0)
+        {
+            ostringstream oss;
+            Template      tmpl;
+
+            for (int i= 0 ; i < freed ; i++)
+            {
+                oss << " NIC = [ NETWORK_ID = " << pvid << " ]" << endl;
+            }
+
+            tmpl.parse_str_or_xml(oss.str(), error_msg);
+
+            Quotas::quota_del(Quotas::NETWORK, uid, gid, &tmpl);
+        }
+    }
+
+    return rc;
+}
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+int SecurityGroupDelete::drop(int oid, PoolObjectSQL * object, string& error_msg)
+{
+    if (object->get_oid() == 0)
+    {
+        error_msg = "The default security group (ID 0) cannot be deleted.";
+
+        object->unlock();
+
+        return -1;
+    }
+
+    SecurityGroup * sgroup = static_cast<SecurityGroup *>(object);
+
+    if ( sgroup->get_vms() > 0 )
+    {
+        error_msg = "The security group has VMs using it";
+
+        sgroup->unlock();
+
+        return -1;
+    }
+
+    return RequestManagerDelete::drop(oid, object, error_msg);
 }

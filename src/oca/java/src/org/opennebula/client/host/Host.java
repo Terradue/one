@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)
+ * Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,11 +34,14 @@ public class Host extends PoolElement{
     private static final String ENABLE          = METHOD_PREFIX + "enable";
     private static final String UPDATE          = METHOD_PREFIX + "update";
     private static final String MONITORING      = METHOD_PREFIX + "monitoring";
+    private static final String RENAME          = METHOD_PREFIX + "rename";
 
     private static final String[] HOST_STATES =
-        {"INIT", "MONITORING_MONITORED", "MONITORED", "ERROR", "DISABLED", 
-         "MONITORING_ERROR"};
+        {"INIT", "MONITORING_MONITORED", "MONITORED", "ERROR", "DISABLED",
+         "MONITORING_ERROR",  "MONITORING_INIT", "MONITORING_DISABLED"};
 
+    private static final String[] SHORT_HOST_STATES =
+        {"init", "update", "on", "err", "off", "retry", "init", "off"};
 
     /**
      * Creates a new Host representation.
@@ -165,11 +168,13 @@ public class Host extends PoolElement{
      * @param client XML-RPC Client.
      * @param id The image id of the target host we want to modify.
      * @param new_template New template contents
+     * @param append True to append new attributes instead of replace the whole template
      * @return If successful the message contains the host id.
      */
-    public static OneResponse update(Client client, int id, String new_template)
+    public static OneResponse update(Client client, int id, String new_template,
+        boolean append)
     {
-        return client.call(UPDATE, id, new_template);
+        return client.call(UPDATE, id, new_template, append ? 1 : 0);
     }
 
     /**
@@ -183,6 +188,19 @@ public class Host extends PoolElement{
     public static OneResponse monitoring(Client client, int id)
     {
         return client.call(MONITORING, id);
+    }
+
+    /**
+     * Renames this Host.
+     *
+     * @param client XML-RPC Client.
+     * @param id The image id of the target host we want to modify.
+     * @param name New name for the Host
+     * @return If successful the message contains the host id.
+     */
+    public static OneResponse rename(Client client, int id, String name)
+    {
+        return client.call(RENAME, id, name);
     }
 
     // =================================
@@ -250,7 +268,19 @@ public class Host extends PoolElement{
      */
     public OneResponse update(String new_template)
     {
-        return update(client, id, new_template);
+        return update(new_template, false);
+    }
+
+    /**
+     * Replaces the template contents.
+     *
+     * @param new_template New template contents
+     * @param append True to append new attributes instead of replace the whole template
+     * @return If successful the message contains the host id.
+     */
+    public OneResponse update(String new_template, boolean append)
+    {
+        return update(client, id, new_template, append);
     }
 
     /**
@@ -262,6 +292,17 @@ public class Host extends PoolElement{
     public OneResponse monitoring()
     {
         return monitoring(client, id);
+    }
+
+    /**
+     * Renames this Host.
+     *
+     * @param name New name for the Host
+     * @return If successful the message contains the host id.
+     */
+    public OneResponse rename(String name)
+    {
+        return rename(client, id, name);
     }
 
     // =================================
@@ -290,24 +331,8 @@ public class Host extends PoolElement{
      */
     public String shortStateStr()
     {
-        String st = stateStr();
-
-        if(st == null)
-            return null;
-        else if(st.equals("ERROR"))
-            return "err";
-        else if (st.equals("DISABLED"))
-            return "off";
-        else if (st.equals("INIT"))
-            return "init";
-        else if (st.equals("MONITORING_MONITORED"))
-            return "update";
-        else if (st.equals("MONITORED"))
-            return "on";
-        else if (st.equals("MONITORING_ERROR"))
-            return "retry";
-
-        return "";
+        int state = state();
+        return state != -1 ? SHORT_HOST_STATES[state()] : null;
     }
 
     /**

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -31,6 +31,53 @@ public:
         Template(false,'=',"TEMPLATE"){};
 
     ~VirtualNetworkTemplate(){};
+
+    /**
+     *  Checks the template for RESTRICTED ATTRIBUTES
+     *    @param rs_attr the first restricted attribute found if any
+     *    @return true if a restricted attribute is found in the template
+     */
+    bool check(string& rs_attr)
+    {
+        return Template::check(rs_attr, restricted_attributes);
+    };
+
+    /**
+     * Deletes all restricted attributes
+     */
+    void remove_restricted()
+    {
+        Template::remove_restricted(restricted_attributes);
+    };
+
+    /**
+     * Deletes all the attributes, except the restricted ones
+     */
+    void remove_all_except_restricted()
+    {
+        Template::remove_all_except_restricted(restricted_attributes);
+    };
+
+private:
+
+    friend class VirtualNetworkPool;
+
+    static vector<string> restricted_attributes;
+
+    bool has_restricted()
+    {
+        return restricted_attributes.size() > 0;
+    };
+
+    /**
+     * Stores the attributes as restricted, these attributes will be used in
+     * VirtualMachineTemplate::check
+     * @param rattrs Attributes to restrict
+     */
+    static void set_restricted_attributes(vector<const Attribute *>& rattrs)
+    {
+        Template::set_restricted_attributes(rattrs, restricted_attributes);
+    };
 };
 
 /* -------------------------------------------------------------------------- */

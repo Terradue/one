@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -28,7 +28,6 @@ env.Append(CPPPATH=[
 # Library dirs
 
 env.Append(LIBPATH=[
-    cwd+'/src/client',
     cwd+'/src/pool',
     cwd+'/src/sched'
 ])
@@ -38,15 +37,9 @@ env.Append(LIBPATH=[
 ################################################################################
 
 build_scripts=[
-    'src/client/SConstruct',
     'src/pool/SConstruct',
     'src/sched/SConstruct'
 ]
-
-if env['testing']=='yes':
-    build_scripts.extend([
-        'src/pool/test/SConstruct',
-    ])
 
 for script in build_scripts:
     sched_env=env.Clone()

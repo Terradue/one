@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -25,9 +25,9 @@
 /* Driver ASCII Protocol Implementation                                       */
 /* ************************************************************************** */
 
-void AuthManagerDriver::authorize(int           oid, 
-                                  int           uid, 
-                                  const string& reqs, 
+void AuthManagerDriver::authorize(int           oid,
+                                  int           uid,
+                                  const string& reqs,
                                   bool          acl) const
 {
     ostringstream os;
@@ -60,8 +60,7 @@ void AuthManagerDriver::authenticate(int           oid,
 /* MAD Interface                                                              */
 /* ************************************************************************** */
 
-void AuthManagerDriver::protocol(
-    string&     message)
+void AuthManagerDriver::protocol(const string& message) const
 {
     istringstream is(message);
     ostringstream os;

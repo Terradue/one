@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -19,9 +19,9 @@
 
 
 #include "PoolSQL.h"
-#include "Leases.h"
 #include "VirtualNetworkTemplate.h"
 #include "Clusterable.h"
+#include "AddressRangePool.h"
 
 #include <vector>
 #include <string>
@@ -36,24 +36,13 @@ using namespace std;
 /* -------------------------------------------------------------------------- */
 
 /**
- *  The Virtual Network class. It represents a Virtual Network at manages its 
+ *  The Virtual Network class. It represents a Virtual Network at manages its
  *  leases. One lease is formed by one IP and one MAC address.
  *  MAC address are derived from IP addresses.
  */
 class VirtualNetwork : public PoolObjectSQL, public Clusterable
 {
 public:
-
-    /**
-     * Possible types of networks
-     */
-
-    enum NetworkType
-    {
-        UNINITIALIZED   = -1,
-        RANGED          =  0,
-        FIXED           =  1
-    };
 
     // *************************************************************************
     // Virtual Network Public Methods
@@ -68,25 +57,79 @@ public:
     }
 
     /**
-     * Adds Leases to the virtual network (Only implemented for FIXED networks)
-     *  @param leases template in the form LEASES = [IP=XX, MAC=XX].
-     *         MAC is optional. The template can only contain one LEASE 
-     *         definition.
+     *  Fills a auth class to perform an authZ/authN request based on the object
+     *  attributes. Disables the cluster and all NET rules (NET* and NET/%) for
+     *  reservations.
+     *    @param auths to be filled
+     */
+    void get_permissions(PoolObjectAuth& auths);
+
+    // *************************************************************************
+    // Address Range management interface
+    // *************************************************************************
+
+    /**
+     * Add a set of address ranges to the virtual network
+     *  @param ars_tmpl template in the form AR = [TYPE=...,IP=...,SIZE=...].
      *  @param error_msg If the action fails, this message contains the reason.
      *  @return 0 on success
      */
-    int add_leases(VirtualNetworkTemplate * leases, string& error_msg);
+    int add_ar(VirtualNetworkTemplate * ars_tmpl, string& error_msg);
 
     /**
-     * Removes Leases from the virtual network; if they are not used.(Only 
-     * implemented for FIXED networks)
-     *  @param leases template in the form LEASES = [IP=XX].
-     *         The template can only contain one LEASE definition.
-     *  @param error_msg If the action fails, this message contains
-     *         the reason.
+     * Adds a set of address ranges
+     *  @param var a vector of address ranges
+     *  @param error_msg If the action fails, this message contains the reason.
      *  @return 0 on success
      */
-    int remove_leases(VirtualNetworkTemplate* leases, string& error_msg);
+    int add_var(vector<Attribute *> &var, string& error_msg);
+
+    /**
+     * Removes an address range from the VNET
+     *  @param ar_id of the address range
+     *  @param error_msg If the action fails, this message contains the reason.
+     *  @return 0 on success
+     */
+    int rm_ar(unsigned int ar_id, string& error_msg);
+
+    /**
+     *  Allocates a new (and empty) address range. It is not added to the
+     *  ar_pool
+     *    @return pointer to the new address range
+     */
+    AddressRange * allocate_ar()
+    {
+        return ar_pool.allocate_ar();
+    }
+
+    /**
+     *  Adds a previously allocated address range to the AR pool
+     *    @param rar pointer to the address range
+     *    @return 0 on success
+     */
+    int add_ar(AddressRange * rar)
+    {
+        return ar_pool.add_ar(rar);
+    }
+
+    /**
+     * Update an address range to the virtual network
+     *  @param ars_tmpl template in the form AR = [AR_ID=...]. The address range
+     *  is specified by the AR_ID attribute.
+     *  @param keep_restricted If true, the restricted attributes of the
+     *  current template will override the new template
+     *  @param error_msg If the action fails, this message contains
+     *  the reason.
+     *  @return 0 on success
+     */
+    int update_ar(
+            VirtualNetworkTemplate* ars_tmpl,
+            bool                    keep_restricted,
+            string&                 error_msg);
+
+    // *************************************************************************
+    // Address hold/release interface
+    // *************************************************************************
 
     /**
      * Holds a Lease, marking it as used
@@ -107,62 +150,215 @@ public:
      */
     int free_leases(VirtualNetworkTemplate* leases, string& error_msg);
 
+    // *************************************************************************
+    // Address allocation funtions
+    // *************************************************************************
+
     /**
-     *    Gets a new lease for a specific VM
+     *    Gets a new address lease for a specific VM
      *    @param vid VM identifier
-     *    @param _ip pointer to string for IP to be stored into
-     *    @param _mac pointer to string for MAC to be stored into
-     *    @param _bridge name of the physical bridge this VN binds to
+     *    @param nic the VM NIC attribute to be filled with the lease info.
+     *    @param inherit attributes from the address range to include in the NIC
      *    @return 0 if success
      */
-    int get_lease(int vid, string& _ip, string& _mac, string& _bridge)
+    int allocate_addr(int vid, VectorAttribute * nic,
+        const vector<string>& inherit)
     {
-        _bridge = bridge;
-        return leases->get(vid,_ip,_mac);
-    };
+        return ar_pool.allocate_addr(PoolObjectSQL::VM, vid, nic, inherit);
+    }
 
     /**
-     *    Asks for an specific lease of the given virtual network
+     *    Gets a new address lease for a specific VM by MAC
      *    @param vid VM identifier
-     *    @param _ip the ip of the requested lease
-     *    @param _mac pointer to string for MAC to be stored into
-     *    @param _bridge name of the physical bridge this VN binds to
+     *    @param mac the MAC address requested
+     *    @param nic the VM NIC attribute to be filled with the lease info.
+     *    @param inherit attributes from the address range to include in the NIC
      *    @return 0 if success
      */
-    int set_lease(int vid, const string& _ip, string& _mac, string& _bridge)
+    int allocate_by_mac(int vid, const string& mac, VectorAttribute * nic,
+        const vector<string>& inherit)
     {
-        _bridge = bridge;
-        return leases->set(vid,_ip,_mac);
-    };
+        return ar_pool.allocate_by_mac(mac, PoolObjectSQL::VM, vid, nic, inherit);
+    }
 
     /**
-     *  Release previously given lease
-     *    @param _ip IP identifying the lease
+     *    Gets a new address lease for a specific VM by IP
+     *    @param vid VM identifier
+     *    @param ip the IP address requested
+     *    @param nic the VM NIC attribute to be filled with the lease info.
+     *    @param inherit attributes from the address range to include in the NIC
      *    @return 0 if success
      */
-    void release_lease(const string& ip)
+    int allocate_by_ip(int vid, const string& ip, VectorAttribute * nic,
+        const vector<string>& inherit)
     {
-        return leases->release(ip);
-    };
+        return ar_pool.allocate_by_ip(ip, PoolObjectSQL::VM, vid, nic, inherit);
+    }
 
     /**
-     *  Check if a VM is the owner of the ip 
-     *    @param ip of the lease to be checked
+     *  Release previously given address lease
+     *    @param arid of the address range where the address was leased from
      *    @param vid the ID of the VM
-     *    @return true if the ip was already assigned
+     *    @param mac MAC address identifying the lease
      */
-    bool is_owner (const string& ip, int vid)
+    void free_addr(unsigned int arid, int vid, const string& mac)
     {
-        return leases->is_owner(ip, vid);
+        ar_pool.free_addr(arid, PoolObjectSQL::VM, vid, mac);
+    }
+
+    /**
+     *  Release previously given address lease
+     *    @param vid the ID of the VM
+     *    @param mac MAC address identifying the lease
+     */
+    void free_addr(int vid, const string& mac)
+    {
+        ar_pool.free_addr(PoolObjectSQL::VM, vid, mac);
+    }
+
+    /**
+     *  Release all previously given address leases to the given object
+     *    @param ot the type of the object requesting the address (VM or NET)
+     *    @param obid the id of the object requesting the address
+     *    @return the number of addresses freed
+     */
+    int free_addr_by_owner(PoolObjectSQL::ObjectType ot, int obid)
+    {
+        return ar_pool.free_addr_by_owner(ot, obid);
+    }
+
+    /**
+     *  Release a previously leased address range
+     *    @param ot the type of the object requesting the address (VM or NET)
+     *    @param obid the id of the object requesting the address
+     *    @return the number of addresses freed
+     */
+    int free_addr_by_range(unsigned int arid, PoolObjectSQL::ObjectType ot,
+            int obid, const string& mac, unsigned int rsize)
+    {
+        return ar_pool.free_addr_by_range(arid, ot, obid, mac, rsize);
+    }
+
+    /**
+     * Modifies the given nic attribute adding the following attributes:
+     *  * IP:  leased from network
+     *  * MAC: leased from network
+     *  * BRIDGE: for this virtual network
+     *  @param nic attribute for the VM template
+     *  @param vid of the VM getting the lease
+     *  @param inherit_attrs Attributes to be inherited from the vnet template
+     *      into the nic
+     *  @return 0 on success
+     */
+    int nic_attribute(
+            VectorAttribute *       nic,
+            int                     vid,
+            const vector<string>&   inherit_attrs);
+
+    /**
+     * From a Security Group rule that uses this vnet, creates a new rule
+     * copy for each AR.
+     *
+     * @param rule original rule
+     * @param new_rules vector where the new rules will be placed. Rules must
+     * be deleted by the caller
+     */
+    void process_security_rule(
+            VectorAttribute *        rule,
+            vector<VectorAttribute*> &new_rules);
+
+    // *************************************************************************
+    // Network Reservation functions
+    // *************************************************************************
+
+    /**
+     *  Reserve an address range for this network and add it to the given vnet
+     *    @param rvnet the VNET to store the reserved AR
+     *    @param rsize number of addresses to reserve
+     *    @param error_str error message
+     *    @return 0 on success
+     */
+    int reserve_addr(VirtualNetwork *rvnet, unsigned int rsize,
+        string& error_str);
+
+    /**
+     *  Reserve an address range for this network and add it to the given vnet
+     *    @param rvnet the VNET to store the reserved AR
+     *    @param rsize number of addresses to reserve
+     *    @param ar_id id of the address range to obtain the addresses
+     *    @param error_str error message
+     *    @return 0 on success
+     */
+    int reserve_addr(VirtualNetwork *rvnet, unsigned int rsize,
+        unsigned int ar_id, string& error_str);
+
+    /**
+     *  Reserve an address range for this network and add it to the given vnet
+     *    @param rvnet the VNET to store the reserved AR
+     *    @param rsize number of addresses to reserve
+     *    @param ar_id id of the address range to obtain the addresses
+     *    @param error_str error message
+     *    @param ip the first ip in the reservations
+     *    @return 0 on success
+     */
+    int reserve_addr_by_ip(VirtualNetwork *rvnet, unsigned int rsize,
+        unsigned int ar_id, const string& ip, string& error_str);
+
+    /**
+     *  Reserve an address range for this network and add it to the given vnet
+     *    @param rvnet the VNET to store the reserved AR
+     *    @param rsize number of addresses to reserve
+     *    @param ar_id id of the address range to obtain the addresses
+     *    @param mac the first mac in the reservations
+     *    @param error_str error message
+     *    @return 0 on success
+     */
+    int reserve_addr_by_mac(VirtualNetwork *rvnet, unsigned int rsize,
+        unsigned int ar_id, const string& mac, string& error_str);
+
+    /**
+     * Returns true if this VNET is a reservation
+     * @return true if this VNET is a reservation
+     */
+    bool is_reservation() const;
+
+    // *************************************************************************
+    // Formatting & Helper functions
+    // *************************************************************************
+    /**
+     *    Gets used leases
+     *    @return number of network leases in used
+     */
+    unsigned int get_used()
+    {
+        return ar_pool.get_used_addr();
     };
 
     /**
-     *    Gets size of the network (used + free)
-     *    @return number of hosts that can be fitted in this network
+     *    Gets total number of addresses
+     *    @return the number of addresses
      */
     unsigned int get_size()
     {
-        return leases->size;
+        return ar_pool.get_size();
+    };
+    /**
+     *  Returns the parent network used to create this VNET (if any)
+     *    @return the parent vnet id or -1 this vnet has no parent
+     */
+    int get_parent() const
+    {
+        return parent_vid;
+    };
+
+    /**
+     *  Returns the parent address range used to create this AR (if any)
+     *    @param ar_id the id of the AR
+     *    @return the parent AR id or -1 this vnet has no parent
+     */
+    int get_ar_parent(int ar_id) const
+    {
+        return ar_pool.get_ar_parent(ar_id);
     };
 
     /**
@@ -177,20 +373,40 @@ public:
      * Function to print the VirtualNetwork object into a string in
      * XML format. The extended XML includes the LEASES
      *  @param xml the resulting XML string
+     *  @param vm_ids list of VM the user can access VNET usage info from.
+     *  A vector containing just -1 means all VMs.
+     *  @param vnet_ids list of VNET the user can access reservation info from.
+     *  A vector containing just -1 means all VNETs.
      *  @return a reference to the generated string
      */
-    string& to_xml_extended(string& xml) const;
+    string& to_xml_extended(string& xml, const vector<int>& vms,
+        const vector<int>& vnets) const;
 
     /**
-     * Modifies the given nic attribute adding the following attributes:
-     *  * IP:  leased from network
-     *  * MAC: leased from network
-     *  * BRIDGE: for this virtual network
-     *  @param nic attribute for the VM template
-     *  @param vid of the VM getting the lease
-     *  @return 0 on success
+     *  Gets a string based attribute (single) from an address range. If the
+     *  attribute is not found in the address range, the VNET template will be
+     *  used
+     *    @param name of the attribute
+     *    @param value of the attribute (a string), will be "" if not defined or
+     *    not a single attribute
+     *    @param ar_id of the address attribute.
      */
-    int nic_attribute(VectorAttribute * nic, int vid);
+    void get_template_attribute(const char * name, string& value, int ar_id) const;
+
+    /**
+     *  int version of get_template_attribute
+     *    @return 0 on success
+     */
+    int get_template_attribute(const char * name, int& value, int ar_id) const;
+
+    /**
+     *    @return A copy of the VNET Template
+     */
+    VirtualNetworkTemplate * clone_template() const
+    {
+        return new VirtualNetworkTemplate(
+                *(static_cast<VirtualNetworkTemplate *>(obj_template)));
+    };
 
 private:
 
@@ -216,7 +432,7 @@ private:
      *  Name of the physical device the bridge should be attached to
      */
     string  phydev;
-    
+
     /**
      *  VLAN ID of the NIC
      */
@@ -227,22 +443,20 @@ private:
      */
     int     vlan;
 
-    // -------------------------------------------------------------------------
-    // Virtual Network Description
-    // -------------------------------------------------------------------------
     /**
-     * Holds the type of this network
+     *  Parent VNET ID if any
      */
-    NetworkType type;
+    int     parent_vid;
 
     /**
-     *  Pointer to leases class, can be fixed or ranged.
-     *  Holds information on given (and, optionally, possible) leases
+     *  Security Groups
      */
-    Leases *    leases;
+    set<int> security_groups;
 
-    unsigned int ip_start;
-    unsigned int ip_end;
+    /**
+     *  The Address Range Pool
+     */
+    AddressRangePool ar_pool;
 
     // *************************************************************************
     // DataBase implementation (Private)
@@ -263,15 +477,9 @@ private:
      */
     static int bootstrap(SqlDB * db)
     {
-        int rc;
-
         ostringstream oss_vnet(VirtualNetwork::db_bootstrap);
-        ostringstream oss_lease(Leases::db_bootstrap);
 
-        rc =  db->exec(oss_vnet);
-        rc += db->exec(oss_lease);
-
-        return rc;
+        return db->exec(oss_vnet);
     };
 
     /**
@@ -281,7 +489,8 @@ private:
      *  @param extended If true, leases are included
      *  @return a reference to the generated string
      */
-    string& to_xml_extended(string& xml, bool extended) const;
+    string& to_xml_extended(string& xml, bool extended,
+        const vector<int>& vm_ids, const vector<int>& vnet_oids) const;
 
     /**
      *  Rebuilds the object from an xml formatted string
@@ -291,6 +500,13 @@ private:
      */
     int from_xml(const string &xml_str);
 
+    /**
+     * Updates the BRIDGE, PHY_DEV, VLAN_ID and VLAN attributes.
+     *    @param error string describing the error if any
+     *    @return 0 on success
+     */
+    int post_update_template(string& error);
+
     //**************************************************************************
     // Constructor
     //**************************************************************************
@@ -299,6 +515,8 @@ private:
                    int                      gid,
                    const string&            _uname,
                    const string&            _gname,
+                   int                      _umask,
+                   int                      _parent_vid,
                    int                      _cluster_id,
                    const string&            _cluster_name,
                    VirtualNetworkTemplate * _vn_template = 0);
@@ -314,30 +532,6 @@ private:
     static const char * db_names;
 
     static const char * db_bootstrap;
-
-    /**
-     *  Reads the Virtual Network (identified with its OID) from the database.
-     *    @param db pointer to the db
-     *    @return 0 on success
-     */
-    int select(SqlDB * db);
-
-    /**
-     *  Reads the Virtual Network (identified with its OID) from the database.
-     *    @param db pointer to the db
-     *    @param name of the network
-     *    @param uid of the owner 
-     * 
-     *    @return 0 on success
-     */
-    int select(SqlDB * db, const string& name, int uid);
-
-    /**
-     *  Reads the Virtual Network leases from the database.
-     *    @param db pointer to the db
-     *    @return 0 on success
-     */
-    int select_leases(SqlDB * db);
 
     /**
      *  Writes the Virtual Network and its associated template and leases in the database.
@@ -356,15 +550,6 @@ private:
         string error_str;
         return insert_replace(db, true, error_str);
     }
-
-    /**
-     * Deletes a VNW from the database and all its associated information:
-     *   - VNW template
-     *   - given leases
-     *   @param db pointer to the db
-     *   @return 0 on success
-     */
-    int drop(SqlDB * db);
 };
 
 #endif /*VIRTUAL_NETWORK_H_*/

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -16,7 +16,11 @@
 
 #include "PoolObjectSQL.h"
 #include "PoolObjectAuth.h"
-#include "SSLTools.h"
+#include "NebulaUtil.h"
+#include "Nebula.h"
+#include "Clusterable.h"
+
+const string PoolObjectSQL::INVALID_NAME_CHARS = "&|:\\\";/'#{}$<>";
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -24,11 +28,11 @@
 string& PoolObjectSQL::to_xml64(string &xml64)
 {
     string *str64;
-    
+
     to_xml(xml64);
 
-    str64 = SSLTools::base64_encode(xml64);
-   
+    str64 = one_util::base64_encode(xml64);
+
     xml64 = *str64;
 
     delete str64;
@@ -132,61 +136,152 @@ int PoolObjectSQL::drop(SqlDB *db)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-const char * PoolObjectSQL::error_attribute_name = "ERROR";
-
 void PoolObjectSQL::set_template_error_message(const string& message)
 {
-    VectorAttribute *  attr;
-    map<string,string> error_value;
-    
-    char   str[26];
-    time_t the_time;
+    set_template_error_message("ERROR", message);
+}
 
-    the_time = time(NULL);
+/* -------------------------------------------------------------------------- */
 
-#ifdef SOLARIS
-    ctime_r(&(the_time),str,sizeof(char)*26);
-#else
-    ctime_r(&(the_time),str);
-#endif
+void PoolObjectSQL::set_template_error_message(const string& name,
+                                               const string& message)
+{
+    SingleAttribute * attr;
+    ostringstream     error_value;
 
-    str[24] = '\0'; // Get rid of final enter character
+    error_value << one_util::log_time() << " : " << message;
 
-    error_value.insert(make_pair("TIMESTAMP",str));
-    error_value.insert(make_pair("MESSAGE",message));
+    attr = new SingleAttribute(name, error_value.str());
 
-    //Replace previous error message and insert the new one
-
-    attr = new VectorAttribute(error_attribute_name,error_value);
-
-    obj_template->erase(error_attribute_name);
+    obj_template->erase(name);
     obj_template->set(attr);
+}
+
+/* -------------------------------------------------------------------------- */
+
+void PoolObjectSQL::clear_template_error_message()
+{
+    remove_template_attribute("ERROR");
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-int PoolObjectSQL::replace_template(const string& tmpl_str, string& error)
+int PoolObjectSQL::replace_template(
+        const string& tmpl_str, bool keep_restricted, string& error)
 {
-    Template * new_tmpl  = get_new_template();
+    Template * old_tmpl = 0;
+    Template * new_tmpl = get_new_template();
 
     if ( new_tmpl == 0 )
     {
         error = "Cannot allocate a new template";
         return -1;
     }
-    
+
     if ( new_tmpl->parse_str_or_xml(tmpl_str, error) != 0 )
     {
+        delete new_tmpl;
         return -1;
+    }
+
+    if (obj_template != 0)
+    {
+        old_tmpl = new Template(*obj_template);
+    }
+
+    if (keep_restricted && new_tmpl->has_restricted())
+    {
+        new_tmpl->remove_restricted();
+
+        if (obj_template != 0)
+        {
+            obj_template->remove_all_except_restricted();
+
+            string aux_error;
+            new_tmpl->merge(obj_template, aux_error);
+        }
     }
 
     delete obj_template;
 
     obj_template = new_tmpl;
 
+    if (post_update_template(error) == -1)
+    {
+        delete obj_template;
+
+        if (old_tmpl != 0)
+        {
+            obj_template = old_tmpl;
+        }
+        else
+        {
+            obj_template = 0;
+        }
+
+        return -1;
+    }
+
     return 0;
-} 
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int PoolObjectSQL::append_template(
+        const string& tmpl_str, bool keep_restricted, string& error)
+{
+    Template * old_tmpl = 0;
+    Template * new_tmpl = get_new_template();
+
+    if ( new_tmpl == 0 )
+    {
+        error = "Cannot allocate a new template";
+        return -1;
+    }
+
+    if ( new_tmpl->parse_str_or_xml(tmpl_str, error) != 0 )
+    {
+        delete new_tmpl;
+        return -1;
+    }
+
+    if (keep_restricted)
+    {
+        new_tmpl->remove_restricted();
+    }
+
+    if ( obj_template != 0 )
+    {
+        old_tmpl = new Template(*obj_template);
+
+        obj_template->merge(new_tmpl, error);
+        delete new_tmpl;
+    }
+    else
+    {
+        obj_template = new_tmpl;
+    }
+
+    if (post_update_template(error) == -1)
+    {
+        delete obj_template;
+
+        if (old_tmpl != 0)
+        {
+            obj_template = old_tmpl;
+        }
+        else
+        {
+            obj_template = 0;
+        }
+
+        return -1;
+    }
+
+    return 0;
+}
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -256,6 +351,13 @@ void PoolObjectSQL::get_permissions(PoolObjectAuth& auth)
     auth.other_u = other_u;
     auth.other_m = other_m;
     auth.other_a = other_a;
+
+    Clusterable* cl = dynamic_cast<Clusterable*>(this);
+
+    if(cl != 0)
+    {
+        auth.cid = cl->get_cluster_id();
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -301,3 +403,81 @@ error_value:
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
+
+void PoolObjectSQL::set_umask(int umask)
+{
+    int perms;
+    bool enable_other;
+
+    Nebula::instance().get_configuration_attribute(
+            "ENABLE_OTHER_PERMISSIONS", enable_other);
+
+    if (uid == 0 || gid == 0)
+    {
+        perms = 0777;
+    }
+    else if (enable_other)
+    {
+        perms = 0666;
+    }
+    else
+    {
+        perms = 0660;
+    }
+
+    perms = perms & ~umask;
+
+    owner_u = ( (perms & 0400) != 0 ) ? 1 : 0;
+    owner_m = ( (perms & 0200) != 0 ) ? 1 : 0;
+    owner_a = ( (perms & 0100) != 0 ) ? 1 : 0;
+    group_u = ( (perms & 0040) != 0 ) ? 1 : 0;
+    group_m = ( (perms & 0020) != 0 ) ? 1 : 0;
+    group_a = ( (perms & 0010) != 0 ) ? 1 : 0;
+    other_u = ( (perms & 0004) != 0 ) ? 1 : 0;
+    other_m = ( (perms & 0002) != 0 ) ? 1 : 0;
+    other_a = ( (perms & 0001) != 0 ) ? 1 : 0;
+
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool PoolObjectSQL::name_is_valid(const string& obj_name,
+                                  const string& extra_chars,
+                                  string& error_str)
+{
+    size_t pos;
+
+    if ( obj_name.empty() )
+    {
+        error_str = "Invalid NAME, it cannot be empty";
+        return false;
+    }
+
+    if (extra_chars.empty())
+    {
+        pos = obj_name.find_first_of(INVALID_NAME_CHARS);
+    }
+    else
+    {
+        string invalid_chars = INVALID_NAME_CHARS + extra_chars;
+        pos = obj_name.find_first_of(invalid_chars);
+    }
+
+    if ( pos != string::npos )
+    {
+        ostringstream oss;
+        oss << "Invalid NAME, char '" << obj_name.at(pos) << "' is not allowed";
+
+        error_str = oss.str();
+        return false;
+    }
+
+    if ( obj_name.length() > 128 )
+    {
+        error_str = "Invalid NAME, max length is 128 chars";
+        return false;
+    }
+
+    return true;
+}

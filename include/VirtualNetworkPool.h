@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -33,9 +33,13 @@ class VirtualNetworkPool : public PoolSQL
 {
 public:
 
-    VirtualNetworkPool(SqlDB *          db,
-                       const string&    str_mac_prefix,
-                       int              default_size);
+    VirtualNetworkPool(SqlDB *                          db,
+                       const string&                    str_mac_prefix,
+                       int                              default_size,
+                       vector<const Attribute *>&       restricted_attrs,
+                       vector<const Attribute *>        hook_mads,
+                       const string&                    remotes_location,
+                       const vector<const Attribute *>& _inherit_attrs);
 
     ~VirtualNetworkPool(){};
 
@@ -43,6 +47,9 @@ public:
      *  Function to allocate a new VNET object
      *    @param uid user identifier
      *    @param gid the id of the group this object is assigned to
+     *    @param uname user name
+     *    @param gname group name
+     *    @param umask permissions umask
      *    @param vn_template a VirtualNetworkTemplate describing the VNET
      *    @param oid the id assigned to the VM (output)
      *    @param cluster_id the id of the cluster this VNET will belong to
@@ -55,6 +62,8 @@ public:
         int                         gid,
         const string&               uname,
         const string&               gname,
+        int                         umask,
+        int                         parent_vid,
         VirtualNetworkTemplate *    vn_template,
         int *                       oid,
         int                         cluster_id,
@@ -95,13 +104,20 @@ public:
      *  Generates a NIC attribute for VM templates using the VirtualNetwork
      *  metadata
      *    @param nic the nic attribute to be generated
+     *    @param nic_id the id for this NIC
+     *    @param uid of the VM owner
      *    @param vid of the VM requesting the lease
      *    @param error_str string describing the error
-     *    @return 0 on success, 
-     *            -1 error, 
+     *    @return 0 on success,
+     *            -1 error,
      *            -2 not using the pool
      */
-    int nic_attribute(VectorAttribute * nic, int uid, int vid, string& error_str);
+    int nic_attribute(
+            VectorAttribute*    nic,
+            int                 nic_id,
+            int                 uid,
+            int                 vid,
+            string&             error_str);
 
     /**
      *  Generates an Authorization token for a NIC attribute
@@ -124,12 +140,14 @@ public:
      *  to the query
      *  @param oss the output stream to dump the pool contents
      *  @param where filter for the objects, defaults to all
+     *  @param limit parameters used for pagination
      *
      *  @return 0 on success
      */
-    int dump(ostringstream& oss, const string& where)
+    int dump(ostringstream& oss, const string& where, const string& limit)
     {
-        return PoolSQL::dump(oss, "VNET_POOL", VirtualNetwork::table,where);
+        return PoolSQL::dump(oss, "VNET_POOL", VirtualNetwork::table, where,
+                             limit);
     }
 
     /**
@@ -150,6 +168,17 @@ public:
         return _default_size;
     };
 
+    /**
+     *  Gets the IDs of VNETs matching the given SQL where string.
+     *    @param oids a vector that contains the IDs
+     *    @param where SQL clause
+     *    @return 0 on success
+     */
+    int search(vector<int>& oids, const string& where)
+    {
+        return PoolSQL::search(oids, VirtualNetwork::table, where);
+    };
+
 private:
     /**
      *  Holds the system-wide MAC prefix
@@ -162,19 +191,24 @@ private:
     static unsigned int     _default_size;
 
     /**
+     * VNet attributes to be injected into the VM nic
+     */
+    vector<string> inherit_attrs;
+
+    /**
      *  Factory method to produce VN objects
      *    @return a pointer to the new VN
      */
     PoolObjectSQL * create()
     {
-        return new VirtualNetwork(-1,-1,"","",-1,"",0);
+        return new VirtualNetwork(-1,-1,"","",0,-1,-1,"",0);
     };
 
     /**
-     *  Function to get a VirtualNetwork by its name, as provided by a VM 
+     *  Function to get a VirtualNetwork by its name, as provided by a VM
      *  template
      */
-    VirtualNetwork * get_nic_by_name(VectorAttribute * nic, 
+    VirtualNetwork * get_nic_by_name(VectorAttribute * nic,
                                      const string&     name,
                                      int               _uidi,
                                      string&           error);

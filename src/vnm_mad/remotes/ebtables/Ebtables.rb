@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -14,22 +14,27 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-require 'OpenNebulaNetwork'
+require 'vnmmad'
 
-class EbtablesVLAN < OpenNebulaNetwork
+class EbtablesVLAN < VNMMAD::VNMDriver
+    DRIVER = "ebtables"
+
     XPATH_FILTER = "TEMPLATE/NIC[VLAN='YES']"
 
     def initialize(vm, deploy_id = nil, hypervisor = nil)
         super(vm,XPATH_FILTER,deploy_id,hypervisor)
+        @locking = true
     end
 
     def ebtables(rule)
-        OpenNebula.exec_and_log("#{COMMANDS[:ebtables]} -A #{rule}")
+        OpenNebula.exec_and_log("#{command(:ebtables)} -A #{rule}")
     end
 
     # Activates ebtables rules
     #
     def activate
+        lock
+
         process do |nic|
             tap = nic[:tap]
             if tap
@@ -49,10 +54,14 @@ class EbtablesVLAN < OpenNebulaNetwork
             end
         end
 
+        unlock
+
         return 0
     end
 
     def deactivate
+        lock
+
         process do |nic|
             mac = nic[:mac]
             # remove 0-padding
@@ -68,11 +77,13 @@ class EbtablesVLAN < OpenNebulaNetwork
             remove_rules(tap)
         end
 
+        unlock
+
         return 0
     end
 
     def rules
-        `#{COMMANDS[:ebtables]} -L FORWARD`.split("\n")[3..-1]
+        `#{command(:ebtables)} -L FORWARD`.split("\n")[3..-1]
     end
 
     def remove_rules(tap)
@@ -84,6 +95,6 @@ class EbtablesVLAN < OpenNebulaNetwork
     end
 
     def remove_rule(rule)
-        OpenNebula.exec_and_log("#{COMMANDS[:ebtables]} -D FORWARD #{rule}")
+        OpenNebula.exec_and_log("#{command(:ebtables)} -D FORWARD #{rule}")
     end
 end

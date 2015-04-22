@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -38,15 +38,15 @@ protected:
         pool        = nd.get_upool();
 
         auth_object = PoolObjectSQL::USER;
-
     };
 
     ~RequestManagerUser(){};
 
     /* -------------------------------------------------------------------- */
 
-    void request_execute(xmlrpc_c::paramList const& _paramList,
-                         RequestAttributes& att);
+    void request_execute(
+            xmlrpc_c::paramList const&  _paramList,
+            RequestAttributes&          att);
 
     virtual int user_action(int                        user_id,
                             xmlrpc_c::paramList const& _paramList,
@@ -67,12 +67,13 @@ public:
                            "A:sis")
     {
         auth_op = AuthRequest::MANAGE;
+        hidden_params.insert(2); // password argument
     };
 
     ~UserChangePassword(){};
 
     int user_action(int                        user_id,
-                    xmlrpc_c::paramList const& _paramList, 
+                    xmlrpc_c::paramList const& _paramList,
                     string&                    err);
 };
 
@@ -88,6 +89,7 @@ public:
                            "A:siss")
     {
         auth_op = AuthRequest::ADMIN;
+        hidden_params.insert(3); // new password argument
     };
 
     ~UserChangeAuth(){};
@@ -114,8 +116,111 @@ public:
     ~UserSetQuota(){};
 
     int user_action(int                        user_id,
-                    xmlrpc_c::paramList const& _paramList, 
+                    xmlrpc_c::paramList const& _paramList,
                     string&                    err);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class UserLogin : public Request
+{
+public:
+    UserLogin(): Request("UserLogin", "A:sssi", "Generates or sets a login token")
+    {
+        Nebula& nd  = Nebula::instance();
+        pool        = nd.get_upool();
+
+        auth_object = PoolObjectSQL::USER;
+        auth_op     = AuthRequest::MANAGE;
+
+        hidden_params.insert(2); // password argument
+    };
+
+    virtual ~UserLogin(){};
+
+    void request_execute(
+            xmlrpc_c::paramList const&  _paramList,
+            RequestAttributes&          att);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class UserEditGroup : public Request
+{
+public:
+    UserEditGroup(
+            const string& method_name,
+            const string& help,
+            const string& params):
+                Request(method_name,params,help)
+    {
+        auth_object = PoolObjectSQL::USER;
+        auth_op     = AuthRequest::MANAGE;
+
+        Nebula& nd = Nebula::instance();
+        gpool = nd.get_gpool();
+        upool = nd.get_upool();
+    };
+
+    ~UserEditGroup(){};
+
+    void request_execute(
+            xmlrpc_c::paramList const&  _paramList,
+            RequestAttributes&          att);
+
+protected:
+
+    virtual int secondary_group_action(
+            int                        user_id,
+            int                        group_id,
+            xmlrpc_c::paramList const& _paramList,
+            string&                    error_str) = 0;
+
+    GroupPool * gpool;
+
+    UserPool  * upool;
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class UserAddGroup : public UserEditGroup
+{
+public:
+    UserAddGroup():
+        UserEditGroup("UserAddGroup",
+                       "Adds the user to a secondary group",
+                       "A:sii"){};
+
+    ~UserAddGroup(){};
+
+    int secondary_group_action(
+                int                        user_id,
+                int                        group_id,
+                xmlrpc_c::paramList const& _paramList,
+                string&                    error_str);
+};
+
+/* ------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------- */
+
+class UserDelGroup : public UserEditGroup
+{
+public:
+    UserDelGroup():
+        UserEditGroup("UserDelGroup",
+                       "Deletes the user from a secondary group",
+                       "A:sii"){};
+
+    ~UserDelGroup(){};
+
+    int secondary_group_action(
+            int                        user_id,
+            int                        group_id,
+            xmlrpc_c::paramList const& _paramList,
+            string&                    error_str);
 };
 
 /* -------------------------------------------------------------------------- */

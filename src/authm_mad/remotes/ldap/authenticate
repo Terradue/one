@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # ---------------------------------------------------------------------------- #
-# Copyright 2010-2012, C12G Labs S.L                                           #
+# Copyright 2010-2015, C12G Labs S.L                                           #
 #                                                                              #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may      #
 # not use this file except in compliance with the License. You may obtain      #
@@ -29,7 +29,7 @@ end
 $: << RUBY_LIB_LOCATION
 
 require 'yaml'
-require 'ldap_auth'
+require 'opennebula/ldap_auth'
 require 'uri'
 
 if defined?(URI::Parser)
@@ -66,9 +66,9 @@ order.each do |server_name|
     end
 
 begin
-    ldap=LdapAuth.new(server_conf)
+    ldap=OpenNebula::LdapAuth.new(server_conf)
 
-    user_name=ldap.find_user(user)
+    user_name,user_group_name=ldap.find_user(user)
 
     if !user_name
         STDERR.puts "User #{user} not found"
@@ -76,16 +76,28 @@ begin
     end
 
     if server_conf[:group]
-        if !ldap.is_in_group?(user_name, server_conf[:group])
+        if !ldap.is_in_group?(user_group_name, server_conf[:group])
             STDERR.puts "User #{user} is not in group #{server_conf[:group]}"
             next
         end
     end
 
     if ldap.authenticate(user_name, secret)
-        escaped_user=URI_PARSER.escape(user_name)
-        escaped_secret=URI_PARSER.escape(secret)
-        puts "ldap #{escaped_user} #{escaped_secret}"
+        groups = ldap.get_groups
+        if groups.empty?
+            if !server_conf[:mapping_default]
+                STDERR.puts "User does not belong to a mapped group"
+                authenticated = false
+                break
+            else
+                groups = [server_conf[:mapping_default]]
+            end
+        end
+
+        group_list = groups.join(' ')
+        escaped_user=URI_PARSER.escape(user)
+        escaped_secret=URI_PARSER.escape(user_name)
+        puts "ldap #{escaped_user} #{escaped_secret} #{group_list}"
         authenticated=true
         break
     else

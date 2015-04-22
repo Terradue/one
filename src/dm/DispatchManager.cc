@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -77,12 +77,16 @@ void DispatchManager::trigger(Actions action, int _vid)
         aname = "STOP_SUCCESS";
         break;
 
-    case DONE:
-        aname = "DONE";
+    case UNDEPLOY_SUCCESS:
+        aname = "UNDEPLOY_SUCCESS";
         break;
 
-    case FAILED:
-        aname = "FAILED";
+    case POWEROFF_SUCCESS:
+        aname = "POWEROFF_SUCCESS";
+        break;
+
+    case DONE:
+        aname = "DONE";
         break;
 
     case RESUBMIT:
@@ -126,13 +130,17 @@ void DispatchManager::do_action(const string &action, void * arg)
     {
         stop_success_action(vid);
     }
+    else if (action == "UNDEPLOY_SUCCESS")
+    {
+        undeploy_success_action(vid);
+    }
+    else if (action == "POWEROFF_SUCCESS")
+    {
+        poweroff_success_action(vid);
+    }
     else if (action == "DONE")
     {
         done_action(vid);
-    }
-    else if (action == "FAILED")
-    {
-        failed_action(vid);
     }
     else if (action == "RESUBMIT")
     {

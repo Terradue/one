@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -36,6 +36,9 @@ cmd=CommandParser::CmdParser.new(ARGV) do
 
     helper = OneVMHelper.new
 
+    before_proc do
+        helper.set_client(options)
+    end
 
     TYPE={
         :name => "type",
@@ -45,10 +48,66 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         :description => "Type of the new Image"
     }
 
+    TARGET={
+        :name => "target",
+        :short => "-t target",
+        :large => "--target target",
+        :format => String,
+        :description => "Device where the image will be attached"
+    }
+
+    IP={
+        :name => "ip",
+        :short => "-i ip",
+        :large => "--ip ip",
+        :format => String,
+        :description => "IP address for the new NIC"
+    }
+
+    CACHE={
+        :name => "cache",
+        :large => "--cache cache_mode",
+        :format => String,
+        :description => "Hypervisor cache mode: default, none, writethrough,"<<
+            " writeback, directsync or unsafe. (Only KVM driver)"
+    }
+
+    ENFORCE={
+        :name  => "enforce",
+        :short => "-e",
+        :large => "--enforce",
+        :description => "Enforce that the host capacity is not exceeded"
+    }
+
+    SUCCESS={
+        :name  => "success",
+        :large => "--success",
+        :description => "Recover a VM by succeeding the pending action"
+    }
+
+    FAILURE={
+        :name  => "failure",
+        :large => "--failure",
+        :description => "Recover a VM by failing the pending action"
+    }
+
+    RETRY={
+        :name  => "retry",
+        :large => "--retry",
+        :description => "Recover a VM by retrying the last failed action"
+    }
+
+    CLONETEMPLATE={
+        :name => "clonetemplate",
+        :short => "-c",
+        :large => "--clonetemplate",
+        :description => "Clone original VM Template and replace disk with saved one"
+    }
+
     ########################################################################
     # Global Options
     ########################################################################
-    set :option, CommandParser::OPTIONS
+    set :option, CommandParser::OPTIONS+OpenNebulaHelper::CLIENT_OPTIONS
 
     ########################################################################
     # Formatters for arguments
@@ -65,6 +124,10 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         OpenNebulaHelper.rname_to_id(arg, "USER")
     end
 
+    set :format, :datastoreid, OpenNebulaHelper.rname_to_id_desc("DATASTORE") do |arg|
+        OpenNebulaHelper.rname_to_id(arg, "DATASTORE")
+    end
+
     set :format, :vmid, OneVMHelper.to_id_desc do |arg|
         helper.to_id(arg)
     end
@@ -77,43 +140,126 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         helper.filterflag_to_i(arg)
     end
 
+    set :format, :diskid, "Integer" do |arg|
+        format_int(arg)
+    end
+
     ########################################################################
     # Commands
     ########################################################################
 
     create_desc = <<-EOT.unindent
-        Creates a new VM from the given template file. This command bypasses
-        the Template pool, which is the preferred way to instantiate new VMs.
-        See 'onetemplate create' and 'onetemplate instantiate'
+        Creates a new VM from the given description instead of using a
+        previously defined template (see 'onetemplate create' and
+        'onetemplate instantiate').
+
+        Examples:
+
+          - using a template description file:
+
+            onevm create vm_description.tmpl
+
+          - new VM named "arch vm" with a disk and a nic
+
+            onevm create --name "arch vm" --memory 128 --cpu 1 --disk arch \\
+                         --network private_lan
+
+          - a vm with two disks
+
+            onevm create --name "test vm" --memory 128 --cpu 1 --disk arch,data
+
     EOT
 
-    command :create, create_desc, :file,
-            :options=>[OneVMHelper::MULTIPLE]+OpenNebulaHelper::OPTIONS do
-        number = options[:multiple] || 1
+    command :create, create_desc, [:file, nil], :options =>
+            [OneVMHelper::MULTIPLE, OneVMHelper::HOLD]+
+            OpenNebulaHelper::TEMPLATE_OPTIONS_VM do
 
-        exit_code=nil
+        number    = options[:multiple] || 1
+        exit_code = nil
 
-        number.times do
-            exit_code=helper.create_resource(options) do |vm|
+        if args[0] && OpenNebulaHelper.create_template_options_used?(options)
+            STDERR.puts "You can not use both template file and template"<<
+                " creation options."
+            next -1
+        end
+
+        begin
+            if args[0]
                 template=File.read(args[0])
-                error=vm.allocate(template)
+            else
+                res = OpenNebulaHelper.create_template(options)
+
+                if res.first != 0
+                    STDERR.puts res.last
+                    next -1
+                end
+
+                template = res.last
             end
 
-            break if exit_code==-1
+        rescue Exception => e
+            STDERR.puts "Error reading template."
+            next -1
+        end
+
+        if options[:dry]
+            puts template
+            exit 0
+        end
+
+        on_hold = options[:hold] != nil
+
+        number.times do
+            exit_code = helper.create_resource(options) do |vm|
+                error = vm.allocate(template, on_hold)
+            end
+
+            break if exit_code == -1
         end
 
         exit_code
     end
 
+    update_desc = <<-EOT.unindent
+        Update the user template contents. If a path is not provided the
+        editor will be launched to modify the current content.
+    EOT
+
+    command :update, update_desc, :vmid, [:file, nil],
+    :options=>OpenNebulaHelper::APPEND do
+        helper.perform_action(args[0],options,"modified") do |obj|
+            if options[:append]
+                str = OpenNebulaHelper.append_template(args[0], obj, args[1], 'USER_TEMPLATE')
+            else
+                str = OpenNebulaHelper.update_template(args[0], obj, args[1], 'USER_TEMPLATE')
+            end
+
+            obj.update(str, options[:append])
+        end
+    end
+
     delete_desc = <<-EOT.unindent
-        Deletes the given VM
+        Deletes the given VM. Using --recreate resubmits the VM.
+
+        Resubmits the VM to PENDING state. This is intended for VMs stuck in a
+        transient state. To re-deploy a fresh copy of the same VM, create a
+        Template and instantiate it, see 'onetemplate instantiate'
 
         States: ANY
     EOT
 
-    command :delete, delete_desc, [:range, :vmid_list] do
-        helper.perform_actions(args[0],options,"deleted") do |vm|
-            vm.finalize
+    command :delete, delete_desc, [:range, :vmid_list],
+        :options => [OneVMHelper::SCHEDULE, OneVMHelper::RECREATE] do
+
+        command_name="delete"
+        command_name<<"-recreate" if options[:recreate]
+
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, command_name)
+        else
+            helper.perform_actions(args[0],options,"deleted") do |vm|
+                vm.delete(options[:recreate]==true)
+            end
         end
     end
 
@@ -124,9 +270,14 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         States: PENDING
     EOT
 
-    command :hold, hold_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"put on hold") do |vm|
-            vm.hold
+    command :hold, hold_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE] do
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"put on hold") do |vm|
+                vm.hold
+            end
         end
     end
 
@@ -136,22 +287,30 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         States: HOLD
     EOT
 
-    command :release, release_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"released") do |vm|
-            vm.release
+    command :release, release_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE] do
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"released") do |vm|
+                vm.release
+            end
         end
     end
 
-    saveas_desc = <<-EOT.unindent
+    disk_snapshot_desc = <<-EOT.unindent
         Sets the specified VM disk to be saved in a new Image. The Image is
-        created inmediately, but the contents are saved only if the VM is
-        shut down gracefuly (i.e., using 'onevm shutdown' and not
+        created immediately, but the contents are saved only if the VM is
+        shut down gracefully (i.e., using 'onevm shutdown' and not
         'onevm delete')
+
+        If '--live' is specified, the Image will be saved immediately.
 
         States: ANY
     EOT
 
-    command :saveas, saveas_desc, :vmid, :diskid, :img_name, :options=>[TYPE] do
+    command :"disk-snapshot", disk_snapshot_desc, :vmid, :diskid, :img_name,
+            :options=>[TYPE, OneVMHelper::LIVE, CLONETEMPLATE] do
         disk_id    = args[1].to_i
         image_name = args[2]
         image_type = options[:type] || ""
@@ -160,7 +319,8 @@ cmd=CommandParser::CmdParser.new(ARGV) do
                   "the image #{image_name}"
 
         helper.perform_action(args[0],options,verbose) do |vm|
-            res = vm.save_as(disk_id, image_name, image_type)
+            res = vm.disk_snapshot(disk_id, image_name, image_type,
+                options[:live]==true, options[:clonetemplate]==true)
 
             if !OpenNebula.is_error?(res)
                 puts "Image ID: #{res}"
@@ -171,14 +331,70 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     end
 
     shutdown_desc = <<-EOT.unindent
-        Shuts down the given VM.
+        Shuts down the given VM. The VM life cycle will end.
+
+        With --hard it unplugs the VM.
+
+        States: RUNNING, UNKNOWN (with --hard)
+    EOT
+
+    command :shutdown, shutdown_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE, OneVMHelper::HARD] do
+
+        command_name='shutdown'
+        command_name<<'-hard' if options[:hard]
+
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, command_name)
+        else
+            helper.perform_actions(args[0],options,"shutting down") do |vm|
+                vm.shutdown(options[:hard]==true)
+            end
+        end
+    end
+
+    undeploy_desc = <<-EOT.unindent
+        Shuts down the given VM. The VM is saved in the system Datastore.
+
+        With --hard it unplugs the VM.
 
         States: RUNNING
     EOT
 
-    command :shutdown, shutdown_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"shutting down") do |vm|
-            vm.shutdown
+    command :undeploy, undeploy_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE, OneVMHelper::HARD] do
+
+        command_name='undeploy'
+        command_name<<'-hard' if options[:hard]
+
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, command_name)
+        else
+            helper.perform_actions(args[0],options,"shutting down") do |vm|
+                vm.undeploy(options[:hard]==true)
+            end
+        end
+    end
+
+    poweroff_desc = <<-EOT.unindent
+        Powers off the given VM. The VM will remain in the poweroff state, and
+        can be powered on with the 'onevm resume' command.
+
+        States: RUNNING
+    EOT
+
+    command :poweroff, poweroff_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE, OneVMHelper::HARD] do
+
+        command_name='poweroff'
+        command_name<<'-hard' if options[:hard]
+
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"shutting down") do |vm|
+                vm.poweroff(options[:hard]==true)
+            end
         end
     end
 
@@ -186,111 +402,80 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         Reboots the given VM, this is equivalent to execute the reboot command
         from the VM console.
 
-        States: RUNNING
-    EOT
-
-    command :reboot, reboot_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"rebooting") do |vm|
-            vm.reboot
-        end
-    end
-
-    reset_desc = <<-EOT.unindent
-        Resets the given VM
+        The VM will be ungracefully rebooted if --hard is used.
 
         States: RUNNING
     EOT
 
-    command :reset, reset_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"resetting") do |vm|
-            vm.reset
+    command :reboot, reboot_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE, OneVMHelper::HARD] do
+
+        command_name='reboot'
+        command_name<<'-hard' if options[:hard]
+
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, command_name)
+        else
+            helper.perform_actions(args[0],options,"rebooting") do |vm|
+                vm.reboot(options[:hard])
+            end
         end
     end
-    
+
     deploy_desc = <<-EOT.unindent
         Deploys the given VM in the specified Host. This command forces the
         deployment, in a standard installation the Scheduler is in charge
         of this decision
 
-        States: PENDING
+        States: PENDING, HOLD, STOPPED, UNDEPLOYED
     EOT
 
-    command :deploy, deploy_desc, [:range,:vmid_list], :hostid do
+    command :deploy, deploy_desc, [:range,:vmid_list], :hostid, [:datastoreid,nil],
+            :options=>[ENFORCE] do
         host_id = args[1]
         verbose = "deploying in host #{host_id}"
 
-        helper.perform_actions(args[0],options,verbose) do |vm|
-            vm.deploy(host_id)
-        end
-    end
-
-    livemigrate_desc = <<-EOT.unindent
-        Migrates the given running VM to another Host without downtime
-
-        States: RUNNING
-    EOT
-
-    command :livemigrate, livemigrate_desc, [:range,:vmid_list], :hostid do
-        host_id = args[1]
-        verbose = "live migrating to #{host_id}"
+        enforce = options[:enforce].nil? ? false : options[:enforce]
+        ds_id = args[2].nil? ? -1 : args[2]
 
         helper.perform_actions(args[0],options,verbose) do |vm|
-            vm.live_migrate(host_id)
+            vm.deploy(host_id, enforce, ds_id)
         end
     end
 
     migrate_desc = <<-EOT.unindent
-        Saves the given running VM and starts it again in the specified Host
+        Migrates the given running VM to another Host. If used with --live
+        parameter the miration is done without downtime.
 
         States: RUNNING
     EOT
 
-    command :migrate, migrate_desc, [:range,:vmid_list], :hostid do
+    command :migrate, migrate_desc, [:range,:vmid_list], :hostid,
+            :options=>[ENFORCE, OneVMHelper::LIVE] do
         host_id = args[1]
         verbose = "migrating to #{host_id}"
 
         helper.perform_actions(args[0],options,verbose) do |vm|
-            vm.migrate(host_id)
+            vm.migrate( host_id,
+                        options[:live]==true,
+                        options[:enforce]==true)
         end
     end
 
-    restart_desc = <<-EOT.unindent
-        Forces a re-deployment of the given VM, issuing a boot action.
+    boot_desc = <<-EOT.unindent
+        Boots the given VM.
 
         States: UNKNOWN, BOOT
     EOT
 
-    command :restart, restart_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"restarting") do |vm|
-            vm.restart
-        end
-    end
-
-    resubmit_desc = <<-EOT.unindent
-        Resubmits the VM to PENDING state. This is intented for VMs stuck in a
-        transient state. To re-deploy a fresh copy of the same VM, create a
-        Template and instantiante it, see 'onetemplate instantiate'
-
-        States: ANY, except SUSPENDED or DONE
-    EOT
-
-    command :resubmit, resubmit_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"resubmiting") do |vm|
-            vm.resubmit
-        end
-    end
-
-    cancel_desc = <<-EOT.unindent
-        Cancels the given VM. The process is checked by OpenNebula, so
-        if the process fails the VM remains in running state. If the action
-        succeeds the VMDIR in the remote machine is not deleted
-
-        States: RUNNING
-    EOT
-
-    command :cancel, cancel_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"canceling") do |vm|
-            vm.cancel
+    command :boot, boot_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE] do
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"booting") do |vm|
+                vm.boot
+            end
         end
     end
 
@@ -301,9 +486,14 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         States: RUNNING
     EOT
 
-    command :stop, stop_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"stopping") do |vm|
-            vm.stop
+    command :stop, stop_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE] do
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"stopping") do |vm|
+                vm.stop
+            end
         end
     end
 
@@ -316,21 +506,171 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         States: RUNNING
     EOT
 
-    command :suspend, suspend_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"suspending") do |vm|
-            vm.suspend
+    command :suspend, suspend_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE] do
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"suspending") do |vm|
+                vm.suspend
+            end
         end
     end
 
     resume_desc = <<-EOT.unindent
         Resumes the execution of the a saved VM
 
-        States: STOPPED, SUSPENDED
+        States: STOPPED, SUSPENDED, UNDEPLOYED, POWEROFF
     EOT
 
-    command :resume, resume_desc, [:range,:vmid_list] do
-        helper.perform_actions(args[0],options,"resuming") do |vm|
-            vm.resume
+    command :resume, resume_desc, [:range,:vmid_list],
+        :options => [OneVMHelper::SCHEDULE] do
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"resuming") do |vm|
+                vm.resume
+            end
+        end
+    end
+
+    recover_desc = <<-EOT.unindent
+        Recovers a stuck VM that is waiting for a driver operation. The recovery
+        may be done by failing, succeeding or retrying the current operation. YOU NEED
+        TO MANUALLY CHECK THE VM STATUS ON THE HOST, to decide if the operation
+        was successful or not, or if it can be retried.
+
+        Example: A VM is stuck in "migrate" because of a hardware failure. You
+        need to check if the VM is running in the new host or not to recover
+        the vm with --success or --failure, respectively.
+
+        States for success/failure recovers: Any ACTIVE state.
+        States for a retry recover: Any *FAILURE state
+    EOT
+
+    command :recover, recover_desc, [:range,:vmid_list],
+        :options => [SUCCESS, FAILURE, RETRY] do
+        if !options[:success].nil?
+            result = 1
+        elsif !options[:failure].nil?
+            result = 0
+        elsif !options[:retry].nil?
+            result = 2
+        else
+            STDERR.puts "Need to specify the result of the pending action."
+            STDERR.puts "\t--success recover the VM by succeeding the missing action."
+            STDERR.puts "\t--failure recover the VM by failing the missing action."
+            STDERR.puts "\t--retry recover the VM by retrying the last failed action."
+            exit -1
+        end
+
+        helper.perform_actions(args[0], options, "recovering") do |vm|
+            vm.recover(result)
+        end
+    end
+
+    disk_attach_desc = <<-EOT.unindent
+        Attaches a disk to a running VM. When using --file add only one
+        DISK instance.
+
+        States: RUNNING, POWEROFF
+    EOT
+
+    command :"disk-attach", disk_attach_desc, :vmid,
+            :options => [OneVMHelper::FILE, OneVMHelper::IMAGE,
+                         TARGET, CACHE] do
+
+        if options[:file].nil? and options[:image].nil?
+            STDERR.puts "Provide a template file or an image:"
+            STDERR.puts "\t--file  <file>"
+            STDERR.puts "\t--image <image>"
+            exit -1
+        end
+
+        if options[:file]
+            template = File.read(options[:file])
+        else
+            image_id = options[:image]
+            target = options[:target]
+            if target
+                template =
+                    "DISK = [ IMAGE_ID = #{image_id}, TARGET = #{target}"
+            else
+                template =
+                    "DISK = [ IMAGE_ID = #{image_id}, DEV_PREFIX = sd"
+            end
+
+            if options[:cache]
+                template<<", CACHE = \"#{options[:cache]}\""
+            end
+
+            template << " ]"
+        end
+
+        helper.perform_action(args[0],options,"Attach disk") do |vm|
+            vm.disk_attach(template)
+        end
+    end
+
+    disk_detach_desc = <<-EOT.unindent
+        Detaches a disk from a running VM
+
+        States: RUNNING, POWEROFF
+    EOT
+
+    command :"disk-detach", disk_detach_desc, :vmid, :diskid do
+        diskid = args[1].to_i
+
+        helper.perform_action(args[0],options,"Detach disk") do |vm|
+            vm.disk_detach(diskid)
+        end
+    end
+
+    nic_attach_desc = <<-EOT.unindent
+        Attaches a NIC to a running VM. When using --file add only one
+        NIC instance.
+
+        States: RUNNING, POWEROFF
+    EOT
+
+    command :"nic-attach", nic_attach_desc, :vmid,
+            :options => [OneVMHelper::FILE, OneVMHelper::NETWORK, IP] do
+
+        if options[:file].nil? and options[:network].nil?
+            STDERR.puts "Provide a template file or a network:"
+            STDERR.puts "\t--file    <file>"
+            STDERR.puts "\t--network <network>"
+            exit -1
+        end
+
+        if options[:file]
+            template = File.read(options[:file])
+        else
+            network_id = options[:network]
+            ip = options[:ip]
+            if ip
+                template = "NIC = [ NETWORK_ID = #{network_id}, IP = #{ip} ]"
+            else
+                template = "NIC = [ NETWORK_ID = #{network_id} ]"
+            end
+        end
+
+        helper.perform_action(args[0],options,"Attach NIC") do |vm|
+            vm.nic_attach(template)
+        end
+    end
+
+    nic_detach_desc = <<-EOT.unindent
+        Detaches a NIC from a running VM
+
+        States: RUNNING, POWEROFF
+    EOT
+
+    command :"nic-detach", nic_detach_desc, :vmid, :nicid do
+        nicid = args[1].to_i
+
+        helper.perform_action(args[0],options,"Detach NIC") do |vm|
+            vm.nic_detach(nicid)
         end
     end
 
@@ -367,7 +707,7 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     end
 
     resched_desc = <<-EOT.unindent
-        Sets the rescheduling flag for the VM. 
+        Sets the rescheduling flag for the VM.
 
         States: RUNNING
     EOT
@@ -379,7 +719,7 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     end
 
     unresched_desc = <<-EOT.unindent
-        Clears the rescheduling flag for the VM. 
+        Clears the rescheduling flag for the VM.
 
         States: RUNNING
     EOT
@@ -390,12 +730,65 @@ cmd=CommandParser::CmdParser.new(ARGV) do
         end
     end
 
+    rename_desc = <<-EOT.unindent
+        Renames the VM
+    EOT
+
+    command :rename, rename_desc, :vmid, :name do
+        helper.perform_action(args[0],options,"renamed") do |o|
+            o.rename(args[1])
+        end
+    end
+
+    # TODO: Write a more complete description:
+    # what is a snapshot (system snapshot)
+    # how to revert to a snapshot
+    snapshot_create_desc = <<-EOT.unindent
+        Creates a new VM snapshot
+    EOT
+
+    command :"snapshot-create", snapshot_create_desc, [:range,:vmid_list],
+        [:name, nil], :options => [OneVMHelper::SCHEDULE] do
+
+        if (!options[:schedule].nil?)
+            helper.schedule_actions(args[0], options, @comm_name)
+        else
+            helper.perform_actions(args[0],options,"snapshot created") do |o|
+                o.snapshot_create(args[1])
+            end
+        end
+    end
+
+    # TODO: Write a more complete description:
+    snapshot_revert_desc = <<-EOT.unindent
+        Reverts a VM to a saved snapshot
+    EOT
+
+    command :"snapshot-revert", snapshot_revert_desc, :vmid, :snapshot_id do
+
+        helper.perform_action(args[0],options,"snapshot reverted") do |o|
+            o.snapshot_revert(args[1].to_i)
+        end
+    end
+
+    # TODO: Write a more complete description:
+    snapshot_delete_desc = <<-EOT.unindent
+        Delets a snapshot of a VM
+    EOT
+
+    command :"snapshot-delete", snapshot_delete_desc, :vmid, :snapshot_id do
+        helper.perform_action(args[0],options,"snapshot deleted") do |o|
+            o.snapshot_delete(args[1].to_i)
+        end
+    end
+
     list_desc = <<-EOT.unindent
         Lists VMs in the pool
     EOT
 
     command :list, list_desc, [:filterflag, nil],
-            :options=>CLIHelper::OPTIONS+OpenNebulaHelper::OPTIONS do
+            :options=>CLIHelper::OPTIONS+OpenNebulaHelper::OPTIONS+
+            [OpenNebulaHelper::DESCRIBE] do
         helper.list_pool(options, false, args[0])
     end
 
@@ -404,7 +797,7 @@ cmd=CommandParser::CmdParser.new(ARGV) do
     EOT
 
     command :show, show_desc, :vmid,
-            :options=>OpenNebulaHelper::XML do
+            :options=>[OpenNebulaHelper::XML, OneVMHelper::ALL_TEMPLATE] do
         helper.show_resource(args[0],options)
     end
 
@@ -416,4 +809,49 @@ cmd=CommandParser::CmdParser.new(ARGV) do
             :options=>CLIHelper::OPTIONS+OpenNebulaHelper::OPTIONS do
         helper.list_pool(options, true, args[0])
     end
+
+    resize_desc = <<-EOT.unindent
+        Resizes the capacity of a Virtual Machine (offline, the VM cannot be
+        RUNNING)
+
+    EOT
+
+    command :resize, resize_desc, :vmid, :options =>
+            OpenNebulaHelper::CAPACITY_OPTIONS_VM + [ENFORCE, OneVMHelper::FILE] do
+
+        if options[:file]
+            template = File.read(options[:file])
+        else
+            template = ""
+
+            if !options[:cpu].nil?
+                template << "CPU = #{options[:cpu]}\n"
+            end
+
+            if !options[:vcpu].nil?
+                template << "VCPU = #{options[:vcpu]}\n"
+            end
+
+            if !options[:memory].nil?
+                template << "MEMORY = #{options[:memory]}\n"
+            end
+        end
+
+        enforce = options[:enforce] || false
+
+        helper.perform_action(args[0], options, "Resizing VM") do |vm|
+            vm.resize(template, enforce)
+        end
+    end
+
+    # Deprecated commands
+
+    deprecated_command(:attachdisk, 'disk-attach')
+    deprecated_command(:detachdisk, 'disk-detach')
+    deprecated_command(:saveas, 'disk-snapshot')
+    deprecated_command(:livemigrate, 'migrate --live')
+    deprecated_command(:cancel, 'shutdown --hard')
+    deprecated_command(:reset, 'reboot --hard')
+    deprecated_command(:restart, 'boot')
+    deprecated_command(:resubmit, 'delete --recreate')
 end

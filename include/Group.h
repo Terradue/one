@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -20,7 +20,8 @@
 #include "PoolSQL.h"
 #include "ObjectCollection.h"
 #include "User.h"
-#include "Quotas.h"
+#include "QuotasSQL.h"
+#include "Template.h"
 
 using namespace std;
 
@@ -39,6 +40,14 @@ public:
     string& to_xml(string& xml) const;
 
     /**
+     * Function to print the Group object into a string in
+     * XML format. The extended XML includes the default quotas
+     *  @param xml the resulting XML string
+     *  @return a reference to the generated string
+     */
+    string& to_xml_extended(string& xml) const;
+
+    /**
      *  Rebuilds the object from an xml formatted string
      *    @param xml_str The xml-formatted string
      *
@@ -47,7 +56,7 @@ public:
     int from_xml(const string &xml_str);
 
     /**
-     *  Adds this user's ID to the set. 
+     *  Adds this user's ID to the set.
      *    @param id of the user to be added to the group
      *    @return 0 on success
      */
@@ -67,9 +76,47 @@ public:
     }
 
     /**
+     * Adds a User to the admin set. ACL Rules are updated only for this user.
+     *
+     * @param user_id ID of the user
+     * @param error_msg Returns the error reason, if any
+     *
+     * @return 0 on success
+     */
+    int add_admin(int user_id, string& error_msg);
+
+    /**
+     * Deletes a User from the admin set. ACL Rules are updated only for this user.
+     *
+     * @param user_id ID of the user
+     * @param error_msg Returns the error reason, if any
+     *
+     * @return 0 on success
+     */
+    int del_admin(int user_id, string& error_msg);
+
+    /**
      *  Object quotas, provides set and check interface
      */
-    Quotas quota;
+    GroupQuotas quota;
+
+    /**
+     *  Writes/updates the Group quotas fields in the database.
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int update_quotas(SqlDB *db)
+    {
+        return quota.update(oid, db);
+    };
+
+    /**
+     *  Factory method for Group templates
+     */
+    Template * get_new_template() const
+    {
+        return new Template;
+    }
 
 private:
 
@@ -86,16 +133,31 @@ private:
     Group(int id, const string& name):
         PoolObjectSQL(id,GROUP,name,-1,-1,"","",table),
         ObjectCollection("USERS"),
-        quota("/GROUP/DATASTORE_QUOTA",
-            "/GROUP/NETWORK_QUOTA",
-            "/GROUP/IMAGE_QUOTA",
-            "/GROUP/VM_QUOTA")
+        quota(),
+        admins("ADMINS")
     {
         // Allow users in this group to see it
         group_u = 1;
+
+        obj_template = new Template;
     };
 
-    virtual ~Group(){};
+    virtual ~Group()
+    {
+        delete obj_template;
+    };
+
+    // *************************************************************************
+    // Administrators
+    // *************************************************************************
+
+    /**
+     *  Stores a collection with the admin users
+     */
+    ObjectCollection admins;
+
+    void add_admin_rules(int user_id);
+    void del_admin_rules(int user_id);
 
     // *************************************************************************
     // DataBase implementation (Private)
@@ -122,23 +184,52 @@ private:
      */
     static int bootstrap(SqlDB * db)
     {
-        ostringstream oss(Group::db_bootstrap);
+        ostringstream oss_group(Group::db_bootstrap);
 
-        return db->exec(oss);
+        return db->exec(oss_group);
     };
+
+    /**
+     *  Reads the Group (identified with its OID) from the database.
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int select(SqlDB * db);
+
+    /**
+     *  Reads the Group (identified with its OID) from the database.
+     *    @param db pointer to the db
+     *    @param name of the group
+     *    @param uid of the owner
+     *
+     *    @return 0 on success
+     */
+    int select(SqlDB * db, const string& name, int uid);
+
+    /**
+     *  Reads the Group quotas from the database.
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int select_quotas(SqlDB * db);
+
+    /**
+     *  Drops the group from the database
+     *    @param db pointer to the db
+     *    @return 0 on success
+     */
+    int drop(SqlDB *db);
 
     /**
      *  Writes the Group in the database.
      *    @param db pointer to the db
      *    @return 0 on success
      */
-    int insert(SqlDB *db, string& error_str)
-    {
-        return insert_replace(db, false, error_str);
-    }
+    int insert(SqlDB *db, string& error_str);
 
     /**
-     *  Writes/updates the Group's data fields in the database.
+     *  Writes/updates the Group's data fields in the database. This method does
+     *  not update the Group's Quotas
      *    @param db pointer to the db
      *    @return 0 on success
      */
@@ -146,7 +237,16 @@ private:
     {
         string error_str;
         return insert_replace(db, true, error_str);
-    }
+    };
+
+    /**
+     * Function to print the Group object into a string in
+     * XML format
+     *  @param xml the resulting XML string
+     *  @param extended If true, default quotas are included
+     *  @return a reference to the generated string
+     */
+    string& to_xml_extended(string& xml, bool extended) const;
 };
 
 #endif /*GROUP_H_*/

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -25,7 +25,7 @@
 #include "User.h"
 #include "Nebula.h"
 #include "Group.h"
-
+#include "NebulaUtil.h"
 
 const string User::INVALID_NAME_CHARS = " :\t\n\v\f\r";
 const string User::INVALID_PASS_CHARS = " \t\n\v\f\r";
@@ -40,9 +40,76 @@ const char * User::db_names =
         "oid, name, body, uid, gid, owner_u, group_u, other_u";
 
 const char * User::db_bootstrap = "CREATE TABLE IF NOT EXISTS user_pool ("
-    "oid INTEGER PRIMARY KEY, name VARCHAR(128), body TEXT, uid INTEGER, "
+    "oid INTEGER PRIMARY KEY, name VARCHAR(128), body MEDIUMTEXT, uid INTEGER, "
     "gid INTEGER, owner_u INTEGER, group_u INTEGER, other_u INTEGER, "
     "UNIQUE(name))";
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int User::select(SqlDB * db)
+{
+    int rc;
+
+    rc = PoolObjectSQL::select(db);
+
+    if ( rc != 0 )
+    {
+        return rc;
+    }
+
+    return quota.select(oid, db);
+}
+
+/* -------------------------------------------------------------------------- */
+
+int User::select(SqlDB * db, const string& name, int uid)
+{
+    int rc;
+
+    rc = PoolObjectSQL::select(db,name,uid);
+
+    if ( rc != 0 )
+    {
+        return rc;
+    }
+
+    return quota.select(oid, db);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int User::drop(SqlDB * db)
+{
+    int rc;
+
+    rc = PoolObjectSQL::drop(db);
+
+    if ( rc == 0 )
+    {
+        rc += quota.drop(db);
+    }
+
+    return rc;
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+int User::insert(SqlDB *db, string& error_str)
+{
+    int rc;
+
+    rc = insert_replace(db, false, error_str);
+
+    if (rc == 0)
+    {
+        rc = quota.insert(oid, db, error_str);
+    }
+
+    return rc;
+}
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -136,10 +203,29 @@ error_common:
 
 string& User::to_xml(string& xml) const
 {
+    return to_xml_extended(xml, false);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+string& User::to_xml_extended(string& xml) const
+{
+    return to_xml_extended(xml, true);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+string& User::to_xml_extended(string& xml, bool extended) const
+{
     ostringstream oss;
 
     string template_xml;
-    string quota_xml;
+    string collection_xml;
+    string token_xml;
+
+    ObjectCollection::to_xml(collection_xml);
 
     int  enabled_int = enabled?1:0;
 
@@ -147,14 +233,25 @@ string& User::to_xml(string& xml) const
     "<USER>"
          "<ID>"          << oid         <<"</ID>"         <<
          "<GID>"         << gid         <<"</GID>"        <<
+         collection_xml  <<
          "<GNAME>"       << gname       <<"</GNAME>"      <<
          "<NAME>"        << name        <<"</NAME>"       <<
          "<PASSWORD>"    << password    <<"</PASSWORD>"   <<
          "<AUTH_DRIVER>" << auth_driver <<"</AUTH_DRIVER>"<<
          "<ENABLED>"     << enabled_int <<"</ENABLED>"    <<
-        obj_template->to_xml(template_xml)                <<
-        quota.to_xml(quota_xml)                           <<
-    "</USER>";
+        login_token.to_xml(token_xml) <<
+        obj_template->to_xml(template_xml);
+
+    if (extended)
+    {
+        string quota_xml;
+        string def_quota_xml;
+
+        oss << quota.to_xml(quota_xml)
+            << Nebula::instance().get_default_user_quota().to_xml(def_quota_xml);
+    }
+
+    oss << "</USER>";
 
     xml = oss.str();
 
@@ -186,6 +283,16 @@ int User::from_xml(const string& xml)
     // Set itself as the owner
     set_user(oid, name);
 
+    ObjectXML::get_nodes("/USER/LOGIN_TOKEN", content);
+
+    if (!content.empty())
+    {
+        login_token.from_xml_node(content[0]);
+    }
+
+    ObjectXML::free_nodes(content);
+    content.clear();
+
     // Get associated metadata for the user
     ObjectXML::get_nodes("/USER/TEMPLATE", content);
 
@@ -197,8 +304,20 @@ int User::from_xml(const string& xml)
     rc += obj_template->from_xml_node(content[0]);
 
     ObjectXML::free_nodes(content);
-   
-    rc += quota.from_xml(this); 
+    content.clear();
+
+    ObjectXML::get_nodes("/USER/GROUPS", content);
+
+    if (content.empty())
+    {
+        return -1;
+    }
+
+    // Set of IDs
+    rc += ObjectCollection::from_xml_node(content[0]);
+
+    ObjectXML::free_nodes(content);
+    content.clear();
 
     if (rc != 0)
     {
@@ -207,6 +326,7 @@ int User::from_xml(const string& xml)
 
     return 0;
 }
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
@@ -231,33 +351,32 @@ int User::split_secret(const string secret, string& user, string& pass)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool User::name_is_valid(const string& uname, string& error_str)
+int User::set_password(const string& passwd, string& error_str)
 {
-    if ( uname.empty() )
+    int rc = 0;
+
+    if (pass_is_valid(passwd, error_str))
     {
-        error_str = "Invalid NAME, it cannot be empty";
-        return false;
+        if (auth_driver == UserPool::CORE_AUTH)
+        {
+            password = one_util::sha1_digest(passwd);
+        }
+        else
+        {
+            password = passwd;
+        }
+
+        session.reset();
+
+        login_token.reset();
+    }
+    else
+    {
+        rc = -1;
     }
 
-    size_t pos = uname.find_first_of(INVALID_NAME_CHARS);
-
-    if ( pos != string::npos )
-    {
-        ostringstream oss;
-        oss << "Invalid NAME, character '" << uname.at(pos) << "' is not allowed";
-
-        error_str = oss.str();
-        return false;
-    }
-
-    if ( uname.length() > 128 )
-    {
-        error_str = "Invalid NAME, max length is 128 chars";
-        return false;
-    }
-
-    return true;
-}
+    return rc;
+};
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -283,6 +402,46 @@ bool User::pass_is_valid(const string& pass, string& error_str)
 
     return true;
 }
+
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
+int User::get_umask() const
+{
+    string umask_st;
+    int umask;
+
+    istringstream iss;
+
+    get_template_attribute("UMASK", umask_st);
+
+    if(umask_st.empty())
+    {
+        Nebula::instance().get_configuration_attribute("DEFAULT_UMASK",umask_st);
+    }
+
+    iss.str(umask_st);
+
+    iss >> oct >> umask;
+
+    return (umask & 0777);
+}
+
+int User::get_default_umask()
+{
+    string umask_st;
+    int umask;
+
+    istringstream iss;
+
+    Nebula::instance().get_configuration_attribute("DEFAULT_UMASK",umask_st);
+
+    iss.str(umask_st);
+
+    iss >> oct >> umask;
+
+    return (umask & 0777);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */

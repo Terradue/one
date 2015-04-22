@@ -5,39 +5,32 @@
 
 :USER: 
   :desc: Username of the Virtual Network owner
-  :size: 8
+  :size: 15
   :left: true
 
 :GROUP: 
   :desc: Group of the Virtual Network
-  :size: 8
+  :size: 12
   :left: true
 
 :NAME: 
   :desc: Name of the Virtual Network
-  :size: 15
+  :size: 19
   :left: true
 
 :CLUSTER: 
   :desc: Name of the Cluster
-  :size: 8
+  :size: 10
   :left: true
-
-:TYPE: 
-  :desc: Type of Virtual Network
-  :size: 6
-
-:SIZE: 
-  :desc: Size of the Virtual Network
-  :size: 6
 
 :BRIDGE: 
   :desc: Bridge associated to the Virtual Network
-  :size: 6
+  :size: 8
+  :left: true
 
 :LEASES: 
   :desc: Number of this Virtual Networks given leases
-  :size: 7
+  :size: 6
 
 :default:
 - :ID
@@ -45,6 +38,5 @@
 - :GROUP
 - :NAME
 - :CLUSTER
-- :TYPE
 - :BRIDGE
 - :LEASES

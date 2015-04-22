@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -15,13 +15,16 @@
 /* -------------------------------------------------------------------------- */
 
 #include "QuotaVirtualMachine.h"
+#include "Quotas.h"
+#include "VirtualMachine.h"
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-const char * QuotaVirtualMachine::VM_METRICS[] = {"VMS", "CPU", "MEMORY"};
+const char * QuotaVirtualMachine::VM_METRICS[] =
+    {"VMS", "CPU", "MEMORY", "VOLATILE_SIZE"};
 
-const int QuotaVirtualMachine::NUM_VM_METRICS  = 3;
+const int QuotaVirtualMachine::NUM_VM_METRICS  = 4;
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
@@ -48,30 +51,36 @@ int QuotaVirtualMachine::get_quota(const string& id, VectorAttribute **va)
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-bool QuotaVirtualMachine::check(Template * tmpl,  string& error)
+bool QuotaVirtualMachine::check(Template * tmpl,
+                                Quotas& default_quotas,
+                                string& error)
 {
-    map<string, int> vm_request;
+    map<string, float> vm_request;
 
-    int memory;
-    int cpu;
+    int         memory;
+    float       cpu;
+    long long   size;
 
-    if ( tmpl->get("MEMORY", memory) == false )
+    if ( tmpl->get("MEMORY", memory) == false  || memory <= 0 )
     {
-        error = "MEMORY not defined for VM";
+        error = "MEMORY attribute must be a positive integer value";
         return false;
     }
 
-    if ( tmpl->get("CPU", cpu) == false )
+    if ( tmpl->get("CPU", cpu) == false || cpu <= 0 )
     {
-        error = "CPU not defined for VM";
+        error = "CPU attribute must be a positive float or integer value";
         return false;
     }
+
+    size = VirtualMachine::get_volatile_disk_size(tmpl);
 
     vm_request.insert(make_pair("VMS",1));
     vm_request.insert(make_pair("MEMORY", memory));
     vm_request.insert(make_pair("CPU", cpu));
-    
-    return check_quota("", vm_request, error);
+    vm_request.insert(make_pair("VOLATILE_SIZE", size));
+
+    return check_quota("", vm_request, default_quotas, error);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -79,27 +88,77 @@ bool QuotaVirtualMachine::check(Template * tmpl,  string& error)
 
 void QuotaVirtualMachine::del(Template * tmpl)
 {
-    map<string, int> vm_request;
+    map<string, float> vm_request;
 
-    int memory;
-    int cpu;
+    int         memory, vms;
+    float       cpu;
+    long long   size;
 
     if ( tmpl->get("MEMORY", memory) == false )
     {
-        return;
+        memory = 0;
     }
 
     if ( tmpl->get("CPU", cpu) == false )
     {
-        return;
+        cpu = 0;
     }
 
-    vm_request.insert(make_pair("VMS",1));
+    if ( tmpl->get("VMS", vms) == false )
+    {
+        vms = 1;
+    }
+
+    size = VirtualMachine::get_volatile_disk_size(tmpl);
+
+    vm_request.insert(make_pair("VMS", vms));
     vm_request.insert(make_pair("MEMORY", memory));
     vm_request.insert(make_pair("CPU", cpu));
-    
+    vm_request.insert(make_pair("VOLATILE_SIZE", size));
+
     del_quota("", vm_request);
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
+
+int QuotaVirtualMachine::get_default_quota(
+    const string& id,
+    Quotas& default_quotas,
+    VectorAttribute **va)
+{
+    return default_quotas.vm_get(id, va);
+}
+
+/* -------------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------- */
+
+bool QuotaVirtualMachine::update(Template * tmpl,
+                                 Quotas& default_quotas,
+                                 string& error)
+{
+    map<string, float> vm_request;
+
+    int         delta_memory;
+    float       delta_cpu;
+    long long   delta_size;
+
+    if ( tmpl->get("MEMORY", delta_memory) == true )
+    {
+        vm_request.insert(make_pair("MEMORY", delta_memory));
+    }
+
+    if ( tmpl->get("CPU", delta_cpu) == true )
+    {
+        vm_request.insert(make_pair("CPU", delta_cpu));
+    }
+
+    delta_size = VirtualMachine::get_volatile_disk_size(tmpl);
+
+    if ( delta_size != 0 )
+    {
+        vm_request.insert(make_pair("VOLATILE_SIZE", delta_size));
+    }
+
+    return check_quota("", vm_request, default_quotas, error);
+}

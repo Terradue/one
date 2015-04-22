@@ -28,7 +28,7 @@
 #define FLEX_SCANNER
 #define YY_FLEX_MAJOR_VERSION 2
 #define YY_FLEX_MINOR_VERSION 5
-#define YY_FLEX_SUBMINOR_VERSION 35
+#define YY_FLEX_SUBMINOR_VERSION 39
 #if YY_FLEX_SUBMINOR_VERSION > 0
 #define FLEX_BETA
 #endif
@@ -73,7 +73,6 @@ typedef int flex_int32_t;
 typedef unsigned char flex_uint8_t; 
 typedef unsigned short int flex_uint16_t;
 typedef unsigned int flex_uint32_t;
-#endif /* ! C99 */
 
 /* Limits of integral types. */
 #ifndef INT8_MIN
@@ -103,6 +102,8 @@ typedef unsigned int flex_uint32_t;
 #ifndef UINT32_MAX
 #define UINT32_MAX             (4294967295U)
 #endif
+
+#endif /* ! C99 */
 
 #endif /* ! FLEXINT_H */
 
@@ -172,7 +173,12 @@ typedef unsigned int flex_uint32_t;
 typedef struct yy_buffer_state *YY_BUFFER_STATE;
 #endif
 
-extern int template_leng;
+#ifndef YY_TYPEDEF_YY_SIZE_T
+#define YY_TYPEDEF_YY_SIZE_T
+typedef size_t yy_size_t;
+#endif
+
+extern yy_size_t template_leng;
 
 extern FILE *template_in, *template_out;
 
@@ -194,6 +200,13 @@ extern FILE *template_in, *template_out;
                     if ( template_text[yyl] == '\n' )\
                         --template_lineno;\
             }while(0)
+    #define YY_LINENO_REWIND_TO(dst) \
+            do {\
+                const char *p;\
+                for ( p = yy_cp-1; p >= (dst); --p)\
+                    if ( *p == '\n' )\
+                        --template_lineno;\
+            }while(0)
     
 /* Return all but the first "n" matched characters back to the input stream. */
 #define yyless(n) \
@@ -210,11 +223,6 @@ extern FILE *template_in, *template_out;
 	while ( 0 )
 
 #define unput(c) yyunput( c, (yytext_ptr)  )
-
-#ifndef YY_TYPEDEF_YY_SIZE_T
-#define YY_TYPEDEF_YY_SIZE_T
-typedef size_t yy_size_t;
-#endif
 
 #ifndef YY_STRUCT_YY_BUFFER_STATE
 #define YY_STRUCT_YY_BUFFER_STATE
@@ -233,7 +241,7 @@ struct yy_buffer_state
 	/* Number of characters read into yy_ch_buf, not including EOB
 	 * characters.
 	 */
-	int yy_n_chars;
+	yy_size_t yy_n_chars;
 
 	/* Whether we "own" the buffer - i.e., we know we created it,
 	 * and can realloc() it to grow it, and should free() it to
@@ -303,8 +311,8 @@ static YY_BUFFER_STATE * yy_buffer_stack = 0; /**< Stack as an array. */
 
 /* yy_hold_char holds the character lost when template_text is formed. */
 static char yy_hold_char;
-static int yy_n_chars;		/* number of characters read into yy_ch_buf */
-int template_leng;
+static yy_size_t yy_n_chars;		/* number of characters read into yy_ch_buf */
+yy_size_t template_leng;
 
 /* Points to current character in buffer. */
 static char *yy_c_buf_p = (char *) 0;
@@ -332,7 +340,7 @@ static void template__init_buffer (YY_BUFFER_STATE b,FILE *file  );
 
 YY_BUFFER_STATE template__scan_buffer (char *base,yy_size_t size  );
 YY_BUFFER_STATE template__scan_string (yyconst char *yy_str  );
-YY_BUFFER_STATE template__scan_bytes (yyconst char *bytes,int len  );
+YY_BUFFER_STATE template__scan_bytes (yyconst char *bytes,yy_size_t len  );
 
 void *template_alloc (yy_size_t  );
 void *template_realloc (void *,yy_size_t  );
@@ -392,8 +400,8 @@ static void yy_fatal_error (yyconst char msg[]  );
 	*yy_cp = '\0'; \
 	(yy_c_buf_p) = yy_cp;
 
-#define YY_NUM_RULES 11
-#define YY_END_OF_BUFFER 12
+#define YY_NUM_RULES 12
+#define YY_END_OF_BUFFER 13
 /* This struct is not used in this scanner,
    but its presence is necessary. */
 struct yy_trans_info
@@ -401,13 +409,15 @@ struct yy_trans_info
 	flex_int32_t yy_verify;
 	flex_int32_t yy_nxt;
 	};
-static yyconst flex_int16_t yy_accept[44] =
+static yyconst flex_int16_t yy_accept[69] =
     {   0,
-        0,    0,    0,    0,   12,   11,    2,    2,   11,    6,
-        3,    4,    7,   10,   11,   10,    8,    2,    2,    0,
-        6,    4,    7,    0,    1,    6,    3,    4,    5,    7,
-       10,    0,    8,   10,    0,   10,    8,    9,    9,    0,
-        9,    9,    0
+        0,    0,    0,    0,   13,   12,    2,    2,   12,    6,
+        3,    4,    7,   11,   12,   11,   12,    8,   12,    2,
+        2,    0,    6,    4,    7,    0,    1,    6,    3,    4,
+        5,    7,   11,    0,    0,    0,    8,   11,    0,    0,
+       10,   11,    0,    8,    8,    0,   10,    0,   10,    0,
+       10,    0,    9,   10,   10,    9,    9,    9,    9,    9,
+        9,    9,    9,    9,    9,    9,    9,    0
     } ;
 
 static yyconst flex_int32_t yy_ec[256] =
@@ -418,10 +428,10 @@ static yyconst flex_int32_t yy_ec[256] =
         1,    2,    1,    4,    5,    1,    1,    1,    1,    1,
         1,    1,    1,    6,    1,    1,    1,    7,    7,    7,
         7,    7,    7,    7,    7,    7,    7,    1,    1,    1,
-        8,    1,    1,    1,    7,    7,    7,    7,    7,    7,
+        8,    9,    1,    1,    7,    7,    7,    7,    7,    7,
         7,    7,    7,    7,    7,    7,    7,    7,    7,    7,
         7,    7,    7,    7,    7,    7,    7,    7,    7,    7,
-        9,   10,   11,    1,    7,    1,    7,    7,    7,    7,
+       10,   11,   12,    1,    7,    1,    7,    7,    7,    7,
 
         7,    7,    7,    7,    7,    7,    7,    7,    7,    7,
         7,    7,    7,    7,    7,    7,    7,    7,    7,    7,
@@ -442,68 +452,94 @@ static yyconst flex_int32_t yy_ec[256] =
         1,    1,    1,    1,    1
     } ;
 
-static yyconst flex_int32_t yy_meta[12] =
+static yyconst flex_int32_t yy_meta[13] =
     {   0,
-        1,    2,    2,    1,    3,    3,    1,    3,    3,    1,
-        3
+        1,    2,    3,    1,    1,    1,    1,    1,    1,    1,
+        1,    1
     } ;
 
-static yyconst flex_int16_t yy_base[50] =
+static yyconst flex_int16_t yy_base[77] =
     {   0,
-        0,    0,   11,    0,   46,  100,   21,   31,   38,    0,
-       33,   41,    0,    0,   43,   52,    0,    0,    0,   36,
-        0,    0,    0,   35,  100,    0,   29,    0,  100,    0,
-        0,    0,    0,   62,   69,   31,    0,    0,  100,   76,
-        0,   83,  100,   93,   29,   28,   27,   96,   23
+        0,    0,   12,    0,   70,  196,   23,   34,   65,    0,
+       60,   45,    0,   48,   59,   71,   54,   82,   53,    0,
+        0,   61,    0,    0,    0,   60,  196,    0,   55,    0,
+      196,    0,    0,   39,   33,   93,    0,    0,  105,  113,
+        0,   40,   31,    0,    0,  116,   30,   37,  196,  125,
+        0,  128,   27,    0,  137,  146,   26,   22,  156,   21,
+       28,   18,  160,    0,  164,   15,    0,  196,  176,  178,
+      180,  183,  185,  187,  190,  192
     } ;
 
-static yyconst flex_int16_t yy_def[50] =
+static yyconst flex_int16_t yy_def[77] =
     {   0,
-       43,    1,   43,    3,   43,   43,   43,   43,   44,   45,
-       43,   43,   46,   47,   43,   48,   49,    7,    8,   44,
-       45,   12,   46,   44,   43,   45,   43,   12,   43,   46,
-       47,   15,   49,   48,   48,   34,   49,   47,   43,   48,
-       34,   48,    0,   43,   43,   43,   43,   43,   43
+       68,    1,   68,    3,   68,   68,   68,   68,   69,   70,
+       68,   68,   71,   68,   72,   68,   72,   72,   72,    7,
+        8,   69,   70,   12,   71,   69,   68,   70,   68,   12,
+       68,   71,   14,   72,   72,   72,   18,   16,   16,   73,
+       14,   16,   39,   18,   74,   72,   72,   39,   68,   73,
+       16,   39,   75,   39,   73,   76,   75,   75,   76,   75,
+       59,   59,   75,   59,   59,   75,   59,    0,   68,   68,
+       68,   68,   68,   68,   68,   68
     } ;
 
-static yyconst flex_int16_t yy_nxt[112] =
+static yyconst flex_int16_t yy_nxt[209] =
     {   0,
         6,    7,    8,    6,    9,   10,   11,   12,    6,    6,
-       13,   14,   15,    6,   16,    6,    6,   14,    6,   17,
-       14,    6,   18,   19,   37,   20,   21,   31,   22,   30,
-       26,   23,   19,   19,   41,   27,   21,   25,   25,   27,
-       25,   23,   28,   29,   32,   43,   43,   43,   43,   43,
-       43,   33,   34,   43,   43,   31,   43,   43,   34,   43,
-       43,   36,   34,   43,   43,   38,   43,   43,   34,   43,
-       43,   36,   39,   43,   43,   43,   43,   43,   40,   42,
-       43,   43,   43,   43,   43,   40,   39,   43,   43,   43,
-       43,   43,   40,   24,   24,   24,   35,   35,   35,    5,
+        6,   13,   14,   15,    6,   16,   17,   17,   14,   17,
+       14,   18,   14,   19,   20,   21,   58,   22,   23,   65,
+       24,   64,   58,   63,   25,   21,   21,   58,   58,   23,
+       54,   35,   52,   51,   46,   25,   30,   31,   33,   34,
+       35,   33,   34,   34,   33,   34,   33,   34,   33,   35,
+       36,   29,   27,   27,   46,   35,   29,   27,   37,   68,
+       35,   38,   39,   40,   41,   39,   39,   38,   39,   38,
+       39,   42,   43,   44,   45,   68,   68,   68,   68,   68,
+       68,   68,   68,   35,   36,   68,   68,   68,   68,   68,
 
-       43,   43,   43,   43,   43,   43,   43,   43,   43,   43,
-       43
+       68,   68,   37,   68,   35,   39,   68,   68,   47,   68,
+       68,   39,   68,   39,   68,   48,   49,   68,   68,   68,
+       68,   68,   68,   50,   53,   68,   68,   46,   55,   68,
+       68,   68,   68,   68,   68,   50,   56,   68,   68,   52,
+       49,   68,   68,   68,   68,   68,   68,   50,   40,   60,
+       68,   68,   68,   68,   68,   68,   61,   62,   40,   60,
+       68,   68,   68,   68,   68,   68,   61,   62,   66,   68,
+       68,   63,   67,   68,   68,   65,   26,   26,   26,   28,
+       28,   32,   32,   34,   34,   40,   40,   40,   45,   45,
+       57,   57,   59,   59,   59,    5,   68,   68,   68,   68,
+
+       68,   68,   68,   68,   68,   68,   68,   68
     } ;
 
-static yyconst flex_int16_t yy_chk[112] =
+static yyconst flex_int16_t yy_chk[209] =
     {   0,
         1,    1,    1,    1,    1,    1,    1,    1,    1,    1,
-        1,    3,    3,    3,    3,    3,    3,    3,    3,    3,
-        3,    3,    7,    7,   49,    7,    7,   47,    7,   46,
-       45,    7,    8,    8,   36,   27,    8,   24,   20,   11,
-        9,    8,   12,   12,   15,    5,    0,    0,    0,    0,
-        0,   15,   16,    0,    0,   16,    0,    0,   16,    0,
-        0,   16,   34,    0,    0,   34,    0,    0,   34,    0,
-        0,   34,   35,    0,    0,    0,    0,    0,   35,   40,
-        0,    0,    0,    0,    0,   40,   42,    0,    0,    0,
-        0,    0,   42,   44,   44,   44,   48,   48,   48,   43,
+        1,    1,    3,    3,    3,    3,    3,    3,    3,    3,
+        3,    3,    3,    3,    7,    7,   66,    7,    7,   62,
+        7,   61,   60,   58,    7,    8,    8,   57,   53,    8,
+       48,   47,   43,   42,   35,    8,   12,   12,   14,   14,
+       34,   14,   14,   14,   14,   14,   14,   14,   14,   14,
+       15,   29,   26,   22,   19,   17,   11,    9,   15,    5,
+       15,   16,   16,   16,   16,   16,   16,   16,   16,   16,
+       16,   16,   16,   18,   18,    0,    0,    0,    0,    0,
+        0,    0,    0,   18,   36,    0,    0,    0,    0,    0,
 
-       43,   43,   43,   43,   43,   43,   43,   43,   43,   43,
-       43
+        0,    0,   36,    0,   36,   39,    0,    0,   39,    0,
+        0,   39,    0,   39,    0,   39,   40,    0,    0,    0,
+        0,    0,    0,   40,   46,    0,    0,   46,   50,    0,
+        0,    0,    0,    0,    0,   50,   52,    0,    0,   52,
+       55,    0,    0,    0,    0,    0,    0,   55,   56,   56,
+        0,    0,    0,    0,    0,    0,   56,   56,   59,   59,
+        0,    0,    0,    0,    0,    0,   59,   59,   63,    0,
+        0,   63,   65,    0,    0,   65,   69,   69,   69,   70,
+       70,   71,   71,   72,   72,   73,   73,   73,   74,   74,
+       75,   75,   76,   76,   76,   68,   68,   68,   68,   68,
+
+       68,   68,   68,   68,   68,   68,   68,   68
     } ;
 
 /* Table of booleans, true if rule could match eol. */
-static yyconst flex_int32_t yy_rule_can_match_eol[12] =
+static yyconst flex_int32_t yy_rule_can_match_eol[13] =
     {   0,
-1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0,     };
+1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0,     };
 
 static yy_state_type yy_last_accepting_state;
 static char *yy_last_accepting_cpos;
@@ -521,7 +557,7 @@ int template__flex_debug = 0;
 char *template_text;
 #line 1 "template_parser.l"
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -544,7 +580,7 @@ char *template_text;
 #include "template_syntax.h"
 #include "mem_collector.h"
 
-#define YY_NO_INPUT 
+#define YY_NO_INPUT
 
 #define YY_DECL int template_lex (YYSTYPE *lvalp, YYLTYPE *llocp, \
                                   mem_collector *mc)
@@ -553,7 +589,7 @@ char *template_text;
                         llocp->first_column = llocp->last_column;   \
                         llocp->last_column += template_leng;
 
-#line 557 "template_parser.c"
+#line 593 "template_parser.c"
 
 #define INITIAL 0
 #define VALUE 1
@@ -593,7 +629,7 @@ FILE *template_get_out (void );
 
 void template_set_out  (FILE * out_str  );
 
-int template_get_leng (void );
+yy_size_t template_get_leng (void );
 
 char *template_get_text (void );
 
@@ -652,7 +688,7 @@ static int input (void );
 	if ( YY_CURRENT_BUFFER_LVALUE->yy_is_interactive ) \
 		{ \
 		int c = '*'; \
-		unsigned n; \
+		size_t n; \
 		for ( n = 0; n < max_size && \
 			     (c = getc( template_in )) != EOF && c != '\n'; ++n ) \
 			buf[n] = (char) c; \
@@ -734,14 +770,6 @@ YY_DECL
 	register char *yy_cp, *yy_bp;
 	register int yy_act;
     
-#line 44 "template_parser.l"
-
-
- /* ------------------------------------------------------------------------- */
- /* Comments (lines with an starting #), and empty lines                      */
- /* ------------------------------------------------------------------------- */
-#line 744 "template_parser.c"
-
 	if ( !(yy_init) )
 		{
 		(yy_init) = 1;
@@ -768,6 +796,15 @@ YY_DECL
 		template__load_buffer_state( );
 		}
 
+	{
+#line 46 "template_parser.l"
+
+
+ /* ------------------------------------------------------------------------- */
+ /* Comments (lines with an starting #), and empty lines                      */
+ /* ------------------------------------------------------------------------- */
+#line 807 "template_parser.c"
+
 	while ( 1 )		/* loops until end-of-file is reached */
 		{
 		yy_cp = (yy_c_buf_p);
@@ -784,7 +821,7 @@ YY_DECL
 yy_match:
 		do
 			{
-			register YY_CHAR yy_c = yy_ec[YY_SC_TO_UI(*yy_cp)];
+			register YY_CHAR yy_c = yy_ec[YY_SC_TO_UI(*yy_cp)] ;
 			if ( yy_accept[yy_current_state] )
 				{
 				(yy_last_accepting_state) = yy_current_state;
@@ -793,13 +830,13 @@ yy_match:
 			while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 				{
 				yy_current_state = (int) yy_def[yy_current_state];
-				if ( yy_current_state >= 44 )
+				if ( yy_current_state >= 69 )
 					yy_c = yy_meta[(unsigned int) yy_c];
 				}
 			yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
 			++yy_cp;
 			}
-		while ( yy_base[yy_current_state] != 100 );
+		while ( yy_base[yy_current_state] != 196 );
 
 yy_find_action:
 		yy_act = yy_accept[yy_current_state];
@@ -814,7 +851,7 @@ yy_find_action:
 
 		if ( yy_act != YY_END_OF_BUFFER && yy_rule_can_match_eol[yy_act] )
 			{
-			int yyl;
+			yy_size_t yyl;
 			for ( yyl = 0; yyl < template_leng; ++yyl )
 				if ( template_text[yyl] == '\n' )
 					   
@@ -836,13 +873,13 @@ do_action:	/* This label is used only to access EOF actions. */
 case 1:
 /* rule 1 can match eol */
 YY_RULE_SETUP
-#line 49 "template_parser.l"
+#line 51 "template_parser.l"
 ;
 	YY_BREAK
 case 2:
 /* rule 2 can match eol */
 YY_RULE_SETUP
-#line 50 "template_parser.l"
+#line 52 "template_parser.l"
 ;
 	YY_BREAK
 /* ------------------------------------------------------------------------- */
@@ -850,7 +887,7 @@ YY_RULE_SETUP
 /* ------------------------------------------------------------------------- */
 case 3:
 YY_RULE_SETUP
-#line 55 "template_parser.l"
+#line 57 "template_parser.l"
 { lvalp->val_str = mem_collector_strdup(mc,template_text);
                  return VARIABLE; }
 	YY_BREAK
@@ -861,31 +898,31 @@ YY_RULE_SETUP
 /* ------------------------------------------------------------------------ */
 case 4:
 YY_RULE_SETUP
-#line 63 "template_parser.l"
+#line 65 "template_parser.l"
 { BEGIN VALUE; return EQUAL;}
 	YY_BREAK
 case 5:
 /* rule 5 can match eol */
 YY_RULE_SETUP
-#line 65 "template_parser.l"
+#line 67 "template_parser.l"
 { return EQUAL_EMPTY;}
 	YY_BREAK
 case 6:
 /* rule 6 can match eol */
 YY_RULE_SETUP
-#line 67 "template_parser.l"
+#line 69 "template_parser.l"
 { return COMMA;}
 	YY_BREAK
 case 7:
 /* rule 7 can match eol */
 YY_RULE_SETUP
-#line 69 "template_parser.l"
+#line 71 "template_parser.l"
 { return CBRACKET;}
 	YY_BREAK
 case 8:
 /* rule 8 can match eol */
 YY_RULE_SETUP
-#line 71 "template_parser.l"
+#line 73 "template_parser.l"
 { BEGIN(INITIAL); return OBRACKET;}
 	YY_BREAK
 /* ------------------------------------------------------------------------ */
@@ -894,30 +931,30 @@ YY_RULE_SETUP
 /*   - Anything but  =,][# and blanks                                       */
 /* ------------------------------------------------------------------------ */
 case 9:
-/* rule 9 can match eol */
 YY_RULE_SETUP
-#line 78 "template_parser.l"
+#line 81 "template_parser.l"
+{ BEGIN(INITIAL); return CCDATA;}
+	YY_BREAK
+case 10:
+/* rule 10 can match eol */
+YY_RULE_SETUP
+#line 83 "template_parser.l"
 { lvalp->val_str = mem_collector_strdup(mc,template_text+1);
                              lvalp->val_str[template_leng-2] = '\0';
                              BEGIN(INITIAL); return STRING; }
 	YY_BREAK
-/*
-<VALUE>'[^']+'    { lvalp->val_str = strdup(template_text+1);
-                    lvalp->val_str[template_leng-2] = '\0';
-                    BEGIN(INITIAL); return STRING; }
- */
-case 10:
+case 11:
 YY_RULE_SETUP
 #line 87 "template_parser.l"
 { lvalp->val_str = mem_collector_strdup(mc,template_text);
                     BEGIN(INITIAL); return STRING;}
 	YY_BREAK
-case 11:
+case 12:
 YY_RULE_SETUP
 #line 89 "template_parser.l"
 ECHO;
 	YY_BREAK
-#line 921 "template_parser.c"
+#line 958 "template_parser.c"
 case YY_STATE_EOF(INITIAL):
 case YY_STATE_EOF(VALUE):
 	yyterminate();
@@ -1049,6 +1086,7 @@ case YY_STATE_EOF(VALUE):
 			"fatal flex scanner internal error--no action found" );
 	} /* end of action switch */
 		} /* end of scanning one token */
+	} /* end of user's declarations */
 } /* end of template_lex */
 
 /* yy_get_next_buffer - try to read in a new buffer
@@ -1104,21 +1142,21 @@ static int yy_get_next_buffer (void)
 
 	else
 		{
-			int num_to_read =
+			yy_size_t num_to_read =
 			YY_CURRENT_BUFFER_LVALUE->yy_buf_size - number_to_move - 1;
 
 		while ( num_to_read <= 0 )
 			{ /* Not enough room in the buffer - grow it. */
 
 			/* just a shorter name for the current buffer */
-			YY_BUFFER_STATE b = YY_CURRENT_BUFFER;
+			YY_BUFFER_STATE b = YY_CURRENT_BUFFER_LVALUE;
 
 			int yy_c_buf_p_offset =
 				(int) ((yy_c_buf_p) - b->yy_ch_buf);
 
 			if ( b->yy_is_our_buffer )
 				{
-				int new_size = b->yy_buf_size * 2;
+				yy_size_t new_size = b->yy_buf_size * 2;
 
 				if ( new_size <= 0 )
 					b->yy_buf_size += b->yy_buf_size / 8;
@@ -1149,7 +1187,7 @@ static int yy_get_next_buffer (void)
 
 		/* Read in more data. */
 		YY_INPUT( (&YY_CURRENT_BUFFER_LVALUE->yy_ch_buf[number_to_move]),
-			(yy_n_chars), (size_t) num_to_read );
+			(yy_n_chars), num_to_read );
 
 		YY_CURRENT_BUFFER_LVALUE->yy_n_chars = (yy_n_chars);
 		}
@@ -1210,7 +1248,7 @@ static int yy_get_next_buffer (void)
 		while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 			{
 			yy_current_state = (int) yy_def[yy_current_state];
-			if ( yy_current_state >= 44 )
+			if ( yy_current_state >= 69 )
 				yy_c = yy_meta[(unsigned int) yy_c];
 			}
 		yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
@@ -1238,13 +1276,13 @@ static int yy_get_next_buffer (void)
 	while ( yy_chk[yy_base[yy_current_state] + yy_c] != yy_current_state )
 		{
 		yy_current_state = (int) yy_def[yy_current_state];
-		if ( yy_current_state >= 44 )
+		if ( yy_current_state >= 69 )
 			yy_c = yy_meta[(unsigned int) yy_c];
 		}
 	yy_current_state = yy_nxt[yy_base[yy_current_state] + (unsigned int) yy_c];
-	yy_is_jam = (yy_current_state == 43);
+	yy_is_jam = (yy_current_state == 68);
 
-	return yy_is_jam ? 0 : yy_current_state;
+		return yy_is_jam ? 0 : yy_current_state;
 }
 
 #ifndef YY_NO_INPUT
@@ -1271,7 +1309,7 @@ static int yy_get_next_buffer (void)
 
 		else
 			{ /* need more input */
-			int offset = (yy_c_buf_p) - (yytext_ptr);
+			yy_size_t offset = (yy_c_buf_p) - (yytext_ptr);
 			++(yy_c_buf_p);
 
 			switch ( yy_get_next_buffer(  ) )
@@ -1436,10 +1474,6 @@ static void template__load_buffer_state  (void)
 	template_free((void *) b  );
 }
 
-#ifndef __cplusplus
-extern int isatty (int );
-#endif /* __cplusplus */
-    
 /* Initializes or reinitializes a buffer.
  * This function is sometimes called more than once on the same buffer,
  * such as during a template_restart() or at EOF.
@@ -1552,7 +1586,7 @@ void template_pop_buffer_state (void)
  */
 static void template_ensure_buffer_stack (void)
 {
-	int num_to_alloc;
+	yy_size_t num_to_alloc;
     
 	if (!(yy_buffer_stack)) {
 
@@ -1644,17 +1678,17 @@ YY_BUFFER_STATE template__scan_string (yyconst char * yystr )
 
 /** Setup the input buffer state to scan the given bytes. The next call to template_lex() will
  * scan from a @e copy of @a bytes.
- * @param bytes the byte buffer to scan
- * @param len the number of bytes in the buffer pointed to by @a bytes.
+ * @param yybytes the byte buffer to scan
+ * @param _yybytes_len the number of bytes in the buffer pointed to by @a bytes.
  * 
  * @return the newly allocated buffer state object.
  */
-YY_BUFFER_STATE template__scan_bytes  (yyconst char * yybytes, int  _yybytes_len )
+YY_BUFFER_STATE template__scan_bytes  (yyconst char * yybytes, yy_size_t  _yybytes_len )
 {
 	YY_BUFFER_STATE b;
 	char *buf;
 	yy_size_t n;
-	int i;
+	yy_size_t i;
     
 	/* Get memory for full buffer, including space for trailing EOB's. */
 	n = _yybytes_len + 2;
@@ -1736,7 +1770,7 @@ FILE *template_get_out  (void)
 /** Get the length of the current token.
  * 
  */
-int template_get_leng  (void)
+yy_size_t template_get_leng  (void)
 {
         return template_leng;
 }

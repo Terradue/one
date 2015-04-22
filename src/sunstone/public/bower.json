@@ -1,0 +1,16 @@
+{
+  "name": "foundation-libsass-template",
+  "dependencies": {
+    "foundation": "latest",
+    "flot": "latest",
+    "jquery-migrate": "latest",
+    "datatables": "latest",
+    "jgrowl": "latest",
+    "fontawesome": "latest",
+    "foundation-datatables": "https://github.com/DataTables/Plugins.git",
+    "flot.tooltip": "latest",
+    "no-vnc": "*",
+    "resumablejs": "*",
+    "spice-html5": "git://anongit.freedesktop.org/spice/spice-html5"
+  }
+}

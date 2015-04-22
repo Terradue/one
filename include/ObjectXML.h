@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -63,7 +63,7 @@ public:
     /**
      *  Gets and sets a xpath attribute, if the attribute is not found a default
      *  is used
-     *    @param value to set 
+     *    @param value to set
      *    @param xpath_expr of the xml element
      *    @param def default value if the element is not found
      *
@@ -74,7 +74,7 @@ public:
     /**
      *  Gets and sets a xpath attribute, if the attribute is not found a default
      *  is used
-     *    @param value to set 
+     *    @param value to set
      *    @param xpath_expr of the xml element
      *    @param def default value if the element is not found
      *
@@ -85,7 +85,18 @@ public:
     /**
      *  Gets and sets a xpath attribute, if the attribute is not found a default
      *  is used
-     *    @param value to set 
+     *    @param value to set
+     *    @param xpath_expr of the xml element
+     *    @param def default value if the element is not found
+     *
+     *    @return -1 if default was set
+     */
+    int xpath(float& value, const char * xpath_expr, const float& def);
+
+    /**
+     *  Gets and sets a xpath attribute, if the attribute is not found a default
+     *  is used
+     *    @param value to set
      *    @param xpath_expr of the xml element
      *    @param def default value if the element is not found
      *
@@ -103,6 +114,30 @@ public:
      *
      *    @return -1 if default was set
      */
+    int xpath(long long& value, const char * xpath_expr,
+              const long long& def);
+
+    /**
+     *  Gets and sets a xpath attribute, if the attribute is not found a default
+     *  is used
+     *    @param value to set
+     *    @param xpath_expr of the xml element
+     *    @param def default value if the element is not found
+     *
+     *    @return -1 if default was set
+     */
+    int xpath(unsigned long long& value, const char * xpath_expr,
+              const unsigned long long& def);
+
+    /**
+     *  Gets and sets a xpath attribute, if the attribute is not found a default
+     *  is used
+     *    @param value to set
+     *    @param xpath_expr of the xml element
+     *    @param def default value if the element is not found
+     *
+     *    @return -1 if default was set
+     */
     int xpath(time_t& value, const char * xpath_expr, const time_t& def);
 
     /**
@@ -110,10 +145,32 @@ public:
      *    @param value the value of the element
      *    @param xml the xml string
      *    @param xpath the xpath of the target element
-     *    
+     *
      *    @return -1 if the element was not found
      */
     static int xpath_value(string& value, const char *xml, const char *xpath);
+
+    /**
+     *  Search the Object for a given attribute in a set of object specific
+     *  routes.
+     *    @param name of the attribute
+     *    @param value of the attribute
+     *
+     *    @return -1 if the element was not found
+     */
+    virtual int search(const char *name, string& value);
+
+    /**
+     *  Search the Object for a given attribute in a set of object specific
+     *  routes. integer version
+     */
+    virtual int search(const char *name, int& value);
+
+    /**
+     *  Search the Object for a given attribute in a set of object specific
+     *  routes. float version
+     */
+    virtual int search(const char *name, float& value);
 
     /**
      *  Get xml nodes by Xpath
@@ -123,6 +180,18 @@ public:
      *    @return the number of nodes found
      */
     int get_nodes(const char * xpath_expr, vector<xmlNodePtr>& content);
+
+    /**
+     * Adds a copy of the node as a child of the node in the xpath expression.
+     * The source node must be cleaned by the caller.
+     *
+     * @param xpath_expr Path of the parent node
+     * @param node Node copy and add
+     * @param new_name New name for the node copy
+     *
+     * @return 0 on success, -1 otherwise
+     */
+    int add_node(const char * xpath_expr, xmlNodePtr node, const char * new_name);
 
     /**
      *  Frees a vector of XMLNodes, as returned by the get_nodes function
@@ -159,6 +228,15 @@ public:
      *  @return 0 if the xml validates
      */
     static int validate_xml(const string &xml_doc);
+
+    /**
+     * Renames the nodes given in the xpath expression
+     * @param xpath_expr xpath expression to find the nodes to rename
+     * @param new_name new name for the xml elements
+     *
+     * @return the number of nodes renamed
+     */
+    int rename_nodes(const char * xpath_expr, const char * new_name);
 
     // ---------------------------------------------------------
     //  Lex & bison parser for requirements and rank expressions
@@ -202,6 +280,17 @@ public:
         return os;
     };
 
+protected:
+    /**
+     *  Array of paths to look for attributes in search methods
+     */
+    const char **paths;
+
+    /**
+     *  Number of elements in paths array
+     */
+    int num_paths;
+
 private:
     /**
      *  XML representation of the Object
@@ -217,6 +306,14 @@ private:
      *  Parse a XML documents and initializes XPath contexts
      */
     void xml_parse(const string &xml_doc);
+
+    /**
+     *  Search the Object for a given attribute in a set of object specific
+     *  routes.
+     *  @param name of the attribute
+     *  @results vector of attributes that matches the query
+     */
+    void search(const char* name, vector<string>& results);
 };
 
 #endif /*OBJECT_XML_H_*/

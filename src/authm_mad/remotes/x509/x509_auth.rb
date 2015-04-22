@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -19,10 +19,12 @@ require 'base64'
 require 'fileutils'
 require 'yaml'
 
+module OpenNebula; end
+
 # X509 authentication class. It can be used as a driver for auth_mad
 # as auth method is defined. It also holds some helper methods to be used
 # by oneauth command
-class X509Auth
+class OpenNebula::X509Auth
     ###########################################################################
     #Constants with paths to relevant files and defaults
     ###########################################################################
@@ -32,13 +34,19 @@ class X509Auth
         ETC_LOCATION      = ENV["ONE_LOCATION"] + "/etc"
     end
 
-    LOGIN_PATH = ENV['HOME']+'/.one/one_x509'
-
     X509_AUTH_CONF_PATH = ETC_LOCATION + "/auth/x509_auth.conf"
 
     X509_DEFAULTS = {
         :ca_dir   => ETC_LOCATION + "/auth/certificates"
     }
+
+    def self.escape_dn(dn)
+        dn.gsub(/\s/) { |s| "\\"+s[0].ord.to_s(16) }
+    end
+
+    def self.unescape_dn(dn)
+        dn.gsub(/\\[0-9a-f]{2}/) { |s| s[1,2].to_i(16).chr }
+    end
 
     ###########################################################################
     # Initialize x509Auth object
@@ -69,24 +77,19 @@ class X509Auth
     # Client side
     ###########################################################################
 
-    # Creates the login file for x509 authentication at ~/.one/one_x509.
-    # By default it is valid as long as the certificate is valid. It can
-    # be changed to any number of seconds with expire parameter (sec.)
-    def login(user, expire=0)
-        write_login(login_token(user,expire))
-    end
-
     # Returns a valid password string to create a user using this auth driver.
     # In this case the dn of the user certificate.
     def password
-        @cert_chain[0].subject.to_s.delete("\s")
+        self.class.escape_dn(@cert_chain[0].subject.to_s)
     end
 
     # Generates a login token in the form:
     # user_name:x509:user_name:time_expires:cert_chain
     #   - user_name:time_expires is encrypted with the user certificate
-    #   - user_name:time_expires:cert_chain is base64 encoded
-    def login_token(user, expire)
+    #   - user_name:time_expires:cert_chain is base64 encoded.
+    # By default it is valid as long as the certificate is valid. It can
+    # be changed to any number of seconds with expire parameter (sec.)
+    def login_token(user, expire=0)
         if expire != 0
             expires = Time.now.to_i + expire.to_i
         else
@@ -97,13 +100,9 @@ class X509Auth
         signed_text  = encrypt(text_to_sign)
 
         certs_pem = @cert_chain.collect{|cert| cert.to_pem}.join(":")
-
         token     = "#{signed_text}:#{certs_pem}"
-        token64   = Base64::encode64(token).strip.delete("\n")
 
-        login_out = "#{user}:#{token64}"
-
-        login_out
+        return Base64::encode64(token).strip.delete("\n")
     end
 
     ###########################################################################
@@ -121,7 +120,8 @@ class X509Auth
 
             # Some DN in the chain must match a DN in the password
             dn_ok = @cert_chain.each do |cert|
-                if pass.split('|').include?(cert.subject.to_s.delete("\s"))
+                if pass.split('|').include?(
+                        self.class.escape_dn(cert.subject.to_s))
                     break true
                 end
             end
@@ -139,25 +139,6 @@ class X509Auth
     end
 
 private
-    # Writes a login_txt to the login file as defined in LOGIN_PATH
-    # constant
-    def write_login(login_txt)
-        # Inits login file path and creates ~/.one directory if needed
-        # Set instance variables
-        login_dir = File.dirname(LOGIN_PATH)
-
-        begin
-            FileUtils.mkdir_p(login_dir)
-        rescue Errno::EEXIST
-        end
-
-        file = File.open(LOGIN_PATH, "w")
-        file.write(login_txt)
-        file.close
-
-        File.chmod(0600,LOGIN_PATH)
-    end
-
     # Load class options form a configuration file (yaml syntax)
     def load_options(conf_file)
         if File.readable?(conf_file)
@@ -188,7 +169,6 @@ private
     ###########################################################################
     def validate
         now    = Time.now
-        failed = "Could not validate user credentials: "
 
         # Check start time and end time of certificates
         @cert_chain.each do |cert|
@@ -201,6 +181,8 @@ private
         begin
             # Validate the proxy certifcates
             signee = @cert_chain[0]
+
+            check_crl(signee)
 
             @cert_chain[1..-1].each do |cert|
                 if !((signee.issuer.to_s == cert.subject.to_s) &&
@@ -234,6 +216,43 @@ private
             end while ca_cert.subject.to_s != ca_cert.issuer.to_s
         rescue
             raise
+        end
+    end
+
+    def check_crl(signee)
+        failed = "Could not validate user credentials: "
+
+        ca_hash = signee.issuer.hash.to_s(16)
+        ca_path = @options[:ca_dir] + '/' + ca_hash + '.0'
+
+        crl_path = @options[:ca_dir] + '/' + ca_hash + '.r0'
+
+        if !File.exist?(crl_path)
+            if @options[:check_crl]
+                raise failed + "CRL file #{crl_path} does not exist"
+            else
+                return
+            end
+        end
+
+        ca_cert = OpenSSL::X509::Certificate.new( File.read(ca_path) )
+        crl_cert = OpenSSL::X509::CRL.new( File.read(crl_path) )
+
+        # First verify the CRL itself with its signer
+        unless crl_cert.verify( ca_cert.public_key ) then
+            raise failed + "CRL is not verified by its Signer"
+        end
+
+        # Extract the list of revoked certificates from the CRL
+        rc_array = crl_cert.revoked
+
+        # Loop over the list and compare with the target personal
+        # certificate
+        rc_array.each do |e|
+            if e.serial.eql?(signee.serial) then
+                raise failed + "#{signee.subject.to_s} is found in the "<<
+                    "CRL, i.e. it is revoked"
+            end
         end
     end
 end

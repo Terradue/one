@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -23,6 +23,7 @@
 #include "RequestManager.h"
 #include "AuthRequest.h"
 #include "PoolObjectSQL.h"
+#include "Quotas.h"
 
 using namespace std;
 
@@ -56,6 +57,25 @@ public:
         INTERNAL       = 0x2000,
     };
 
+    /**
+     *  Sets the format string to log xml-rpc method calls. The format string
+     *  interprets the following sequences:
+     *    %i -- request id
+     *    %m -- method name
+     *    %u -- user id
+     *    %U -- user name
+     *    %l -- param list
+     *    %p -- user password
+     *    %g -- group id
+     *    %G -- group name
+     *    %a -- auth token
+     *    %% -- %
+     */
+    static void set_call_log_format(const string& log_format)
+    {
+        format_str = log_format;
+    }
+
 protected:
 
     /* ---------------------------------------------------------------------*/
@@ -72,7 +92,14 @@ protected:
         string uname;             /**< name of the user */
         string gname;             /**< name of the user's group */
 
+        string password;          /**< password of the user */
+
+        set<int> group_ids;       /**< set of user's group ids */
+
         string session;           /**< Session from ONE XML-RPC API */
+        int    req_id;            /**< Request ID for log messages */
+
+        int umask;                /**< User umask for new objects */
 
         xmlrpc_c::value * retval; /**< Return value from libxmlrpc-c */
 
@@ -86,8 +113,12 @@ protected:
             uname = ra.uname;
             gname = ra.gname;
 
+            password = ra.password;
+
             session  = ra.session;
             retval   = ra.retval;
+
+            umask = ra.umask;
         };
 
         RequestAttributes(int _uid, int _gid, const RequestAttributes& ra)
@@ -95,8 +126,12 @@ protected:
             uid = _uid;
             gid = _gid;
 
+            password = "";
+
             uname = "";
             gname = "";
+
+            umask = 0;
 
             session  = ra.session;
             retval   = ra.retval;
@@ -111,14 +146,20 @@ protected:
     PoolObjectSQL::ObjectType auth_object;/**< Auth object for the request */
     AuthRequest::Operation    auth_op;    /**< Auth operation for the request */
 
+    set<int> hidden_params;
+
+    static string format_str;
+
     /* -------------------- Constructors ---------------------------------- */
 
-    Request(const string& mn, 
-            const string& signature, 
+    Request(const string& mn,
+            const string& signature,
             const string& help): pool(0),method_name(mn)
     {
         _signature = signature;
         _help      = help;
+
+        hidden_params.clear();
     };
 
     virtual ~Request(){};
@@ -128,8 +169,8 @@ protected:
 
     /**
      *  Performs a basic authorization for this request using the uid/gid
-     *  from the request. The function gets the object from the pool to get 
-     *  the public attribute and its owner. The authorization is based on 
+     *  from the request. The function gets the object from the pool to get
+     *  the public attribute and its owner. The authorization is based on
      *  object and type of operation for the request.
      *    @param oid of the object, can be -1 for objects to be created, or
      *    pools.
@@ -158,41 +199,39 @@ protected:
                              RequestAttributes& att);
 
     /**
-     *  Performs a basic quota check for this request using the uid/gid and 
-     *  object type from the request.  Usage counters are updated for the 
-     *  user/group.
-     *    @param tmpl describing the object
-     *    @param att the specific request attributes
-     *
-     *    @return true if the user is authorized.
-     */
-    bool quota_authorization(Template * tmpl, RequestAttributes& att)
-    {
-        return quota_authorization(tmpl, auth_object, att);        
-    }
-
-    /**
      *  Performs a basic quota check for this request using the uid/gid
-     *  from the request.  Usage counters are updated for the user/group.
+     *  from the request. Usage counters are updated for the user/group.
+     *  On case of error, the failure_response return values are set
+     *
      *    @param tmpl describing the object
      *    @param object type of the object
      *    @param att the specific request attributes
      *
      *    @return true if the user is authorized.
      */
-    bool quota_authorization(Template * tmpl,
-                             PoolObjectSQL::ObjectType object,
-                             RequestAttributes& att);
+    bool quota_authorization(
+            Template *          tmpl,
+            Quotas::QuotaType   qtype,
+            RequestAttributes&  att);
+
     /**
-     *  Performs rollback on usage counters for a previous  quota check operation
-     *  for the request.
+     *  Performs a basic quota check for this request using the uid/gid
+     *  from the request. Usage counters are updated for the user/group.
+     *  On case of error, the failure_response return values is not set, instead
+     *  the error reason is returned in error_str
+     *
      *    @param tmpl describing the object
+     *    @param object type of the object
      *    @param att the specific request attributes
+     *
+     *    @param error_str Error reason, if any
+     *    @return true if the user is authorized.
      */
-    void quota_rollback(Template * tmpl, RequestAttributes& att)
-    {
-        quota_rollback(tmpl, auth_object, att);
-    }
+    bool quota_authorization(
+            Template *          tmpl,
+            Quotas::QuotaType   qtype,
+            RequestAttributes&  att,
+            string&             error_str);
 
     /**
      *  Performs rollback on usage counters for a previous  quota check operation
@@ -200,8 +239,8 @@ protected:
      *    @param tmpl describing the object
      *    @param att the specific request attributes
      */
-    void quota_rollback(Template * tmpl,
-                        PoolObjectSQL::ObjectType object,
+    void quota_rollback(Template *         tmpl,
+                        Quotas::QuotaType  qtype,
                         RequestAttributes& att);
 
     /**
@@ -303,6 +342,7 @@ protected:
      *
      * @param perms returns the object's permissions
      * @param name returns the object's name
+     * @param throw_error send error response to client if object not found
      *
      * @return 0 on success, -1 otherwise
      */
@@ -311,27 +351,57 @@ protected:
                   PoolObjectSQL::ObjectType type,
                   RequestAttributes&        att,
                   PoolObjectAuth&           perms,
-                  string&                   name);
+                  string&                   name,
+                  bool                      throw_error);
+
+    /**
+     * Logs the method result, including the output data or error message
+     *
+     * @param att the specific request attributes
+     */
+    virtual void log_result(
+            const RequestAttributes&    att);
+
+    /**
+     * Formats and adds a xmlrpc_c::value to oss.
+     *
+     * @param v value to format
+     * @param oss stream to write v
+     */
+    virtual void log_xmlrpc_value(
+            const xmlrpc_c::value&  v,
+            ostringstream&          oss);
+
 private:
+
+    /**
+     * Logs the method invocation, including the arguments
+     *
+     * @param att the specific request attributes
+     * @param paramList list of XML parameters
+     */
+    void log_method_invoked(
+            const RequestAttributes&    att,
+            const xmlrpc_c::paramList&  paramList);
 
     /* ------------- Functions to manage user and group quotas -------------- */
 
     bool user_quota_authorization(Template * tmpl,
-                                  PoolObjectSQL::ObjectType object,
+                                  Quotas::QuotaType  qtype,
                                   RequestAttributes& att,
                                   string& error_str);
 
     bool group_quota_authorization(Template * tmpl,
-                                   PoolObjectSQL::ObjectType object,
+                                   Quotas::QuotaType  qtype,
                                    RequestAttributes& att,
                                    string& error_str);
 
     void user_quota_rollback(Template * tmpl,
-                             PoolObjectSQL::ObjectType object,
+                             Quotas::QuotaType  qtype,
                              RequestAttributes& att);
 
     void group_quota_rollback(Template * tmpl,
-                              PoolObjectSQL::ObjectType object,
+                              Quotas::QuotaType  qtype,
                               RequestAttributes& att);
 };
 

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -51,6 +51,7 @@ module OpenNebulaJSON
                 when "enable"  then self.enable
                 when "disable" then self.disable
                 when "update" then self.update(action_hash['params'])
+                when "rename" then self.rename(action_hash['params'])
                 else
                     error_msg = "#{action_hash['perform']} action not " <<
                                 " available for this resource"
@@ -62,5 +63,8 @@ module OpenNebulaJSON
             super(params['template_raw'])
         end
 
+        def rename(params=Hash.new)
+            super(params['name'])
+        end
     end
 end

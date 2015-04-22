@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -26,7 +26,7 @@
 /* Driver ASCII Protocol Implementation                                       */
 /* ************************************************************************** */
 
-void ImageManagerDriver::cp(int           oid, 
+void ImageManagerDriver::cp(int           oid,
                             const string& drv_msg) const
 {
     ostringstream os;
@@ -38,7 +38,18 @@ void ImageManagerDriver::cp(int           oid,
 
 /* -------------------------------------------------------------------------- */
 
-void ImageManagerDriver::stat(int           oid, 
+void ImageManagerDriver::clone(int           oid,
+                               const string& drv_msg) const
+{
+    ostringstream os;
+
+    os << "CLONE " << oid << " " << drv_msg << endl;
+
+    write(os);
+}
+
+/* -------------------------------------------------------------------------- */
+void ImageManagerDriver::stat(int           oid,
                               const string& drv_msg) const
 {
     ostringstream os;
@@ -50,13 +61,13 @@ void ImageManagerDriver::stat(int           oid,
 
 /* -------------------------------------------------------------------------- */
 
-void ImageManagerDriver::mkfs(int           oid, 
+void ImageManagerDriver::mkfs(int           oid,
                               const string& drv_msg) const
 {
     ostringstream os;
 
     os << "MKFS " << oid << " " << drv_msg << endl;
-    
+
     write(os);
 }
 
@@ -67,6 +78,17 @@ void ImageManagerDriver::rm(int oid, const string& drv_msg) const
     ostringstream os;
 
     os << "RM " << oid << " " << drv_msg << endl;
+
+    write(os);
+}
+
+/* -------------------------------------------------------------------------- */
+
+void ImageManagerDriver::monitor(int oid, const string& drv_msg) const
+{
+    ostringstream os;
+
+    os << "MONITOR " << oid << " " << drv_msg << endl;
 
     write(os);
 }
@@ -110,13 +132,14 @@ static void stat_action(istringstream& is, int id, const string& result)
 
 /* -------------------------------------------------------------------------- */
 
-static void cp_action(istringstream& is, 
-                      ImagePool*     ipool, 
-                      int            id, 
-                      const string&  result)
+static int cp_action(istringstream& is,
+                     ImagePool*     ipool,
+                     int            id,
+                     const string&  result)
 {
     string  source;
     string  info;
+    int     ds_id = -1;
 
     Image * image;
 
@@ -126,12 +149,32 @@ static void cp_action(istringstream& is,
 
     if ( image == 0 )
     {
-        return;
+        if (result == "SUCCESS")
+        {
+            ostringstream oss;
+
+            if ( is.good())
+            {
+                is >> source >> ws;
+            }
+
+            if (!source.empty())
+            {
+                oss << "CP operation succeeded but image no longer exists."
+                    << " Source image: " << source << ", may be left in datastore";
+
+                NebulaLog::log("ImM", Log::ERROR, oss);
+            }
+        }
+
+        return ds_id;
     }
+
+    ds_id = image->get_ds_id();
 
     if ( result == "FAILURE" )
     {
-       goto error; 
+       goto error;
     }
 
     if ( is.good() )
@@ -143,7 +186,7 @@ static void cp_action(istringstream& is,
     {
         goto error;
     }
-    
+
     image->set_source(source);
 
     image->set_state(Image::READY);
@@ -152,12 +195,13 @@ static void cp_action(istringstream& is,
 
     image->unlock();
 
-    NebulaLog::log("ImM", Log::INFO, "Image copied and ready to use.");
+    oss << "Image (" << id << ") copied and ready to use.";
+    NebulaLog::log("ImM", Log::INFO, oss);
 
-    return;
+    return ds_id;
 
 error:
-    oss << "Error copying image in the repository";
+    oss << "Error copying image in the datastore";
 
     getline(is, info);
 
@@ -165,7 +209,7 @@ error:
     {
         oss << ": " << info;
     }
-    
+
     NebulaLog::log("ImM", Log::ERROR, oss);
 
     image->set_template_error_message(oss.str());
@@ -175,41 +219,59 @@ error:
 
     image->unlock();
 
-    return;
+    return ds_id;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static void mkfs_action(istringstream& is, 
-                        ImagePool*     ipool, 
-                        int            id, 
+static int clone_action(istringstream& is,
+                        ImagePool*     ipool,
+                        int            id,
                         const string&  result)
 {
+    int     cloning_id;
+    int     ds_id = -1;
     string  source;
+    string  info;
+
     Image * image;
-    bool    is_saving;
 
-    string disk_id;
-    string vm_id;
-    string info;
-    int    rc;
+    ostringstream oss;
 
-    VirtualMachine * vm;
-    ostringstream    oss;
-
-    Nebula& nd                  = Nebula::instance();
-    VirtualMachinePool * vmpool = nd.get_vmpool();
+    Nebula& nd        = Nebula::instance();
+    ImageManager * im = nd.get_imagem();
 
     image = ipool->get(id, true);
 
     if ( image == 0 )
     {
-        return;
+        if (result == "SUCCESS")
+        {
+            ostringstream oss;
+
+            if ( is.good())
+            {
+                is >> source >> ws;
+            }
+
+            if (!source.empty())
+            {
+                oss << "CLONE operation succeeded but image no longer exists."
+                    << " Source image: " << source << ", may be left in datastore";
+
+                NebulaLog::log("ImM", Log::ERROR, oss);
+            }
+        }
+
+        return ds_id;
     }
+
+    ds_id      = image->get_ds_id();
+    cloning_id = image->get_cloning_id();
 
     if ( result == "FAILURE" )
     {
-       goto error_img; 
+       goto error;
     }
 
     if ( is.good() )
@@ -219,35 +281,143 @@ static void mkfs_action(istringstream& is,
 
     if ( is.fail() )
     {
-        goto error_img;
+        goto error;
     }
-
-    is_saving = image->isSaving();    
 
     image->set_source(source);
 
-    if (is_saving)
+    image->set_state(Image::READY);
+
+    image->clear_cloning_id();
+
+    ipool->update(image);
+
+    image->unlock();
+
+    NebulaLog::log("ImM", Log::INFO, "Image cloned and ready to use.");
+
+    im->release_cloning_image(cloning_id, id);
+
+    return ds_id;
+
+error:
+    oss << "Error cloning from Image " << cloning_id;
+
+    getline(is, info);
+
+    if (!info.empty() && (info[0] != '-'))
     {
+        oss << ": " << info;
+    }
+
+    NebulaLog::log("ImM", Log::ERROR, oss);
+
+    image->set_template_error_message(oss.str());
+    image->set_state(Image::ERROR);
+
+    image->clear_cloning_id();
+
+    ipool->update(image);
+
+    image->unlock();
+
+    im->release_cloning_image(cloning_id, id);
+
+    return ds_id;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static int mkfs_action(istringstream& is,
+                       ImagePool*     ipool,
+                       int            id,
+                       const string&  result)
+{
+    string  source;
+    Image * image;
+    bool    is_saving = false;
+    bool    is_hot    = false;
+
+    string info;
+    int    rc;
+
+    int vm_id = -1;
+    int ds_id = -1;
+
+    int disk_id;
+
+    VirtualMachine * vm;
+    ostringstream    oss;
+
+    Nebula& nd                  = Nebula::instance();
+    VirtualMachinePool * vmpool = nd.get_vmpool();
+    TransferManager *  tm       = nd.get_tm();
+
+    image = ipool->get(id, true);
+
+    if ( image == 0 )
+    {
+        if (result == "SUCCESS")
+        {
+            ostringstream oss;
+
+            if ( is.good())
+            {
+                is >> source >> ws;
+            }
+
+            if (!source.empty())
+            {
+                oss << "MkFS operation succeeded but image no longer exists."
+                    << " Source image: " << source << ", may be left in datastore";
+
+                NebulaLog::log("ImM", Log::ERROR, oss);
+            }
+        }
+
+        return ds_id;
+    }
+
+    is_saving = image->isSaving();
+    is_hot    = image->isHot();
+    ds_id     = image->get_ds_id();
+
+    if ( is_saving )
+    {
+        image->get_template_attribute("SAVED_VM_ID", vm_id);
         image->get_template_attribute("SAVED_DISK_ID", disk_id);
-        image->get_template_attribute("SAVED_VM_ID",   vm_id);
+    }
+
+    if ( result == "FAILURE" )
+    {
+        goto error_img;
+    }
+
+    if ( !is.fail() )
+    {
+        is >> source >> ws;
     }
     else
     {
-        image->set_state(Image::READY);
+        goto error_img;
+    }
 
-        NebulaLog::log("ImM", Log::INFO, "Image created and ready to use");
+    image->set_source(source);
+
+    if (!is_saving)
+    {
+        image->set_state(Image::READY);
     }
 
     ipool->update(image);
 
     image->unlock();
 
-    if ( ! is_saving )
+    if ( !is_saving )
     {
-        return;
+        NebulaLog::log("ImM", Log::INFO, "Image created and ready to use");
+        return ds_id;
     }
-
-    /* ---------------- Set up information for the Saved Image -------------- */
 
     vm = vmpool->get(vm_id, true);
 
@@ -256,18 +426,34 @@ static void mkfs_action(istringstream& is,
         goto error_save_get;
     }
 
-    rc = vm->save_disk(disk_id, source, id);
-
-    if ( rc == -1 )
+    if ( is_hot ) //Saveas hot, trigger disk copy
     {
-        goto error_save_state;
+        rc = vm->save_disk_hot(disk_id, source, id);
+
+        if ( rc == -1 )
+        {
+            goto error_save_state;
+        }
+
+        tm->trigger(TransferManager::SAVEAS_HOT, vm_id);
+    }
+    else //setup disk information
+    {
+        rc = vm->save_disk(disk_id, source, id);
+
+        if ( rc == -1 )
+        {
+            goto error_save_state;
+        }
+
+        vm->clear_saveas_state(disk_id, is_hot);
     }
 
     vmpool->update(vm);
 
     vm->unlock();
 
-    return;
+    return ds_id;
 
 error_img:
     oss << "Error creating datablock";
@@ -287,7 +473,7 @@ error_save:
     if ( image == 0 )
     {
         NebulaLog::log("ImM", Log::ERROR, oss);
-        return;
+        return ds_id;
     }
 
 error:
@@ -297,7 +483,7 @@ error:
     {
         oss << ": " << info;
     }
-    
+
     NebulaLog::log("ImM", Log::ERROR, oss);
 
     image->set_template_error_message(oss.str());
@@ -307,17 +493,30 @@ error:
 
     image->unlock();
 
-    return ;
+    if (is_saving && vm_id != -1)
+    {
+        if ((vm = vmpool->get(vm_id, true)) != 0)
+        {
+            vm->clear_saveas_state(disk_id, is_hot);
+            vmpool->update(vm);
+
+            vm->unlock();
+        }
+    }
+
+    return ds_id;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static void rm_action(istringstream& is, 
-                      ImagePool*     ipool, 
-                      int            id, 
-                      const string&  result)
+static int rm_action(istringstream& is,
+                     ImagePool*     ipool,
+                     int            id,
+                     const string&  result)
 {
-    int     rc;
+    int rc;
+    int ds_id = -1;
+
     string  tmp_error;
     string  source;
     string  info;
@@ -329,9 +528,10 @@ static void rm_action(istringstream& is,
 
     if ( image == 0 )
     {
-        return;
+        return ds_id;
     }
 
+    ds_id  = image->get_ds_id();
     source = image->get_source();
 
     rc = ipool->drop(image, tmp_error);
@@ -340,7 +540,7 @@ static void rm_action(istringstream& is,
 
     if ( result == "FAILURE" )
     {
-       goto error; 
+       goto error;
     }
     else if ( rc < 0 )
     {
@@ -349,14 +549,14 @@ static void rm_action(istringstream& is,
 
     NebulaLog::log("ImM", Log::INFO, "Image successfully removed.");
 
-    return;
+    return ds_id;
 
 error_drop:
-    oss << "Error removing image from DB: " << tmp_error 
+    oss << "Error removing image from DB: " << tmp_error
         << ". Remove image source " << source << " to completely delete image.";
 
     NebulaLog::log("ImM", Log::ERROR, oss);
-    return;
+    return ds_id;
 
 error:
     oss << "Error removing image from datastore. Manually remove image source "
@@ -368,15 +568,100 @@ error:
     {
         oss << ": " << info;
     }
-    
+
     NebulaLog::log("ImM", Log::ERROR, oss);
 
-    image->set_template_error_message(oss.str());
-    image->set_state(Image::ERROR);
+    return ds_id;
+}
 
-    ipool->update(image);
+/* -------------------------------------------------------------------------- */
 
-    image->unlock();
+static void monitor_action(istringstream& is,
+                           DatastorePool* dspool,
+                           int            id,
+                           const string&  result)
+{
+    string  dsinfo64;
+    string *dsinfo = 0;
+
+    ostringstream oss;
+
+    getline (is, dsinfo64);
+
+    if (is.fail())
+    {
+        oss << "Error monitoring datastore " << id << ". Bad monitor data: "
+            << dsinfo64;
+
+        NebulaLog::log("ImM", Log::ERROR, oss);
+        return;
+    }
+
+    dsinfo = one_util::base64_decode(dsinfo64);
+
+    if (dsinfo == 0)
+    {
+        oss << "Error monitoring datastore " << id << ". Bad monitor data: "
+            << dsinfo64;
+
+        NebulaLog::log("ImM", Log::ERROR, oss);
+        return;
+    }
+
+    if (result != "SUCCESS")
+    {
+        oss << "Error monitoring datastore " << id << ": " << *dsinfo;
+        NebulaLog::log("ImM", Log::ERROR, oss);
+
+        delete dsinfo;
+        return;
+    }
+
+    Template monitor_data;
+
+    char*  error_msg;
+    int    rc = monitor_data.parse(*dsinfo, &error_msg);
+
+    if ( rc != 0 )
+    {
+        oss << "Error parsing datastore information: " << error_msg
+            << ". Monitoring information: " << endl << *dsinfo;
+
+        NebulaLog::log("ImM", Log::ERROR, oss);
+
+        delete dsinfo;
+        free(error_msg);
+
+        return;
+    }
+
+    delete dsinfo;
+
+    float  total, free, used;
+    string ds_name;
+
+    monitor_data.get("TOTAL_MB", total);
+    monitor_data.get("FREE_MB", free);
+    monitor_data.get("USED_MB", used);
+
+    Datastore * ds = dspool->get(id, true);
+
+    if (ds == 0 )
+    {
+        return;
+    }
+
+    ds_name = ds->get_name();
+
+    ds->update_monitor(total, free, used);
+
+    dspool->update(ds);
+
+    ds->unlock();
+
+    oss << "Datastore " << ds_name << " (" << id << ") successfully monitored.";
+
+    NebulaLog::log("ImM", Log::DEBUG, oss);
 
     return;
 }
@@ -384,8 +669,7 @@ error:
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-void ImageManagerDriver::protocol(
-    string&     message)
+void ImageManagerDriver::protocol(const string& message) const
 {
     istringstream is(message);
     ostringstream oss;
@@ -393,11 +677,13 @@ void ImageManagerDriver::protocol(
     string action;
     string result;
     string source;
-    string info; 
-    int    id;
-    
+    string info;
+
+    int id;
+    int ds_id = -1;
+
     oss << "Message received: " << message;
-    NebulaLog::log("ImG", Log::DEBUG, oss);
+    NebulaLog::log("ImG", Log::DDEBUG, oss);
 
     // --------------------- Parse the driver message --------------------------
 
@@ -437,20 +723,36 @@ void ImageManagerDriver::protocol(
     }
     else if ( action == "CP" )
     {
-        cp_action(is, ipool, id, result);
+        ds_id = cp_action(is, ipool, id, result);
+    }
+    else if ( action == "CLONE" )
+    {
+        ds_id = clone_action(is, ipool, id, result);
     }
     else if ( action == "MKFS" )
     {
-        mkfs_action(is, ipool, id, result);
+        ds_id = mkfs_action(is, ipool, id, result);
     }
     else if ( action == "RM" )
     {
-        rm_action(is, ipool, id, result);
+        ds_id = rm_action(is, ipool, id, result);
+    }
+    else if ( action == "MONITOR" )
+    {
+        monitor_action(is, dspool, id, result);
     }
     else if (action == "LOG")
     {
         getline(is,info);
         NebulaLog::log("ImM", log_type(result[0]), info.c_str());
+    }
+
+    if (ds_id != -1)
+    {
+        Nebula& nd        = Nebula::instance();
+        ImageManager * im = nd.get_imagem();
+
+        im->monitor_datastore(ds_id);
     }
 
     return;

@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -21,125 +21,10 @@
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 
-static void parse_vm_arguments(VirtualMachine *vm, string& parsed)
-{
-    size_t  found;
-
-    found = parsed.find("$VMID");
-
-    if ( found !=string::npos )
-    {
-        ostringstream oss;
-        oss << vm->get_oid();
-
-        parsed.replace(found,5,oss.str());
-    }
-
-    found = parsed.find("$TEMPLATE");
-
-    if ( found != string::npos )
-    {
-        string templ;
-        parsed.replace(found,9,vm->to_xml64(templ));
-    }
-}
-
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-
-void VirtualMachineAllocateHook::do_hook(void *arg)
-{
-    VirtualMachine * vm;
-    string           parsed_args = args;
-
-    vm = static_cast<VirtualMachine *>(arg);
-
-    if ( vm == 0 )
-    {
-        return;
-    }
-
-    parse_vm_arguments(vm, parsed_args);
-
-    Nebula& ne                    = Nebula::instance();
-    HookManager * hm              = ne.get_hm();
-    const HookManagerDriver * hmd = hm->get();
-
-    if ( hmd != 0 )
-    {
-        hmd->execute(vm->get_oid(),name,cmd,parsed_args);
-    }
-}
-
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-
-map<int,VirtualMachineStateMapHook::VmStates>
-                                     VirtualMachineStateMapHook::vm_states;
-
-// -----------------------------------------------------------------------------
-
-int VirtualMachineStateMapHook::get_state(int id,
-        VirtualMachine::LcmState &lcm_state,
-        VirtualMachine::VmState  &vm_state)
-{
-    map<int,VmStates>::iterator it;
-
-    it = vm_states.find(id);
-
-    if ( it == vm_states.end() )
-    {
-        return -1;
-    }
-
-    lcm_state = it->second.lcm;
-    vm_state  = it->second.vm;
-
-    return 0;
-}
-
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-
-void VirtualMachineStateMapHook::update_state (int id,
-        VirtualMachine::LcmState lcm_state,
-        VirtualMachine::VmState  vm_state)
-{
-    map<int,VmStates>::iterator it;
-
-    it = vm_states.find(id);
-
-    if ( it == vm_states.end() )
-    {
-        VmStates states(lcm_state, vm_state);
-
-        vm_states.insert(make_pair(id,states));
-    }
-    else
-    {
-        if ( vm_state == VirtualMachine::DONE )
-        {
-            vm_states.erase(it);
-        }
-        else
-        {
-            it->second.lcm = lcm_state;
-            it->second.vm  = vm_state;
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-
 void VirtualMachineStateHook::do_hook(void *arg)
 {
 
     VirtualMachine * vm;
-    int              rc;
-
-    VirtualMachine::LcmState prev_lcm, cur_lcm;
-    VirtualMachine::VmState  prev_vm, cur_vm;
 
     vm = static_cast<VirtualMachine *>(arg);
 
@@ -148,26 +33,14 @@ void VirtualMachineStateHook::do_hook(void *arg)
         return;
     }
 
-    rc = get_state(vm->get_oid(), prev_lcm, prev_vm);
-
-    if ( rc != 0 )
-    {
-        return;
-    }
-
-    cur_lcm = vm->get_lcm_state();
-    cur_vm  = vm->get_state();
-
-    if ( prev_lcm == cur_lcm && prev_vm == cur_vm ) //Still in the same state
-    {
-        return;
-    }
-
-    if ( cur_lcm == lcm && cur_vm == this->vm )
+    if ( vm->has_changed_state() && 
+         vm->get_lcm_state() == lcm && 
+         vm->get_state() == this->vm )
     {
         string  parsed_args = args;
 
-        parse_vm_arguments(vm,parsed_args);
+        parse_hook_arguments(vm, vm->get_prev_state(), vm->get_prev_lcm_state(),
+            parsed_args);
 
         Nebula& ne        = Nebula::instance();
         HookManager * hm  = ne.get_hm();
@@ -178,7 +51,7 @@ void VirtualMachineStateHook::do_hook(void *arg)
         {
             if ( ! remote )
             {
-                hmd->execute(vm->get_oid(),name,cmd,parsed_args);
+                hmd->execute(vm->get_oid(), name, cmd, parsed_args);
             }
             else if ( vm->hasHistory() )
             {
@@ -191,22 +64,32 @@ void VirtualMachineStateHook::do_hook(void *arg)
         }
     }
 }
-
 // -----------------------------------------------------------------------------
 // -----------------------------------------------------------------------------
 
-void VirtualMachineUpdateStateHook::do_hook(void *arg)
+void VirtualMachineStateHook::parse_hook_arguments(PoolObjectSQL * obj,
+            VirtualMachine::VmState prev_dm, VirtualMachine::LcmState prev_lcm,
+            string& parsed)
 {
-    VirtualMachine * vm = static_cast<VirtualMachine *>(arg);
+    Hook::parse_hook_arguments(obj, parsed);
 
-    if ( vm == 0 )
+    size_t  found;
+
+    found = parsed.find("$PREV_STATE");
+
+    if ( found !=string::npos )
     {
-        return;
+        string str;
+
+        parsed.replace(found, 11, VirtualMachine::vm_state_to_str(str, prev_dm));
     }
 
-    update_state(vm->get_oid(), vm->get_lcm_state(), vm->get_state());
+    found = parsed.find("$PREV_LCM_STATE");
+
+    if ( found != string::npos )
+    {
+        string str;
+
+        parsed.replace(found, 15, VirtualMachine::lcm_state_to_str(str, prev_lcm));
+    }
 }
-
-// -----------------------------------------------------------------------------
-// -----------------------------------------------------------------------------
-

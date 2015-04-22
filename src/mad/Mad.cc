@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -196,8 +196,8 @@ int Mad::start()
             FD_ZERO(&rfds);
             FD_SET(mad_nebula_pipe, &rfds);
 
-            // Wait up to 5 seconds
-            tv.tv_sec  = 5;
+            // Wait up to 30 seconds
+            tv.tv_sec  = 30;
             tv.tv_usec = 0;
 
             rc = select(mad_nebula_pipe+1,&rfds,0,0, &tv);

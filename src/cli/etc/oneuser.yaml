@@ -10,7 +10,7 @@
 
 :GROUP: 
   :desc: Group of the User
-  :size: 8
+  :size: 10
   :left: true
 
 :AUTH: 
@@ -20,15 +20,15 @@
 
 :VMS: 
   :desc: Number of VMS
-  :size: 8 
+  :size: 9
 
 :MEMORY:
   :desc: Total memory allocated to user VMs
-  :size: 8
+  :size: 17
 
 :CPU:
   :desc: Total CPU allocated to user VMs
-  :size: 8
+  :size: 11
 
 :PASSWORD: 
   :desc: Password of the User
@@ -36,8 +36,8 @@
 
 :default:
 - :ID
-- :GROUP
 - :NAME
+- :GROUP
 - :AUTH
 - :VMS
 - :MEMORY

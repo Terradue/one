@@ -1,5 +1,5 @@
 /* -------------------------------------------------------------------------- */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        */
 /*                                                                            */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may    */
 /* not use this file except in compliance with the License. You may obtain    */
@@ -27,21 +27,45 @@
 /* -------------------------------------------------------------------------- */
 string ImagePool::_default_type;
 string ImagePool::_default_dev_prefix;
+string ImagePool::_default_cdrom_dev_prefix;
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-ImagePool::ImagePool(SqlDB *       db,
-                     const string& __default_type,
-                     const string& __default_dev_prefix,
-                     vector<const Attribute *>& restricted_attrs):
-                        PoolSQL(db, Image::table, true)
+ImagePool::ImagePool(
+        SqlDB *                             db,
+        const string&                       __default_type,
+        const string&                       __default_dev_prefix,
+        const string&                       __default_cdrom_dev_prefix,
+        vector<const Attribute *>&          restricted_attrs,
+        vector<const Attribute *>           hook_mads,
+        const string&                       remotes_location,
+        const vector<const Attribute *>&    _inherit_image_attrs,
+        const vector<const Attribute *>&    _inherit_datastore_attrs)
+    :PoolSQL(db, Image::table, true, true)
 {
-    ostringstream sql;
-
     // Init static defaults
     _default_type       = __default_type;
     _default_dev_prefix = __default_dev_prefix;
+
+    _default_cdrom_dev_prefix = __default_cdrom_dev_prefix;
+
+    // Init inherit attributes
+    vector<const Attribute *>::const_iterator it;
+
+    for (it = _inherit_image_attrs.begin(); it != _inherit_image_attrs.end(); it++)
+    {
+        const SingleAttribute* sattr = static_cast<const SingleAttribute *>(*it);
+
+        inherit_image_attrs.push_back(sattr->value());
+    }
+
+    for (it = _inherit_datastore_attrs.begin(); it != _inherit_datastore_attrs.end(); it++)
+    {
+        const SingleAttribute* sattr = static_cast<const SingleAttribute *>(*it);
+
+        inherit_datastore_attrs.push_back(sattr->value());
+    }
 
     // Set default type
     if (_default_type != "OS"       &&
@@ -52,46 +76,72 @@ ImagePool::ImagePool(SqlDB *       db,
         _default_type = "OS";
     }
 
-    // Set restricted attributes
     ImageTemplate::set_restricted_attributes(restricted_attrs);
+
+    register_hooks(hook_mads, remotes_location);
 }
 
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 int ImagePool::allocate (
-        int             uid,
-        int             gid,
-        const string&   uname,
-        const string&   gname,
-        ImageTemplate*  img_template,
-        int             ds_id,
-        const string&   ds_name,
-        Image::DiskType disk_type,
-        const string&   ds_data,
-        int *           oid,
-        string&         error_str)
+        int                      uid,
+        int                      gid,
+        const string&            uname,
+        const string&            gname,
+        int                      umask,
+        ImageTemplate *          img_template,
+        int                      ds_id,
+        const string&            ds_name,
+        Image::DiskType          disk_type,
+        const string&            ds_data,
+        Datastore::DatastoreType ds_type,
+        int                      cloning_id,
+        int *                    oid,
+        string&                  error_str)
 {
+    Nebula&         nd     = Nebula::instance();
+    ImageManager *  imagem = nd.get_imagem();
+
     Image *         img;
     Image *         img_aux = 0;
     string          name;
+    string          type;
     ostringstream   oss;
 
-    img = new Image(uid, gid, uname, gname, img_template);
+    img = new Image(uid, gid, uname, gname, umask, img_template);
 
     // -------------------------------------------------------------------------
     // Check name & duplicates
     // -------------------------------------------------------------------------
     img->get_template_attribute("NAME", name);
 
-    if ( name.empty() )
+    if ( !PoolObjectSQL::name_is_valid(name, error_str) )
     {
         goto error_name;
     }
 
-    if ( name.length() > 128 )
+    img->get_template_attribute("TYPE", type);
+
+    switch (img->str_to_type(type))
     {
-        goto error_name_length;
+        case Image::OS:
+        case Image::DATABLOCK:
+        case Image::CDROM:
+            if ( ds_type != Datastore::IMAGE_DS  )
+            {
+                goto error_types_missmatch_file;
+            }
+        break;
+
+        case Image::KERNEL:
+        case Image::RAMDISK:
+        case Image::CONTEXT:
+            if ( ds_type != Datastore::FILE_DS  )
+            {
+                goto error_types_missmatch_image;
+            }
+        break;
     }
 
     img_aux = get(name,uid,false);
@@ -103,47 +153,89 @@ int ImagePool::allocate (
 
     img->ds_name = ds_name;
     img->ds_id   = ds_id;
-    
+
     img->disk_type = disk_type;
+
+    if ( cloning_id != -1 )
+    {
+        if (imagem->can_clone_image(cloning_id, oss) == -1)
+        {
+            goto error_clone_state;
+        }
+
+        img->set_cloning_id(cloning_id);
+    }
 
     // ---------------------------------------------------------------------
     // Insert the Object in the pool & Register the image in the repository
     // ---------------------------------------------------------------------
     *oid = PoolSQL::allocate(img, error_str);
-    
+
     if ( *oid != -1 )
     {
-        Nebula&        nd     = Nebula::instance();
-        ImageManager * imagem = nd.get_imagem();
-
-        if ( imagem->register_image(*oid, ds_data) == -1 )
+        if (cloning_id == -1)
         {
-            error_str = "Failed to copy image to repository. "
-                        "Image left in ERROR state.";
-            return -1;
+            if ( imagem->register_image(*oid, ds_data, error_str) == -1 )
+            {
+                img = get(*oid, true);
+
+                if ( img != 0 )
+                {
+                    string aux_str;
+
+                    drop(img, aux_str);
+
+                    img->unlock();
+                }
+
+                *oid = -1;
+                return -1;
+            }
+        }
+        else
+        {
+            if (imagem->clone_image(*oid, cloning_id, ds_data, error_str) == -1)
+            {
+                img = get(*oid, true);
+
+                if ( img != 0 )
+                {
+                    string aux_str;
+
+                    drop(img, aux_str);
+
+                    img->unlock();
+                }
+
+                *oid = -1;
+                return -1;
+            }
         }
     }
 
     return *oid;
 
-error_name:
-    oss << "NAME cannot be empty.";
+error_types_missmatch_file:
+    error_str = "Only IMAGES of type KERNEL, RAMDISK and CONTEXT can be"
+                " registered in a FILE_DS datastore";
     goto error_common;
 
-error_name_length:
-    oss << "NAME is too long; max length is 128 chars.";
+error_types_missmatch_image:
+    error_str = "IMAGES of type KERNEL, RAMDISK and CONTEXT cannot be registered"
+                " in an IMAGE_DS datastore";
     goto error_common;
 
 error_duplicated:
-    oss << "NAME is already taken by IMAGE "
-        << img_aux->get_oid() << ".";
+    oss << "NAME is already taken by IMAGE " << img_aux->get_oid() << ".";
+    error_str = oss.str();
+
     goto error_common;
 
+error_name:
+error_clone_state:
 error_common:
     delete img;
-
     *oid = -1;
-    error_str = oss.str();
 
     return *oid;
 }
@@ -151,7 +243,7 @@ error_common:
 /* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
-static int get_disk_uid(VectorAttribute *  disk, int _uid)
+int ImagePool::get_disk_uid(VectorAttribute *  disk, int _uid)
 {
     istringstream  is;
 
@@ -174,9 +266,9 @@ static int get_disk_uid(VectorAttribute *  disk, int _uid)
         User *     user;
         Nebula&    nd    = Nebula::instance();
         UserPool * upool = nd.get_upool();
-        
+
         user = upool->get(uname,true);
-        
+
         if ( user == 0 )
         {
             return -1;
@@ -188,15 +280,15 @@ static int get_disk_uid(VectorAttribute *  disk, int _uid)
     }
     else
     {
-        uid = _uid;        
+        uid = _uid;
     }
 
     return uid;
 }
-        
+
 /* -------------------------------------------------------------------------- */
 
-static int get_disk_id(const string& id_s)
+int ImagePool::get_disk_id(const string& id_s)
 {
     istringstream  is;
     int            id;
@@ -214,7 +306,8 @@ static int get_disk_id(const string& id_s)
 
 /* -------------------------------------------------------------------------- */
 
-int ImagePool::disk_attribute(VectorAttribute * disk,
+int ImagePool::disk_attribute(int               vm_id,
+                              VectorAttribute * disk,
                               int               disk_id,
                               Image::ImageType& img_type,
                               string&           dev_prefix,
@@ -236,14 +329,19 @@ int ImagePool::disk_attribute(VectorAttribute * disk,
     if (!(source = disk->vector_value("IMAGE")).empty())
     {
         int uiid = get_disk_uid(disk,uid);
-       
+
         if ( uiid == -1)
         {
-            error_str = "Cannot get user set in IMAGE_UID or IMAGE_UNAME.";
-            return -1; 
+            ostringstream oss;
+
+            oss << "User " << uid << " does not own an image with name: "
+                << source << " . Set IMAGE_UNAME or IMAGE_UID of owner in DISK.";
+            error_str =  oss.str();
+
+            return -1;
         }
 
-        img = imagem->acquire_image(source, uiid, error_str);
+        img = imagem->acquire_image(vm_id, source, uiid, error_str);
 
         if ( img == 0 )
         {
@@ -259,10 +357,10 @@ int ImagePool::disk_attribute(VectorAttribute * disk,
         if ( iid == -1)
         {
             error_str = "Wrong ID set in IMAGE_ID";
-            return -1; 
+            return -1;
         }
 
-        img = imagem->acquire_image(iid, error_str);
+        img = imagem->acquire_image(vm_id, iid, error_str);
 
         if ( img == 0 )
         {
@@ -275,15 +373,31 @@ int ImagePool::disk_attribute(VectorAttribute * disk,
 
         transform(type.begin(),type.end(),type.begin(),(int(*)(int))toupper);
 
-        if ( type == "SWAP" || type == "FS" ) 
-        {
-            dev_prefix = _default_dev_prefix;
-            img_type   = Image::DATABLOCK;
-        }
-        else
+        if ( type != "SWAP" && type != "FS" )
         {
             error_str = "Unknown disk type " + type;
             return -1;
+        }
+
+        int rc;
+        long long size;
+
+        rc = disk->vector_value("SIZE", size);
+
+        if ( rc != 0 || size <= 0 )
+        {
+            error_str = "SIZE attribute must be a positive integer value.";
+            return -1;
+        }
+
+        img_type   = Image::DATABLOCK;
+        dev_prefix = disk->vector_value("DEV_PREFIX");
+
+        if ( dev_prefix.empty() ) //DEV_PEFIX not in DISK, get default
+        {
+            dev_prefix = _default_dev_prefix;
+
+            disk->replace("DEV_PREFIX", dev_prefix);
         }
     }
 
@@ -293,7 +407,7 @@ int ImagePool::disk_attribute(VectorAttribute * disk,
         Datastore *     ds;
 
         iid = img->get_oid();
-        rc  = img->disk_attribute(disk, img_type, dev_prefix);
+        rc  = img->disk_attribute(disk, img_type, dev_prefix, inherit_image_attrs);
 
         image_id     = img->get_oid();
         datastore_id = img->get_ds_id();
@@ -302,7 +416,7 @@ int ImagePool::disk_attribute(VectorAttribute * disk,
 
         if (rc == -1)
         {
-            imagem->release_image(iid, false);
+            imagem->release_image(vm_id, iid, false);
             error_str = "Unknown internal error";
 
             return -1;
@@ -312,13 +426,13 @@ int ImagePool::disk_attribute(VectorAttribute * disk,
 
         if ( ds == 0 )
         {
-            imagem->release_image(iid, false);
+            imagem->release_image(vm_id, iid, false);
             error_str = "Associated datastore for the image does not exist";
 
             return -1;
         }
 
-        ds->disk_attribute(disk);
+        ds->disk_attribute(disk, inherit_datastore_attrs);
 
         ds->unlock();
     }
@@ -336,16 +450,16 @@ void ImagePool::authorize_disk(VectorAttribute * disk,int uid, AuthRequest * ar)
 {
     string          source;
     Image *         img = 0;
-    
+
     PoolObjectAuth  perm;
 
     if (!(source = disk->vector_value("IMAGE")).empty())
     {
         int uiid = get_disk_uid(disk,uid);
-       
+
         if ( uiid == -1)
         {
-            return; 
+            return;
         }
 
         img = get(source , uiid, true);
@@ -361,7 +475,7 @@ void ImagePool::authorize_disk(VectorAttribute * disk,int uid, AuthRequest * ar)
 
         if ( iid == -1)
         {
-            return; 
+            return;
         }
 
         img = get(iid, true);

@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -17,11 +17,45 @@
 require 'rubygems'
 require 'erb'
 require 'time'
-require 'AWS'
 require 'base64'
-require 'CloudServer'
+require 'uuidtools'
+require 'AWS'
 
+require 'CloudServer'
 require 'ImageEC2'
+
+require 'ebs'
+require 'elastic_ip'
+require 'instance'
+require 'keypair'
+require 'tags'
+
+################################################################################
+#  Extends the OpenNebula::Error class to include an EC2 render of error
+#  messages
+################################################################################
+
+module OpenNebula
+    EC2_ERROR = %q{
+        <Response>
+            <RequestId/>
+            <Errors>
+                <Error>
+                    <Code><%= (@ec2_code||'UnsupportedOperation') %></Code>
+                    <Message><%= @message %></Message>
+                </Error>
+            </Errors>
+        </Response>
+    }
+
+    class Error
+        attr_accessor :ec2_code
+
+        def to_ec2
+            ERB.new(EC2_ERROR).result(binding)
+        end
+    end
+end
 
 ###############################################################################
 # The EC2Query Server implements a EC2 compatible server based on the
@@ -29,50 +63,43 @@ require 'ImageEC2'
 ###############################################################################
 class EC2QueryServer < CloudServer
 
-    ###########################################################################
-    # Class Constants. Defined the EC2 and OpenNebula State mapping
-    ###########################################################################
-    EC2_STATES={
-        :pending    => {:code => 0, :name => 'pending'},
-        :running    => {:code => 16,:name => 'running'},
-        :shutdown   => {:code => 32,:name => 'shutting-down'},
-        :terminated => {:code => 48,:name => 'terminated'}
-    }
+    include ElasticIP
+    include Keypair
+    include EBS
+    include Instance
+    include Tags
 
-    ONE_STATES={
-        'init' => :pending,
-        'pend' => :pending,
-        'hold' => :pending,
-        'stop' => :pending,
-        'susp' => :pending,
-        'done' => :terminated,
-        'fail' => :terminated,
-        'prol' => :pending,
-        'boot' => :running,
-        'runn' => :running,
-        'migr' => :running,
-        'save' => :pending,
-        'epil' => :shutdown,
-        'shut' => :shutdown,
-        'clea' => :shutdown,
-        'fail' => :terminated,
-        'unkn' => :terminated
-    }
-
-    ###########################################################################
-
+    ############################################################################
+    #
+    #
+    ############################################################################
     def initialize(client, oneadmin_client, config, logger)
         super(config, logger)
 
-        @client = client
+        @client          = client
         @oneadmin_client = oneadmin_client
 
-        if @config[:elasticips_vnet_id].nil?
-            logger.error { 'ElasticIP module not loaded' }
+        if config[:ssl_server]
+            @base_url=config[:ssl_server]
         else
-            require 'elastic_ip'
-            extend ElasticIP
+            @base_url="http://#{config[:host]}:#{config[:port]}"
         end
+
+        @request_id = UUIDTools::UUID.random_create.to_s
+    end
+
+    ###########################################################################
+    # Regions and Availability Zones
+    ###########################################################################
+
+    def describe_availability_zones(params)
+        response = ERB.new(File.read(@config[:views]+"/describe_availability_zones.erb"))
+        return response.result(binding), 200
+    end
+
+    def describe_regions(params)
+        response = ERB.new(File.read(@config[:views]+"/describe_regions.erb"))
+        return response.result(binding), 200
     end
 
     ###########################################################################
@@ -80,16 +107,19 @@ class EC2QueryServer < CloudServer
     ###########################################################################
 
     def upload_image(params)
-        image = ImageEC2.new(Image.build_xml, @client, params['file'])
+        image = ImageEC2.new(Image.build_xml,
+                    @client,
+                    params['file'],
+                    {:type => "OS"})
 
         template = image.to_one_template
         if OpenNebula.is_error?(template)
-            return OpenNebula::Error.new('Unsupported'), 400
+            return template
         end
 
         rc = image.allocate(template, @config[:datastore_id]||1)
         if OpenNebula.is_error?(rc)
-            return OpenNebula::Error.new('Unsupported'), 400
+            return rc
         end
 
         erb_version = params['Version']
@@ -98,19 +128,34 @@ class EC2QueryServer < CloudServer
         return response.result(binding), 200
     end
 
+    # TODO Kernel, Ramdisk, Arch, BlockDeviceMapping
     def register_image(params)
         # Get the Image ID
-        tmp, img=params['ImageLocation'].split('-')
+        image_id = params['ImageLocation']
 
-        image = Image.new(Image.build_xml(img.to_i), @client)
-
-        # Enable the new Image
+        if image_id =~ /ami\-(.+)/
+            image_id = $1
+        end
+        
+        image = ImageEC2.new(Image.build_xml(image_id.to_i), @client)
         rc = image.info
         if OpenNebula.is_error?(rc)
-            return OpenNebula::Error.new('InvalidAMIID.NotFound'), 400
+            return rc
         end
 
-        image.enable
+        if image["EBS_VOLUME"] == "YES"
+            return OpenNebula::Error.new("The image you are trying to register"\
+                " is already a volume")
+        elsif image["EBS_SNAPSHOT"] == "YES"
+            return OpenNebula::Error.new("The image you are trying to register"\
+                " is already an snapshot")
+        end
+
+        image.add_element('TEMPLATE', {"EC2_AMI" => "YES"})
+        rc = image.update
+        if OpenNebula.is_error?(rc)
+            return rc
+        end
 
         erb_version = params['Version']
 
@@ -119,9 +164,34 @@ class EC2QueryServer < CloudServer
     end
 
     def describe_images(params)
-        user_flag = OpenNebula::Pool::INFO_ALL
-        impool = ImagePool.new(@client, user_flag)
-        impool.info
+        impool = []
+        params.each { |key, value|
+            if key =~ /ImageId\./
+                if value =~ /ami\-(.+)/
+                    image = ImageEC2.new(Image.build_xml($1), @client)
+                    rc = image.info
+                    if OpenNebula.is_error?(rc) || !image.ec2_ami?
+                        rc ||= OpenNebula::Error.new()
+                        rc.ec2_code = "InvalidAMIID.NotFound"
+                        return rc
+                    else
+                        impool << image
+                    end
+                else
+                    rc = OpenNebula::Error.new("InvalidAMIID.Malformed #{value}")
+                    rc.ec2_code = "InvalidAMIID.Malformed"
+                    return rc
+                end
+            end
+        }
+
+        if impool.empty?
+            user_flag = OpenNebula::Pool::INFO_ALL
+            impool = ImageEC2Pool.new(@client, user_flag)
+
+            rc = impool.info
+            return rc if OpenNebula::is_error?(rc)
+        end
 
         erb_version = params['Version']
 
@@ -129,127 +199,47 @@ class EC2QueryServer < CloudServer
         return response.result(binding), 200
     end
 
-    ###########################################################################
-    # Instance Interface
-    ###########################################################################
+    # TODO: NoReboot = false, cleanly shut down the instance before image
+    #   creation and then reboots the instance.
+    # TODO: If you customized your instance with instance store volumes
+    #   or EBS volumes in addition to the root device volume, the
+    #   new AMI contains block device mapping information for those volumes
+    def create_image(params)
+        instance_id = params['InstanceId']
+        instance_id = instance_id.split('-')[1]
 
-    def run_instances(params)
-        # Get the instance type and path
-        if params['InstanceType'] != nil
-            instance_type_name = params['InstanceType']
-            instance_type      = @config[:instance_types][instance_type_name.to_sym]
+        vm = VirtualMachine.new(
+                VirtualMachine.build_xml(instance_id),
+                @client)
 
-            if instance_type != nil
-                path = @config[:template_location] + "/#{instance_type[:template]}"
-            end
-        end
-
-        # Get the image
-        tmp, img=params['ImageId'].split('-')
-
-        # Build the VM
-        erb_vm_info=Hash.new
-        erb_vm_info[:img_id]        = img.to_i
-        erb_vm_info[:ec2_img_id]    = params['ImageId']
-        erb_vm_info[:instance_type] = instance_type_name
-        erb_vm_info[:template]      = path
-        erb_vm_info[:user_data]     = params['UserData']
-
-        template      = ERB.new(File.read(erb_vm_info[:template]))
-        template_text = template.result(binding)
-
-        # Start the VM.
-        vm = VirtualMachine.new(VirtualMachine.build_xml, @client)
-
-        rc = vm.allocate(template_text)
-        if OpenNebula::is_error?(rc)
-            return OpenNebula::Error.new('Unsupported'),400
-        end
-
-        vm.info
-
-        erb_vm_info[:vm_id]=vm.id
-        erb_vm_info[:vm]=vm
-        erb_user_name = params['AWSAccessKeyId']
-        erb_version = params['Version']
-
-        response = ERB.new(File.read(@config[:views]+"/run_instances.erb"))
-        return response.result(binding), 200
-    end
-
-    def describe_instances(params)
-        user_flag = OpenNebula::Pool::INFO_ALL
-        vmpool = VirtualMachinePool.new(@client, user_flag)
-        vmpool.info
-
-        erb_version = params['Version']
-        erb_user_name = params['AWSAccessKeyId']
-
-        response = ERB.new(File.read(@config[:views]+"/describe_instances.erb"))
-        return response.result(binding), 200
-    end
-
-    def terminate_instances(params)
-        # Get the VM ID
-        vmid=params['InstanceId.1']
-        vmid=params['InstanceId.01'] if !vmid
-
-        tmp, vmid=vmid.split('-') if vmid[0]==?i
-
-        vm = VirtualMachine.new(VirtualMachine.build_xml(vmid),@client)
         rc = vm.info
-
-        return OpenNebula::Error.new('Unsupported'),400 if OpenNebula::is_error?(rc)
-
-        if vm.status == 'runn'
-            rc = vm.shutdown
-        else
-            rc = vm.finalize
+        if OpenNebula::is_error?(rc)
+            rc.ec2_code = "InvalidInstanceID.NotFound"
+            return rc
         end
 
-        return OpenNebula::Error.new('Unsupported'),400 if OpenNebula::is_error?(rc)
+        image_id = vm.disk_snapshot(1,
+                    params["Name"],
+                    OpenNebula::Image::IMAGE_TYPES[0],
+                    true)
+
+        # TODO Add AMI Tags
+        # TODO A new persistent image should be created for each instance
+
+        if OpenNebula::is_error?(image_id)
+            return image_id
+        end
 
         erb_version = params['Version']
 
-        response =ERB.new(File.read(@config[:views]+"/terminate_instances.erb"))
+        response = ERB.new(File.read(@config[:views]+"/create_image.erb"))
         return response.result(binding), 200
-    end
-
-    ###########################################################################
-    # Elastic IP
-    ###########################################################################
-    def allocate_address(params)
-        return OpenNebula::Error.new('Unsupported'),400
-    end
-
-    def release_address(params)
-        return OpenNebula::Error.new('Unsupported'),400
-    end
-
-    def describe_addresses(params)
-        return OpenNebula::Error.new('Unsupported'),400
-    end
-
-    def associate_address(params)
-        return OpenNebula::Error.new('Unsupported'),400
-    end
-
-    def disassociate_address(params)
-        return OpenNebula::Error.new('Unsupported'),400
     end
 
     ###########################################################################
     # Helper functions
     ###########################################################################
     private
-
-    def render_state(vm)
-        one_state = ONE_STATES[vm.status]
-        ec2_state = EC2_STATES[one_state||:pending]
-
-        return "<code>#{ec2_state[:code]}</code>
-        <name>#{ec2_state[:name]}</name>"
-    end
 
     def render_launch_time(vm)
         return "<launchTime>#{Time.at(vm["STIME"].to_i).xmlschema}</launchTime>"

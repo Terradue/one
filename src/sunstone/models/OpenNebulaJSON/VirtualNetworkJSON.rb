@@ -1,5 +1,5 @@
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)             #
+# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -42,8 +42,6 @@ module OpenNebulaJSON
             end
 
             rc = case action_hash['perform']
-                 when "addleases" then self.addleases(action_hash['params'])
-                 when "rmleases"  then self.rmleases(action_hash['params'])
                  when "publish"   then self.publish
                  when "unpublish" then self.unpublish
                  when "update"    then self.update(action_hash['params'])
@@ -51,19 +49,16 @@ module OpenNebulaJSON
                  when "chmod"     then self.chmod_octet(action_hash['params'])
                  when "hold"      then self.hold(action_hash['params'])
                  when "release"   then self.release(action_hash['params'])
+                 when "rename"    then self.rename(action_hash['params'])
+                 when "rm_ar"     then self.rm_ar(action_hash['params'])
+                 when "add_ar"    then self.add_ar(action_hash['params'])
+                 when "update_ar" then self.update_ar(action_hash['params'])
+                 when "reserve"   then self.reserve(action_hash['params'])
                  else
                      error_msg = "#{action_hash['perform']} action not " <<
                                 " available for this resource"
                      OpenNebula::Error.new(error_msg)
             end
-        end
-
-        def addleases(params=Hash.new)
-            super(params['ip'],params['mac'])
-        end
-
-        def rmleases(params=Hash.new)
-            super(params['ip'])
         end
 
         def update(params=Hash.new)
@@ -84,6 +79,33 @@ module OpenNebulaJSON
 
         def release(params=Hash.new)
             super(params['ip'])
+        end
+
+        def rename(params=Hash.new)
+            super(params['name'])
+        end
+
+        def rm_ar(params=Hash.new)
+            super(params['ar_id'])
+        end
+
+        def add_ar(params=Hash.new)
+            template_json = params['ar_template']
+            template = template_to_str(template_json)
+
+            super(template)
+        end
+
+        def update_ar(params=Hash.new)
+            template_json = params['ar_template']
+            template = template_to_str(template_json)
+
+            super(template)
+        end
+
+        def reserve(params=Hash.new)
+            super(params['name'], params['size'], params['ar_id'],
+                params['addr'], params['vnet'])
         end
     end
 end

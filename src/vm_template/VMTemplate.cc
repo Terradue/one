@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------------ */
-/* Copyright 2002-2012, OpenNebula Project Leads (OpenNebula.org)           */
+/* Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs      */
 /*                                                                          */
 /* Licensed under the Apache License, Version 2.0 (the "License"); you may  */
 /* not use this file except in compliance with the License. You may obtain  */
@@ -18,7 +18,6 @@
 
 #define TO_UPPER(S) transform(S.begin(),S.end(),S.begin(),(int(*)(int))toupper)
 
-
 /* ************************************************************************ */
 /* VMTemplate :: Constructor/Destructor                                     */
 /* ************************************************************************ */
@@ -28,6 +27,7 @@ VMTemplate::VMTemplate(int id,
                        int _gid,
                        const string& _uname,
                        const string& _gname,
+                       int umask,
                        VirtualMachineTemplate * _template_contents):
         PoolObjectSQL(id,TEMPLATE,"",_uid,_gid,_uname,_gname,table),
         regtime(time(0))
@@ -40,6 +40,8 @@ VMTemplate::VMTemplate(int id,
     {
         obj_template = new VirtualMachineTemplate;
     }
+
+    set_umask(umask);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -47,10 +49,7 @@ VMTemplate::VMTemplate(int id,
 
 VMTemplate::~VMTemplate()
 {
-    if ( obj_template != 0 )
-    {
-        delete obj_template;
-    }
+    delete obj_template;
 }
 
 /* ************************************************************************ */
@@ -64,7 +63,7 @@ const char * VMTemplate::db_names =
 
 const char * VMTemplate::db_bootstrap =
     "CREATE TABLE IF NOT EXISTS template_pool (oid INTEGER PRIMARY KEY, "
-    "name VARCHAR(128), body TEXT, uid INTEGER, gid INTEGER, "
+    "name VARCHAR(128), body MEDIUMTEXT, uid INTEGER, gid INTEGER, "
     "owner_u INTEGER, group_u INTEGER, other_u INTEGER)";
 
 /* ------------------------------------------------------------------------ */
@@ -72,39 +71,17 @@ const char * VMTemplate::db_bootstrap =
 
 int VMTemplate::insert(SqlDB *db, string& error_str)
 {
-    int             rc;
-    ostringstream   oss;
-
     // ---------------------------------------------------------------------
     // Check default attributes
     // ---------------------------------------------------------------------
 
-    // ------------ NAME & TEMPLATE_ID --------------------
-    oss << oid;
-
-    replace_template_attribute("TEMPLATE_ID",oss.str()); 
-
-    get_template_attribute("NAME", name);
-
-    if ( name.empty() == true )
-    {
-        oss.str("");
-        oss << "template-" << oid;
-        name = oss.str();
-    }
-    else if ( name.length() > 128 )
-    {
-        error_str = "NAME is too long; max length is 128 chars.";
-        return -1;
-    }
+    erase_template_attribute("NAME", name);
 
     // ------------------------------------------------------------------------
     // Insert the Template
     // ------------------------------------------------------------------------
 
-    rc = insert_replace(db, false, error_str);
-
-    return rc;
+    return insert_replace(db, false, error_str);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -204,8 +181,8 @@ string& VMTemplate::to_xml(string& xml) const
             << "<ID>"       << oid        << "</ID>"
             << "<UID>"      << uid        << "</UID>"
             << "<GID>"      << gid        << "</GID>"
-            << "<UNAME>"    << uname      << "</UNAME>" 
-            << "<GNAME>"    << gname      << "</GNAME>" 
+            << "<UNAME>"    << uname      << "</UNAME>"
+            << "<GNAME>"    << gname      << "</GNAME>"
             << "<NAME>"     << name       << "</NAME>"
             << perms_to_xml(perm_str)
             << "<REGTIME>"  << regtime    << "</REGTIME>"
@@ -260,3 +237,6 @@ int VMTemplate::from_xml(const string& xml)
 
     return 0;
 }
+
+/* ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------ */
