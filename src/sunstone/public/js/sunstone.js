@@ -6891,6 +6891,8 @@ function calculate_isHybrid(vm_info){
        (vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "vcenter"
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "ec2"
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "azure"
+       || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "cloudstack"
+       || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "jclouds"
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "softlayer")
 }
 
@@ -6908,6 +6910,18 @@ function ip_str(vm, divider){
                     break;
                 case "ec2":
                     ip = vm.TEMPLATE.IP_ADDRESS?vm.TEMPLATE.IP_ADDRESS:"--";
+                    break;
+                case "cloudstack":
+                    ip = '';
+                    ip += vm.TEMPLATE.CLOUDSTACK_PRIVATEADDRESSES?vm.TEMPLATE.CLOUDSTACK_PRIVATEADDRESSES:"";
+                    ip += divider 
+                    ip += vm.TEMPLATE.CLOUDSTACK_PUBLICADDRESSES?vm.TEMPLATE.CLOUDSTACK_PUBLICADDRESSES:""
+                    break;
+                case "jclouds":
+                    ip = '';
+                    ip += vm.TEMPLATE.JCLOUDS_PRIVATEADDRESSES?vm.TEMPLATE.JCLOUDS_PRIVATEADDRESSES:"";
+                    ip += divider 
+                    ip += vm.TEMPLATE.JCLOUDS_PUBLICADDRESSES?vm.TEMPLATE.JCLOUDS_PUBLICADDRESSES:""
                     break;
                 case "azure":
                     ip = vm.TEMPLATE.IPADDRESS?vm.TEMPLATE.IPADDRESS:"--";
