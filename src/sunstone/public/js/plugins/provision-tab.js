@@ -1417,7 +1417,7 @@ var list_templates_accordion_id = 0;
 
 function provision_list_templates(opts_arg){
   opts = $.extend({
-      title: tr("Saved Templates"),
+      title: tr("Saved Snapshots"),
       refresh: true,
       create: true,
       active: true,
@@ -1877,7 +1877,7 @@ if (Config.isTabPanelEnabled("provision-tab", "flows")) {
   provision_content += provision_create_flow;
 }
 
-var provision_header = '<a href="#" class="provision_image_header" ><img src="'+Config.provision.logo+'" style="height:40px; vertical-align:top"></a>'+
+var provision_header = '<a href="#" class="provision_image_header" ><img src="'+Config.provision.logo+'" style="height:80px; vertical-align:top; position:absolute; margin-top:-10px"></a>'+
     '<span class="right" style="font-size: 50%; color: #dfdfdf">'+
    '<ul class="inline-list text-center" style="font-size:12px; margin-bottom: 0px">';
 
@@ -1900,7 +1900,7 @@ provision_header +=  '<li>'+
 if (Config.isTabPanelEnabled("provision-tab", "templates")) {
   provision_header +=
     '<li>'+
-      '<a href"#" class="medium off-color provision_templates_list_button" style=" margin-left: 10px;margin-right: 10px;"><i class="fa fa-fw fa-2x fa-save"/><br>'+tr("Templates")+'</a>'+
+      '<a href"#" class="medium off-color provision_templates_list_button" style=" margin-left: 10px;margin-right: 10px;"><i class="fa fa-fw fa-2x fa-save"/><br>'+tr("Snapshots")+'</a>'+
     '</li>';
 }
 
@@ -3040,7 +3040,8 @@ function update_provision_templates_datatable(datatable, timeout) {
             '<br>'+
             '<br>'+
             '<span style="font-size: 18px; color: #999">'+
-              tr("There are no templates available")+
+              //tr("There are no templates available")+
+              tr("")+
             '</span>'+
             '</div>');
         } else {
@@ -3445,6 +3446,7 @@ function get_provision_vm_state(data) {
       break;
     case tr("STOPPED"):
     case tr("SUSPENDED"):
+    case tr("UNDEPLOYED"):
     case tr("POWEROFF"):
       state_color = 'off';
       state_str = tr("OFF");
