@@ -17,7 +17,7 @@
 export LANG=C
 
 # Paths for utilities
-export PATH=/bin:/sbin:/usr/bin:$PATH
+export PATH=$PATH:/bin:/sbin:/usr/bin
 AWK=awk
 BASH=bash
 CUT=cut
