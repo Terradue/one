@@ -6923,6 +6923,12 @@ function ip_str(vm, divider){
                     ip += divider 
                     ip += vm.TEMPLATE.JCLOUDS_PUBLICADDRESSES?vm.TEMPLATE.JCLOUDS_PUBLICADDRESSES:""
                     break;
+                case "occi":
+                    ip = '';
+                    ip += vm.TEMPLATE.OCCI_PRIVATEADDRESSES?vm.TEMPLATE.OCCI_PRIVATEADDRESSES:"";
+                    ip += divider 
+                    ip += vm.TEMPLATE.OCCI_PUBLICADDRESSES?vm.TEMPLATE.OCCI_PUBLICADDRESSES:""
+                    break;
                 case "azure":
                     ip = vm.TEMPLATE.IPADDRESS?vm.TEMPLATE.IPADDRESS:"--";
                     break;
