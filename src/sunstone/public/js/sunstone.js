@@ -6893,6 +6893,7 @@ function calculate_isHybrid(vm_info){
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "azure"
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "cloudstack"
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "jclouds"
+       || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "occi"
        || vm_info.USER_TEMPLATE.HYPERVISOR.toLowerCase() == "softlayer")
 }
 
