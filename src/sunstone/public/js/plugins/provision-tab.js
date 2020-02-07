@@ -1520,16 +1520,30 @@ var provision_info_vm =
           '<a href"#" data-tooltip title="Open a remote console in a new window" class="left button medium radius provision_vnc_button tip-top">'+
             '<i class="fa fa-fw fa-lg fa-desktop"/> '+
           '</a>'+
-          '<a data-tooltip title="You have to boot the Virtual Machine first" class="left button medium radius white provision_vnc_button_disabled tip-top" style="color: #999">'+
-            '<i class="fa fa-fw fa-lg fa-desktop"/> '+
+//          '<a data-tooltip title="You have to boot the Virtual Machine first" class="left button medium radius white provision_vnc_button_disabled tip-top" style="color: #999">'+
+//            '<i class="fa fa-fw fa-lg fa-desktop"/> '+
+//          '</a>'+
+          
+          '<a href"#" data-tooltip title="Open SSH console in a new window" class="left button medium radius provision_guacamole_ssh_button tip-top" target="_blank">'+
+          	'<i class="fa fa-fw fa-lg fa-terminal"/> '+
           '</a>'+
+          '<a href"#" data-tooltip title="Open VNC in a new window" class="left button medium radius provision_guacamole_vnc_button tip-top" target="_blank">'+
+          	'<i class="fa fa-fw fa-lg fa-desktop"/> '+
+          '</a>'+
+          '<a href"#" data-tooltip title="Open RDP in a new window" class="left button medium radius provision_guacamole_rdp_button tip-top" target="_blank">'+
+          	'<i class="fa fa-fw fa-lg fa-windows"/> '+
+          '</a>'+
+
+          
           (Config.isTabPanelEnabled("provision-tab", "templates") ?
             '<a href"#" data-tooltip title="The main disk of the Virtual Machine will be saved in a new Image" class="left button medium radius success provision_snapshot_button tip-top">'+
               '<i class="fa fa-fw fa-lg fa-save"/> '+
-            '</a>'+
-            '<a data-tooltip title="You have to power-off the virtual machine first" class="left button medium radius white provision_snapshot_button_disabled tip-top" style="color: #999">'+
-              '<i class="fa fa-fw fa-lg fa-save"/> '+
-            '</a>' : '') +
+            '</a>'
+//              +
+//            '<a data-tooltip title="You have to power-off the virtual machine first" class="left button medium radius white provision_snapshot_button_disabled tip-top" style="color: #999">'+
+//              '<i class="fa fa-fw fa-lg fa-save"/> '+
+//            '</a>'
+              : '') +
         '</li>'+
         '<li class="right">'+
           '<a href"#" data-tooltip title="Delete" class="button medium radius alert provision_delete_confirm_button tip-top right">'+
@@ -3645,9 +3659,34 @@ function setup_info_vm(context) {
       },
       error: onError,
       success: function(request, response){
-        var data = response.VM
+        var data = response.VM;
         var state = get_provision_vm_state(data);
-
+        
+        var guacamoleSshUrl, guacamoleVncUrl, guacamoleRdpUrl;
+        
+        if (data.TEMPLATE.CONTEXT && data.TEMPLATE.CONTEXT.GUACAMOLE_DS && data.TEMPLATE.CONTEXT.GUACAMOLE_URL){
+        	var baseUrl = data.TEMPLATE.CONTEXT.GUACAMOLE_URL;
+        	var ds = data.TEMPLATE.CONTEXT.GUACAMOLE_DS;
+       		guacamoleSshUrl = getGuacamoleUrl(baseUrl, ds, data.USER_TEMPLATE.CONN_SSH_ID);
+       		guacamoleVncUrl = getGuacamoleUrl(baseUrl, ds, data.USER_TEMPLATE.CONN_VNC_ID);
+       		guacamoleRdpUrl = getGuacamoleUrl(baseUrl, ds, data.USER_TEMPLATE.CONN_RDP_ID);
+        }
+        
+        if (state.color=='running' && guacamoleSshUrl)
+        	$(".provision_guacamole_ssh_button", context).attr('href', guacamoleSshUrl).show();
+        else
+        	$(".provision_guacamole_ssh_button", context).hide();
+        
+        if (state.color=='running' && guacamoleVncUrl)
+        	$(".provision_guacamole_vnc_button", context).attr('href', guacamoleVncUrl).show();
+        else
+        	$(".provision_guacamole_vnc_button", context).hide();
+        
+        if (state.color=='running' && guacamoleRdpUrl)
+        	$(".provision_guacamole_rdp_button", context).attr('href', guacamoleRdpUrl).show();
+        else
+        	$(".provision_guacamole_rdp_button", context).hide();
+        
         switch (state.color) {
           case "deploying":
             $(".provision_reboot_confirm_button", context).hide();
@@ -3667,7 +3706,12 @@ function setup_info_vm(context) {
             $(".provision_delete_confirm_button", context).hide();
             $(".provision_shutdownhard_confirm_button", context).show();
             $(".provision_snapshot_button", context).hide();
-            $(".provision_vnc_button", context).show();
+            
+            if (guacamoleVncUrl)
+            	$(".provision_vnc_button", context).hide();
+            else
+            	$(".provision_vnc_button", context).show();
+            
             $(".provision_snapshot_button_disabled", context).show();
             $(".provision_vnc_button_disabled", context).hide();
             break;
@@ -3844,6 +3888,17 @@ function setup_info_vm(context) {
         })
       }
     })
+  }
+  
+  function getGuacamoleUrl(guacamoleUrl, guacamoleDs, connId){
+	  if (!connId)
+		  return null;
+	  
+	  var token = connId + '\0c\0' + guacamoleDs;
+	  var encToken = encodeURIComponent(btoa(token));
+	  
+	  return guacamoleUrl + encToken;
+	  //return 'https://guacamole-dev.terradue.com/guacamole/#/client/' + encToken;
   }
 
   if (Config.isTabPanelEnabled("provision-tab", "templates")) {

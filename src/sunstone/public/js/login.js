@@ -87,6 +87,8 @@ $(document).ready(function(){
         return false;
     });
 
+    authenticate();
+
     //compact login elements according to screen height
     if (screen.height <= 600){
         $('div#logo_sunstone').css("top","15px");
