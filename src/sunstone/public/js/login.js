@@ -86,6 +86,8 @@ $(document).ready(function(){
         authenticate();
         return false;
     });
+    
+    authenticate();
 
     //compact login elements according to screen height
     if (screen.height <= 600){

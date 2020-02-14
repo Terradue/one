@@ -2215,7 +2215,9 @@ function infoListener(dataTable, info_action, target_tab){
 
         if ($(e.target).is('input') ||
             $(e.target).is('select') ||
-            $(e.target).is('option')) return true;
+            $(e.target).is('option') || 
+            $(e.target).hasClass('guacamoleBtn') || 
+            $(e.target).parent().hasClass('guacamoleBtn')) return true;
 
         var aData = dataTable.fnGetData(this);
         if (!aData) return true;
@@ -6965,3 +6967,32 @@ function ip_str(vm, divider){
 
     return ip;
 };
+
+
+function getGuacamoleUrls(vm){
+	var guacamoleSshUrl, guacamoleVncUrl, guacamoleRdpUrl;
+	
+	if (vm.TEMPLATE.CONTEXT && vm.TEMPLATE.CONTEXT.GUACAMOLE_DS && vm.TEMPLATE.CONTEXT.GUACAMOLE_URL){
+		var baseUrl = vm.TEMPLATE.CONTEXT.GUACAMOLE_URL;
+		var ds = vm.TEMPLATE.CONTEXT.GUACAMOLE_DS;
+		guacamoleSshUrl = getGuacamoleUrl(baseUrl, ds, vm.USER_TEMPLATE.CONN_SSH_ID);
+		guacamoleVncUrl = getGuacamoleUrl(baseUrl, ds, vm.USER_TEMPLATE.CONN_VNC_ID);
+		guacamoleRdpUrl = getGuacamoleUrl(baseUrl, ds, vm.USER_TEMPLATE.CONN_RDP_ID);
+	}
+	
+	return {
+		ssh: guacamoleSshUrl,
+		vnc: guacamoleVncUrl,
+		rdp: guacamoleRdpUrl
+	}
+}
+
+function getGuacamoleUrl(guacamoleUrl, guacamoleDs, connId){
+	  if (!connId)
+		  return null;
+	  
+	  var token = connId + '\0c\0' + guacamoleDs;
+	  var encToken = encodeURIComponent(btoa(token));
+	  
+	  return guacamoleUrl + encToken;
+}

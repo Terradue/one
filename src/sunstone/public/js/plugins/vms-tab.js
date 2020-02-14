@@ -3090,20 +3090,44 @@ function enableVnc(vm){
 }
 
 function vncIcon(vm){
-    var gr_icon;
+	
+	var guacamoleUrls = getGuacamoleUrls(vm);
+    
+	var html = '<div class="vncButtons">';
+	
+	if (guacamoleUrls.ssh)
+		html += `<a href="${guacamoleUrls.ssh}" data-tooltip title="Open SSH console in a new window" target="_blank" class="guacamoleBtn">
+					<i class="fa fa-fw fa-lg fa-terminal"></i></a>`;
+	else if (enableVnc(vm))
+		html += '<a class="vnc" href="#" vm_id="'+vm.ID+'">'
+			+ '<i class="fa fa-desktop" style="color: rgb(111, 111, 111)"/>'
+			+  '</a>';
+	
+	if (guacamoleUrls.vnc)
+		html += `<a href="${guacamoleUrls.vnc}" data-tooltip title="Open VNC in a new window" target="_blank" class="guacamoleBtn">
+					<i class="fa fa-fw fa-lg fa-desktop"></i></a>`;
 
-    if (enableVnc(vm)){
-        gr_icon = '<a class="vnc" href="#" vm_id="'+vm.ID+'">';
-        gr_icon += '<i class="fa fa-desktop" style="color: rgb(111, 111, 111)"/>';
-    }
-    else {
-        gr_icon = '';
-    }
+	if (guacamoleUrls.rdp)
+		html += `<a href="${guacamoleUrls.rdp}" data-tooltip title="Open RDP in a new window" target="_blank" class="guacamoleBtn">
+					<i class="fa fa-fw fa-lg fa-windows"></i></a>`;
+	
+	html += '</div>';
+	
+	return html;
+	
+//    var gr_icon;
+//
+//    if (enableVnc(vm)){
+//        gr_icon = '<a class="vnc" href="#" vm_id="'+vm.ID+'">';
+//        gr_icon += '<i class="fa fa-desktop" style="color: rgb(111, 111, 111)"/>';
+//    }
+//    else {
+//        gr_icon = '';
+//    }
+//
+//    gr_icon += '</a>';
 
-    gr_icon += '</a>'
-    return gr_icon;
 }
-
 
 // Special error callback in case historical monitoring of VM fails
 function vmMonitorError(req,error_json){

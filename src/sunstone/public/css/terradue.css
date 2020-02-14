@@ -1,0 +1,11 @@
+
+.vncButtons {
+    width: 100px;
+}
+
+.vncButtons > .guacamoleBtn {
+    background: white;
+    margin-left: 2px;
+    padding: 2px;
+}
+

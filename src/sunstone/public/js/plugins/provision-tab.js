@@ -1498,16 +1498,30 @@ var provision_info_vm =
           '<a href"#" data-tooltip title="Open a VNC console in a new window" class="left button medium radius provision_vnc_button tip-top">'+
             '<i class="fa fa-fw fa-lg fa-desktop"/> '+
           '</a>'+
-          '<a data-tooltip title="You have to boot the Virtual Machine first" class="left button medium radius white provision_vnc_button_disabled tip-top" style="color: #999">'+
-            '<i class="fa fa-fw fa-lg fa-desktop"/> '+
-          '</a>'+
+//        '<a data-tooltip title="You have to boot the Virtual Machine first" class="left button medium radius white provision_vnc_button_disabled tip-top" style="color: #999">'+
+//        '<i class="fa fa-fw fa-lg fa-desktop"/> '+
+//      '</a>'+
+      
+      '<a href"#" data-tooltip title="Open SSH console in a new window" class="left button medium radius provision_guacamole_ssh_button tip-top" target="_blank">'+
+      	'<i class="fa fa-fw fa-lg fa-terminal"></i> '+
+      '</a>'+
+      '<a href"#" data-tooltip title="Open VNC in a new window" class="left button medium radius provision_guacamole_vnc_button tip-top" target="_blank">'+
+      	'<i class="fa fa-fw fa-lg fa-desktop"></i> '+
+      '</a>'+
+      '<a href"#" data-tooltip title="Open RDP in a new window" class="left button medium radius provision_guacamole_rdp_button tip-top" target="_blank">'+
+      	'<i class="fa fa-fw fa-lg fa-windows"></i> '+
+      '</a>'+
+
+      
           (Config.isTabPanelEnabled("provision-tab", "templates") ?
             '<a href"#" data-tooltip title="The main disk of the Virtual Machine will be saved in a new Image" class="left button medium radius success provision_snapshot_button tip-top">'+
               '<i class="fa fa-fw fa-lg fa-save"/> '+
-            '</a>'+
-            '<a data-tooltip title="You have to power-off the virtual machine first" class="left button medium radius white provision_snapshot_button_disabled tip-top" style="color: #999">'+
-              '<i class="fa fa-fw fa-lg fa-save"/> '+
-            '</a>' : '') +
+            '</a>'
+//            +
+//          '<a data-tooltip title="You have to power-off the virtual machine first" class="left button medium radius white provision_snapshot_button_disabled tip-top" style="color: #999">'+
+//            '<i class="fa fa-fw fa-lg fa-save"/> '+
+//          '</a>'
+            : '') +
         '</li>'+
         '<li class="right">'+
           '<a href"#" data-tooltip title="Delete" class="button medium radius alert provision_delete_confirm_button tip-top right">'+
@@ -3545,8 +3559,25 @@ function setup_info_vm(context) {
       },
       error: onError,
       success: function(request, response){
-        var data = response.VM
+        var data = response.VM;
         var state = get_provision_vm_state(data);
+        
+        var guacamoleUrls = getGuacamoleUrls(data);
+        
+        if (state.color=='running' && guacamoleUrls.ssh)
+        	$(".provision_guacamole_ssh_button", context).attr('href', guacamoleUrls.ssh).show();
+        else
+        	$(".provision_guacamole_ssh_button", context).hide();
+        
+        if (state.color=='running' && guacamoleUrls.vnc)
+        	$(".provision_guacamole_vnc_button", context).attr('href', guacamoleUrls.vnc).show();
+        else
+        	$(".provision_guacamole_vnc_button", context).hide();
+        
+        if (state.color=='running' && guacamoleUrls.rdp)
+        	$(".provision_guacamole_rdp_button", context).attr('href', guacamoleUrls.rdp).show();
+        else
+        	$(".provision_guacamole_rdp_button", context).hide();
 
         switch (state.color) {
           case "deploying":
@@ -3567,7 +3598,12 @@ function setup_info_vm(context) {
             $(".provision_delete_confirm_button", context).hide();
             $(".provision_shutdownhard_confirm_button", context).show();
             $(".provision_snapshot_button", context).hide();
-            $(".provision_vnc_button", context).show();
+            
+            if (guacamoleVncUrl)
+            	$(".provision_vnc_button", context).hide();
+            else
+            	$(".provision_vnc_button", context).show();
+            
             $(".provision_snapshot_button_disabled", context).show();
             $(".provision_vnc_button_disabled", context).hide();
             break;
