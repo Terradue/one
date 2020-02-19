@@ -3599,7 +3599,7 @@ function setup_info_vm(context) {
             $(".provision_shutdownhard_confirm_button", context).show();
             $(".provision_snapshot_button", context).hide();
             
-            if (guacamoleVncUrl)
+            if (guacamoleUrls.vnc)
             	$(".provision_vnc_button", context).hide();
             else
             	$(".provision_vnc_button", context).show();
